@@ -33,13 +33,13 @@ frontend (api.ts per feature)
 | [rpc/README.md](rpc/README.md) | **Index-ul tuturor RPC-urilor** + convenții |
 | [rpc/organizations.md](rpc/organizations.md) | `create_organization` |
 | [rpc/units.md](rpc/units.md) | `generate_units` |
-| [rpc/guests.md](rpc/guests.md) | `find_or_create_guest` (+ varianta internă) |
-| [rpc/bookings.md](rpc/bookings.md) | `create_booking`, `update_booking_dates`, `reassign_booking`, `get_available_units` + engine-ul intern |
+| [rpc/guests.md](rpc/guests.md) | `find_or_create_guest` (+ varianta internă), `get_guest_stats` |
+| [rpc/bookings.md](rpc/bookings.md) | `create_booking`, `update_booking_dates`, `reassign_booking`, `link_booking_guest`, `get_available_units` + engine-ul intern |
 | [rpc/public-api.md](rpc/public-api.md) | API-ul anonim: `public_get_availability`, `public_create_booking` |
 
 ## Inventarul funcțiilor (cine ce poate apela)
 
-Stare la 2026-06-11, după migrația 7 (`20260611170000`). ✅ = are EXECUTE.
+Stare la 2026-06-11, după migrația 10 (`20260611200000`). ✅ = are EXECUTE.
 
 | Funcție | Schema | Security | `anon` | `authenticated` | Documentată în |
 |---|---|---|---|---|---|
@@ -49,6 +49,8 @@ Stare la 2026-06-11, după migrația 7 (`20260611170000`). ✅ = are EXECUTE.
 | `create_booking` | public | DEFINER | ❌ | ✅ (doar prop. accesibile) | [rpc/bookings.md](rpc/bookings.md) |
 | `update_booking_dates` | public | DEFINER | ❌ | ✅ (doar prop. accesibile) | [rpc/bookings.md](rpc/bookings.md) |
 | `reassign_booking` | public | DEFINER | ❌ | ✅ (doar prop. accesibile) | [rpc/bookings.md](rpc/bookings.md) |
+| `link_booking_guest` | public | DEFINER | ❌ | ✅ (doar prop. accesibile) | [rpc/bookings.md](rpc/bookings.md) |
+| `get_guest_stats` | public | INVOKER | ❌ | ✅ (RLS decide) | [rpc/guests.md](rpc/guests.md) |
 | `get_available_units` | public | INVOKER | ❌ | ✅ (RLS decide) | [rpc/bookings.md](rpc/bookings.md) |
 | `public_get_availability` | public | DEFINER | ✅ | ✅ | [rpc/public-api.md](rpc/public-api.md) |
 | `public_create_booking` | public | DEFINER | ✅ | ✅ | [rpc/public-api.md](rpc/public-api.md) |

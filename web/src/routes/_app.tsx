@@ -88,9 +88,9 @@ function AppLayout() {
                 to={item.to}
                 activeOptions={{ exact: "exact" in item && item.exact }}
                 onClick={() => setSidebarOpen(false)}
-                className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent [&.active]:bg-sidebar-accent [&.active]:font-medium"
+                className="flex items-center gap-3 rounded-md px-3 py-2 text-[15px] text-sidebar-foreground hover:bg-sidebar-accent [&.active]:bg-sidebar-accent [&.active]:font-medium"
               >
-                <item.icon className="h-4 w-4 shrink-0" />
+                <item.icon className="h-5 w-5 shrink-0" />
                 {item.label}
               </Link>
             ))}

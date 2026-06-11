@@ -5,6 +5,26 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 2.1 — Statistici oaspete server-side + cursor pagination pe liste (11 iun 2026)
+
+### Probleme raportate
+
+1. Statisticile din profilul oaspetelui (total/viitoare/anterioare) se calculau pe client din lista de rezervări — incorecte (anulările numărate ca "viitoare") și nescalabile.
+2. Listele aduceau totul cu limită arbitrară: rezervări `limit 300`, oaspeți `limit 200`, istoricul oaspetelui fără limită.
+
+### Soluția (migrația `20260611200000_guest_stats_and_pagination_indexes.sql`)
+
+- **RPC `get_guest_stats(p_guest_id)`** — agregare în DB: `total`, `upcoming` (check-in ≥ azi și neanulată), `cancelled`. SECURITY INVOKER: RLS pe `bookings` izolează org-urile. UI: cardul de statistici afișează Total / Viitoare / Anulate.
+- **Offset pagination** pe rezervări (20/pag), oaspeți (20/pag) și istoricul oaspetelui (15/pag): ordine stabilă `(check_in|created_at) desc, id desc`, `.range(page*size, page*size + size)` — rândul în plus detectează pagina următoare fără `count(*)`. Filtrele (search etc.) se aplică în query înaintea offsetului. Indexuri compuse noi pe `(property_id|guest_id|org_id, cheie sort desc, id desc)`.
+- **Frontend**: `lib/pagination.ts` (tip `Page` + `pageRange`/`toPage`), `components/pagination.tsx` (`usePagination` — pagină 0-based înainte/înapoi + `PaginationControls`). Hooks cu `placeholderData: keepPreviousData`; cheile TanStack au forma `[entity, scopeId, "list", params]` cu params-obiect (search/page azi, filtre mâine), invalidare pe prefix neschimbată. Mutațiile pe rezervări invalidează acum centralizat și detaliul, auditul, istoricul + statisticile oaspetelui (`invalidateBookingData`).
+- **Calendar**: verificat — query-ul pe interval și maparea pe zile sunt corecte; gruparea rezervărilor pe cameră se face acum o singură dată (`Map` în `useMemo`) în loc de `filter` per rând.
+- **Căutare oaspeți robustă** (migrația `20260611210000`): coloană generată `guests.phone_search` (doar cifre, din `app.normalize_phone`) — telefonul se găsește indiferent de formatul salvat/tastat. Search debounced (300ms) și pe pagina Oaspeți; schimbarea filtrului resetează la pagina 1 în același handler. Hooks normalizează params (trim, `page ?? 0`) ca apelanți diferiți (listă, combobox) să împartă aceeași cheie de cache.
+- **Documentat retroactiv**: RPC `link_booking_guest` (migrația 9) în `rpc/bookings.md` + rândurile lipsă din inventarul `docs/backend/README.md`.
+
+### Teste: 22a (totaluri corecte), 22b (izolare RLS cross-org pe stats) — 22/22 PASS.
+
+---
+
 ## Sprint 1.4 — Snapshot oaspete pe rezervare + matching pe încredere (11 iun 2026)
 
 ### Problema

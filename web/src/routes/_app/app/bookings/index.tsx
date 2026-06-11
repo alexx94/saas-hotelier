@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { toast } from "sonner"
 import { CalendarDays, History, MoveRight, Plus, Undo2 } from "lucide-react"
 import {
@@ -16,6 +16,8 @@ import {
 } from "@/features/bookings/status-rules"
 import type { Booking, BookingStatus } from "@/features/bookings/api"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { PaginationControls } from "@/components/pagination"
+import { usePagination } from "@/lib/pagination"
 import { t } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -35,7 +37,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 
-export const Route = createFileRoute("/_app/app/bookings")({
+export const Route = createFileRoute("/_app/app/bookings/")({
   component: BookingsPage,
 })
 
@@ -44,7 +46,9 @@ const DATE_EDITABLE = new Set(["pending", "confirmed", "checked_in"])
 
 function BookingsPage() {
   const { properties, property, setPropertyId } = usePropertySelection()
-  const { data: bookings, isLoading } = useBookings(property?.id)
+  const pagination = usePagination()
+  const { data, isLoading } = useBookings(property?.id, { page: pagination.page })
+  const bookings = data?.items
   const updateStatus = useUpdateBookingStatus()
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -86,7 +90,10 @@ function BookingsPage() {
           <PropertySelect
             properties={properties}
             value={property?.id}
-            onChange={setPropertyId}
+            onChange={(id) => {
+              pagination.reset()
+              setPropertyId(id)
+            }}
             triggerClassName="flex-1 w-full sm:w-56 sm:flex-none"
           />
           <Button onClick={() => setCreateOpen(true)} disabled={!property} className="shrink-0">
@@ -175,12 +182,24 @@ function BookingsPage() {
                 const canEditDates = DATE_EDITABLE.has(b.status)
                 return (
                   <TableRow key={b.id}>
+                    {/* afișăm snapshot-ul (datele de la rezervare), nu profilul */}
                     <TableCell className="font-medium">
-                      {b.status === "blocked"
-                        ? t("status.blocked")
-                        : b.guests?.full_name ?? "—"}
-                      {b.guests?.email && (
-                        <span className="block text-xs text-muted-foreground">{b.guests.email}</span>
+                      {b.status === "blocked" ? (
+                        t("status.blocked")
+                      ) : (
+                        <Link
+                          to="/app/bookings/$bookingId"
+                          params={{ bookingId: b.id }}
+                          className="hover:underline"
+                          title={t("bookings.view_details")}
+                        >
+                          {b.booked_full_name ?? b.guests?.full_name ?? "—"}
+                        </Link>
+                      )}
+                      {(b.booked_email ?? b.guests?.email) && (
+                        <span className="block text-xs text-muted-foreground">
+                          {b.booked_email ?? b.guests?.email}
+                        </span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -256,6 +275,13 @@ function BookingsPage() {
           </Table>
         </Card>
       )}
+
+      <PaginationControls
+        hasPrev={pagination.hasPrev}
+        hasNext={!!data?.hasMore}
+        onPrev={pagination.prev}
+        onNext={pagination.next}
+      />
     </div>
   )
 }

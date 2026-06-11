@@ -43,7 +43,9 @@ export function GuestCombobox({ orgId, value, onChange, disabled }: Props) {
     return () => clearTimeout(t)
   }, [search])
 
-  const { data: guests, isLoading } = useGuests(orgId, debouncedSearch || undefined)
+  // combobox-ul arată doar prima pagină — restul se găsește prin căutare
+  const { data, isLoading } = useGuests(orgId, { search: debouncedSearch || undefined })
+  const guests = data?.items
   const findOrCreate = useFindOrCreateGuest(orgId)
 
   const form = useForm<NewGuestValues>({ resolver: zodResolver(newGuestSchema) })

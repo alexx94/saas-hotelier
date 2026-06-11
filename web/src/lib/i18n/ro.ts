@@ -13,6 +13,8 @@ export const ro = {
   "common.confirm_delete": "Sigur vrei să ștergi?",
   "common.no_results": "Niciun rezultat",
   "common.back": "Înapoi",
+  "common.prev_page": "Înapoi",
+  "common.next_page": "Înainte",
 
   // auth
   "auth.email": "Email",
@@ -208,6 +210,44 @@ export const ro = {
   "public.booking_success":
     "Rezervarea ta a fost trimisă! Vei primi confirmarea pe email.",
   "public.booking_ref": "Cod rezervare",
+
+  // profil oaspete (Sprint 2)
+  "guests.profile": "Profil oaspete",
+  "guests.edit": "Editează profilul",
+  "guests.updated": "Profilul a fost actualizat",
+  "guests.deleted": "Oaspetele a fost șters",
+  "guests.delete_blocked":
+    "Oaspetele are rezervări în istoric și nu poate fi șters.",
+  "guests.delete_confirm":
+    "Ștergi definitiv acest profil de oaspete?",
+  "guests.bookings_title": "Rezervările oaspetelui",
+  "guests.no_bookings": "Nicio rezervare pentru acest oaspete.",
+  "guests.stat_total": "Total rezervări",
+  "guests.stat_upcoming": "Viitoare",
+  "guests.stat_cancelled": "Anulate",
+  "guests.member_since": "Adăugat la",
+  "guests.notes": "Note interne",
+  "guests.view_profile": "Vezi profilul",
+  "guests.not_found": "Oaspetele nu a fost găsit.",
+
+  // pagina rezervării (Sprint 2)
+  "bookings.detail_title": "Detalii rezervare",
+  "bookings.view_details": "Vezi detaliile",
+  "bookings.property": "Proprietate",
+  "bookings.created_at": "Creată la",
+  "bookings.not_found": "Rezervarea nu a fost găsită.",
+  "bookings.snapshot_title": "Datele de la rezervare",
+  "bookings.snapshot_hint":
+    "Datele introduse în momentul rezervării. Profilul oaspetelui poate diferi.",
+  "bookings.linked_profile": "Profil asociat",
+  "bookings.link_guest": "Asociază alt profil",
+  "bookings.link_guest_hint":
+    "Leagă rezervarea de alt profil de oaspete. Datele de la rezervare rămân neschimbate.",
+  "bookings.guest_linked": "Profilul a fost asociat rezervării",
+  "bookings.event.guest_changed": "Profil oaspete schimbat",
+  "bookings.source.admin": "Recepție",
+  "bookings.source.public": "Pagina publică",
+  "bookings.source.blocked": "Blocare",
 } as const
 
 export type TranslationKey = keyof typeof ro

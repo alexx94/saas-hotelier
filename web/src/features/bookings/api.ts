@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase"
 import type { Tables } from "@/lib/database.types"
+import { pageRange, toPage, type Page } from "@/lib/pagination"
 
 export type BookingStatus =
   | "pending" | "confirmed" | "cancelled"
@@ -26,15 +27,26 @@ export type AvailableUnit = {
   is_free: boolean
 }
 
-export async function fetchBookings(propertyId: string): Promise<Booking[]> {
+export const BOOKINGS_PAGE_SIZE = 20
+
+// Parametrii listei într-un singur obiect — filtrele viitoare se adaugă aici;
+// fiecare filtru restrânge rezultatul în query, înainte de offset
+export type BookingListParams = { page?: number }
+
+export async function fetchBookings(
+  propertyId: string,
+  params: BookingListParams = {}
+): Promise<Page<Booking>> {
+  const [from, to] = pageRange(params.page ?? 0, BOOKINGS_PAGE_SIZE)
   const { data, error } = await supabase
     .from("bookings")
     .select("*, guests(full_name,email,phone), units(name,status), unit_types(name)")
     .eq("property_id", propertyId)
     .order("check_in", { ascending: false })
-    .limit(300)
+    .order("id", { ascending: false })
+    .range(from, to)
   if (error) throw error
-  return data as Booking[]
+  return toPage(data as Booking[], BOOKINGS_PAGE_SIZE)
 }
 
 export async function fetchBookingsInRange(
@@ -78,6 +90,31 @@ export async function fetchAvailableUnits(
   })
   if (error) throw error
   return data as AvailableUnit[]
+}
+
+// Detaliu complet pentru pagina rezervării
+export type BookingDetail = Booking & {
+  properties: { name: string } | null
+}
+
+export async function fetchBooking(bookingId: string): Promise<BookingDetail | null> {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(
+      "*, guests(full_name,email,phone), units(name,status), unit_types(name), properties(name)"
+    )
+    .eq("id", bookingId)
+    .maybeSingle()
+  if (error) throw error
+  return data as BookingDetail | null
+}
+
+export async function linkBookingGuest(bookingId: string, guestId: string): Promise<void> {
+  const { error } = await supabase.rpc("link_booking_guest", {
+    p_booking_id: bookingId,
+    p_guest_id: guestId,
+  })
+  if (error) throw error
 }
 
 export async function fetchBookingEvents(bookingId: string): Promise<BookingEvent[]> {

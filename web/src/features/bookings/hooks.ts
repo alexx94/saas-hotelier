@@ -1,17 +1,37 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  createBooking, fetchAvailableUnits, fetchBookingEvents,
-  fetchBookings, fetchBookingsInRange, fetchUnits,
+  keepPreviousData, useMutation, useQuery, useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query"
+import {
+  createBooking, fetchAvailableUnits, fetchBooking, fetchBookingEvents,
+  fetchBookings, fetchBookingsInRange, fetchUnits, linkBookingGuest,
   reassignBooking, updateBookingDates, updateBookingStatus,
-  type BookingStatus, type CreateBookingInput,
+  type BookingListParams, type BookingStatus, type CreateBookingInput,
 } from "./api"
+import { guestKeys } from "@/features/guests/hooks"
 
 export const bookingKeys = {
   all: ["bookings"] as const,
-  list: (propertyId: string) => ["bookings", propertyId] as const,
+  // params (page, filtre viitoare) intră ca obiect în cheie —
+  // invalidarea pe prefix all acoperă toate paginile/filtrele
+  list: (propertyId: string, params: BookingListParams) =>
+    ["bookings", propertyId, "list", params] as const,
   range: (propertyId: string, from: string, to: string) =>
-    ["bookings", propertyId, { from, to }] as const,
+    ["bookings", propertyId, "range", { from, to }] as const,
+  detail: (bookingId: string) => ["booking", bookingId] as const,
+  detailAll: ["booking"] as const,
   events: (bookingId: string) => ["booking-events", bookingId] as const,
+  eventsAll: ["booking-events"] as const,
+}
+
+// Orice mutație pe rezervări afectează listele, detaliul, istoricul (audit)
+// și datele oaspetelui (istoric + statistici)
+function invalidateBookingData(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: bookingKeys.all })
+  qc.invalidateQueries({ queryKey: bookingKeys.detailAll })
+  qc.invalidateQueries({ queryKey: bookingKeys.eventsAll })
+  qc.invalidateQueries({ queryKey: guestKeys.bookingsAll })
+  qc.invalidateQueries({ queryKey: guestKeys.statsAll })
 }
 
 export const unitKeys = {
@@ -20,11 +40,17 @@ export const unitKeys = {
     ["units-available", unitTypeId, checkIn, checkOut, excludeId] as const,
 }
 
-export function useBookings(propertyId: string | undefined) {
+export function useBookings(
+  propertyId: string | undefined,
+  params: BookingListParams = {}
+) {
+  // normalizare → aceeași cerere produce aceeași cheie indiferent de apelant
+  const normalized: BookingListParams = { page: params.page ?? 0 }
   return useQuery({
-    queryKey: bookingKeys.list(propertyId ?? ""),
-    queryFn: () => fetchBookings(propertyId!),
+    queryKey: bookingKeys.list(propertyId ?? "", normalized),
+    queryFn: () => fetchBookings(propertyId!, normalized),
     enabled: !!propertyId,
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -65,11 +91,28 @@ export function useBookingEvents(bookingId: string | undefined) {
   })
 }
 
+export function useBooking(bookingId: string | undefined) {
+  return useQuery({
+    queryKey: bookingKeys.detail(bookingId ?? ""),
+    queryFn: () => fetchBooking(bookingId!),
+    enabled: !!bookingId,
+  })
+}
+
+export function useLinkBookingGuest() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ bookingId, guestId }: { bookingId: string; guestId: string }) =>
+      linkBookingGuest(bookingId, guestId),
+    onSuccess: () => invalidateBookingData(qc),
+  })
+}
+
 export function useCreateBooking() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: CreateBookingInput) => createBooking(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: bookingKeys.all }),
+    onSuccess: () => invalidateBookingData(qc),
   })
 }
 
@@ -78,7 +121,7 @@ export function useUpdateBookingStatus() {
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: BookingStatus }) =>
       updateBookingStatus(id, status),
-    onSuccess: () => qc.invalidateQueries({ queryKey: bookingKeys.all }),
+    onSuccess: () => invalidateBookingData(qc),
   })
 }
 
@@ -87,7 +130,7 @@ export function useReassignBooking() {
   return useMutation({
     mutationFn: ({ bookingId, unitId }: { bookingId: string; unitId: string }) =>
       reassignBooking(bookingId, unitId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: bookingKeys.all }),
+    onSuccess: () => invalidateBookingData(qc),
   })
 }
 
@@ -96,6 +139,6 @@ export function useUpdateBookingDates() {
   return useMutation({
     mutationFn: ({ bookingId, checkIn, checkOut }: { bookingId: string; checkIn: string; checkOut: string }) =>
       updateBookingDates(bookingId, checkIn, checkOut),
-    onSuccess: () => qc.invalidateQueries({ queryKey: bookingKeys.all }),
+    onSuccess: () => invalidateBookingData(qc),
   })
 }

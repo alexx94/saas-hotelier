@@ -36,6 +36,21 @@ La `unique_violation` pe insert (race cu o cerere concurentă) → reia căutare
 
 **Apelanți**: `public.find_or_create_guest` (wrapper cu autorizare, `trusted=true`), `public.public_create_booking` (`trusted=false`).
 
+## `get_guest_stats(p_guest_id uuid) returns table(total, upcoming, cancelled bigint)`
+
+**Scop**: totalurile afișate pe profilul oaspetelui, agregate în DB (nu pe client, ca să nu depindă de lista paginată). `upcoming` = `check_in >= current_date` și status diferit de `cancelled`/`no_show`; `cancelled` = status `cancelled`.
+
+| | |
+|---|---|
+| Migrații | `20260611200000` |
+| Security | **INVOKER** — RLS pe `bookings` limitează rândurile la org-urile userului; un `guest_id` străin întoarce 0/0/0 |
+| Grants | `authenticated` ✅ · `anon`/PUBLIC ❌ |
+| Frontend | `web/src/features/guests/api.ts` → `fetchGuestStats()`, hook `useGuestStats`, folosit în `routes/_app/app/guests/$guestId.tsx` |
+
 ## Inserarea directă (fără RPC)
 
 `createGuest()` din `features/guests/api.ts` (pagina Oaspeți) inserează direct în tabel, sub RLS. Constraint-ul unic respinge duplicatele cu `23505`; UI-ul mapează pe `t("guests.duplicate")`. E intenționat ca pagina de oaspeți să **nu** facă dedupe silențios — operatorul trebuie să afle că oaspetele există deja.
+
+## Căutarea oaspeților (fără RPC)
+
+`fetchGuests()` caută server-side (`or` + `ilike`) pe nume, email, telefon **și** `guests.phone_search` — coloană **generată** (migrația 11, `20260611210000`) cu doar cifrele telefonului (`app.normalize_phone`), ca să găsească numărul indiferent de formatul în care a fost salvat sau tastat. Lista e paginată offset (`range`), 20/pagină.

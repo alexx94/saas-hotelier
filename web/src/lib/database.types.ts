@@ -196,6 +196,7 @@ export type Database = {
           notes: string | null
           org_id: string
           phone: string | null
+          phone_search: string | null
         }
         Insert: {
           created_at?: string
@@ -205,6 +206,7 @@ export type Database = {
           notes?: string | null
           org_id: string
           phone?: string | null
+          phone_search?: string | null
         }
         Update: {
           created_at?: string
@@ -214,6 +216,7 @@ export type Database = {
           notes?: string | null
           org_id?: string
           phone?: string | null
+          phone_search?: string | null
         }
         Relationships: [
           {
@@ -530,6 +533,18 @@ export type Database = {
           status: string
           unit_id: string
         }[]
+      }
+      get_guest_stats: {
+        Args: { p_guest_id: string }
+        Returns: {
+          cancelled: number
+          total: number
+          upcoming: number
+        }[]
+      }
+      link_booking_guest: {
+        Args: { p_booking_id: string; p_guest_id: string }
+        Returns: undefined
       }
       public_create_booking: {
         Args: {

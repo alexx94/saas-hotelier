@@ -154,6 +154,18 @@ function CalendarPage() {
   const { data: units, isLoading: loadingUnits } = useUnits(property?.id)
   const { data: bookings } = useBookingsInRange(property?.id, monthStart, monthEnd)
 
+  // grupare unică pe cameră — evită un filter peste toate rezervările per rând
+  const bookingsByUnit = useMemo(() => {
+    const map = new Map<string, Booking[]>()
+    for (const b of bookings ?? []) {
+      if (!b.unit_id) continue
+      const list = map.get(b.unit_id)
+      if (list) list.push(b)
+      else map.set(b.unit_id, [b])
+    }
+    return map
+  }, [bookings])
+
   const monthLabel = month.toLocaleDateString("ro-RO", {
     month: "long", year: "numeric", timeZone: "UTC",
   })
@@ -256,9 +268,7 @@ function CalendarPage() {
 
             {/* rând per cameră */}
             {units.map((unit) => {
-              const unitBookings = (bookings ?? []).filter(
-                (b) => b.unit_id === unit.id
-              )
+              const unitBookings = bookingsByUnit.get(unit.id) ?? []
               return (
                 <div key={unit.id} className="col-span-full grid grid-cols-subgrid border-b last:border-b-0">
                   <div className="sticky left-0 z-10 border-r bg-card p-2 truncate">

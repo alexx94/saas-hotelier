@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { useEffect, useState } from "react"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -7,6 +7,8 @@ import { toast } from "sonner"
 import { Plus, Search } from "lucide-react"
 import { useCurrentOrg } from "@/features/organizations/context"
 import { useCreateGuest, useGuests } from "@/features/guests/hooks"
+import { PaginationControls } from "@/components/pagination"
+import { usePagination } from "@/lib/pagination"
 import { t } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -20,7 +22,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 
-export const Route = createFileRoute("/_app/app/guests")({
+export const Route = createFileRoute("/_app/app/guests/")({
   component: GuestsPage,
 })
 
@@ -34,7 +36,20 @@ type FormValues = z.infer<typeof schema>
 function GuestsPage() {
   const { currentOrg } = useCurrentOrg()
   const [search, setSearch] = useState("")
-  const { data: guests, isLoading } = useGuests(currentOrg.id, search || undefined)
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const pagination = usePagination()
+
+  // debounce: query-ul pleacă după o pauză de tastare, nu per tastă
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(id)
+  }, [search])
+
+  const { data, isLoading } = useGuests(currentOrg.id, {
+    search: debouncedSearch || undefined,
+    page: pagination.page,
+  })
+  const guests = data?.items
   const createGuest = useCreateGuest(currentOrg.id)
   const [open, setOpen] = useState(false)
 
@@ -68,7 +83,10 @@ function GuestsPage() {
               placeholder={t("common.search")}
               className="w-full pl-8 sm:w-56"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                pagination.reset()
+              }}
             />
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
@@ -127,7 +145,15 @@ function GuestsPage() {
             <TableBody>
               {guests.map((g) => (
                 <TableRow key={g.id}>
-                  <TableCell className="font-medium">{g.full_name}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link
+                      to="/app/guests/$guestId"
+                      params={{ guestId: g.id }}
+                      className="hover:underline"
+                    >
+                      {g.full_name}
+                    </Link>
+                  </TableCell>
                   <TableCell>{g.email ?? "—"}</TableCell>
                   <TableCell>{g.phone ?? "—"}</TableCell>
                 </TableRow>
@@ -136,6 +162,13 @@ function GuestsPage() {
           </Table>
         </Card>
       )}
+
+      <PaginationControls
+        hasPrev={pagination.hasPrev}
+        hasNext={!!data?.hasMore}
+        onPrev={pagination.prev}
+        onNext={pagination.next}
+      />
     </div>
   )
 }

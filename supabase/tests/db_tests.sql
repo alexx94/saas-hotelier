@@ -472,6 +472,7 @@ reset role;
 -- ---------- TEST 19: rezervare publică cu email existent — profil neatins, snapshot cu datele tastate ----------
 create temp table _t19 (booking_id uuid);
 grant insert on _t19 to anon;
+grant select on _t19 to authenticated;
 set local role anon;
 set local request.jwt.claims = '{"role":"anon"}';
 do $$
@@ -533,6 +534,118 @@ begin
     raise notice 'TEST 20 PASS: profil actualizat de staff (trusted)';
   else
     raise exception 'TEST 20 FAIL: %', v;
+  end if;
+end $$;
+reset role;
+
+-- ---------- TEST 21: link_booking_guest (asociere manuală profil) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare
+  v_booking_id uuid;
+  v_other_guest uuid;
+  v_after record;
+begin
+  select id into v_booking_id from bookings
+  where check_in = '2026-09-01' limit 1; -- rezervarea publică din TEST 6
+
+  -- 21a: asociere cu alt profil din org A — snapshot rămâne neschimbat
+  select id into v_other_guest from guests
+  where org_id = '10000000-0000-0000-0000-000000000001' and full_name = 'Ion Popescu';
+
+  perform public.link_booking_guest(v_booking_id, v_other_guest);
+  select * into v_after from bookings where id = v_booking_id;
+  if v_after.guest_id = v_other_guest and v_after.booked_full_name = 'Maria Ionescu' then
+    raise notice 'TEST 21a PASS: profil re-asociat, snapshot pastrat';
+  else
+    raise exception 'TEST 21a FAIL: guest_id=%, snapshot=%', v_after.guest_id, v_after.booked_full_name;
+  end if;
+
+  -- 21b: audit a inregistrat guest_changed
+  if exists (select 1 from booking_events
+             where booking_id = v_booking_id and event_type = 'guest_changed') then
+    raise notice 'TEST 21b PASS: eveniment guest_changed in audit';
+  else
+    raise exception 'TEST 21b FAIL: lipseste evenimentul guest_changed';
+  end if;
+
+  -- 21c: profil din alta organizatie -> respins
+  begin
+    perform public.link_booking_guest(v_booking_id, (select id from _t18));
+    raise exception 'TEST 21c FAIL: profil cross-org acceptat!';
+  exception when others then
+    if sqlerrm = 'GUEST_NOT_FOUND' then
+      raise notice 'TEST 21c PASS: profil cross-org respins (GUEST_NOT_FOUND)';
+    else raise; end if;
+  end;
+end $$;
+
+-- 21d: userul org B nu poate re-asocia rezervari din org A
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v_booking_id uuid;
+begin
+  -- id-ul e luat prin definer (nu prin RLS) — simulam un id ghicit/scurs
+  begin
+    perform public.link_booking_guest(
+      (select booking_id from _t19),
+      (select id from _t18));
+    raise exception 'TEST 21d FAIL: user strain a re-asociat rezervarea!';
+  exception when others then
+    if sqlerrm = 'FORBIDDEN' then
+      raise notice 'TEST 21d PASS: user fara acces respins (FORBIDDEN)';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 22: get_guest_stats — totaluri + izolare RLS ----------
+do $$
+declare
+  v_guest uuid;
+  v_stats record;
+begin
+  -- oaspete nou cu istoric controlat: 1 viitoare, 1 viitoare anulată, 1 trecută
+  insert into guests (org_id, full_name)
+  values ('10000000-0000-0000-0000-000000000001', 'Stats Test')
+  returning id into v_guest;
+
+  insert into bookings (org_id, property_id, unit_type_id, unit_id, guest_id,
+                        status, check_in, check_out, currency)
+  values
+    ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+     '30000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000002',
+     v_guest,'confirmed', current_date + 200, current_date + 202,'RON'),
+    ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+     '30000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000002',
+     v_guest,'cancelled', current_date + 210, current_date + 212,'RON'),
+    ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+     '30000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000002',
+     v_guest,'checked_out', current_date - 30, current_date - 28,'RON');
+
+  select * into v_stats from public.get_guest_stats(v_guest);
+  if v_stats.total = 3 and v_stats.upcoming = 1 and v_stats.cancelled = 1 then
+    raise notice 'TEST 22a PASS: stats corecte (total=3, upcoming=1, cancelled=1)';
+  else
+    raise exception 'TEST 22a FAIL: total=%, upcoming=%, cancelled=%',
+      v_stats.total, v_stats.upcoming, v_stats.cancelled;
+  end if;
+end $$;
+
+-- 22b: userul org B nu vede nimic prin RLS (security invoker) => 0/0/0
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v_stats record;
+begin
+  select s.* into v_stats from public.get_guest_stats(
+    (select id from guests where full_name = 'Stats Test')) s;
+  -- subquery-ul pe guests e tot sub RLS => guest_id null => 0 rânduri numărate
+  if coalesce(v_stats.total, 0) = 0 then
+    raise notice 'TEST 22b PASS: user strain vede 0 rezervari';
+  else
+    raise exception 'TEST 22b FAIL: total=% vizibil cross-org', v_stats.total;
   end if;
 end $$;
 reset role;

@@ -64,8 +64,12 @@ web/src/
     _app/app/
       index.tsx       ← Dashboard
       calendar.tsx
-      bookings.tsx
-      guests.tsx
+      bookings/
+        index.tsx
+        $bookingId.tsx
+      guests/
+        index.tsx
+        $guestId.tsx
       properties/
         index.tsx
         $propertyId.tsx
@@ -118,6 +122,14 @@ export const bookingKeys = {
 }
 ```
 La `invalidateQueries` folosești mereu din acest obiect, niciodată string literal.
+
+**Liste = offset pagination obligatoriu** (Sprint 2.1) — nicio listă nu aduce „tot" cu un `limit` arbitrar:
+- Helper: `lib/pagination.ts` (`Page<T>`, `pageRange`, `toPage` — `pageSize + 1` rânduri, rândul în plus = există pagina următoare, fără `count(*)`; + hook-ul `usePagination()`, pagină 0-based)
+- UI: `components/pagination.tsx` (`PaginationControls` — butoane înainte/înapoi)
+- Cheia listei: `[entity, scopeId, "list", params]` unde `params` e obiect (`{ search?, page? }` azi, filtre noi mâine). Filtrele se aplică în query **înaintea** range-ului. Hook-ul normalizează params (trim, `page ?? 0`) ca apelanți diferiți să împartă cache-ul.
+- La schimbarea oricărui filtru: `pagination.reset()` în același handler (nu useEffect)
+- `placeholderData: keepPreviousData` pe orice query paginat
+- **Agregări/totaluri = mereu server-side** (RPC, ex. `get_guest_stats`) — niciodată numărate pe client din lista paginată
 
 `enabled` în `useQuery` se setează explicit când ai parametri opționali:
 ```ts
@@ -221,6 +233,7 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 - ✅ **Booking lifecycle solid (Sprint 1–1.2)**: tranziții status validate server-side (trigger DB), modificare date rezervare (RPC + UI), undo/revert pe statusuri cu confirmare (modal pentru acțiuni timpurii/revert), istoric cu diff lizibil (vechi → nou), RLS fix
 - ✅ Calendar (grilă camere × zile): tip + capacitate per cameră, tooltip detalii la click
 - ✅ Oaspeți: search, creare inline cu anti-duplicare pe email/telefon
+- ✅ **Sprint 2 — Guest Experience**: profil oaspete (`/app/guests/{id}`: editare, ștergere blocată dacă are rezervări, istoric paginat, statistici server-side total/viitoare/anulate via `get_guest_stats`), pagina rezervării (`/app/bookings/{id}`) cu snapshot vs profil + re-asociere profil (`link_booking_guest`), offset pagination pe toate listele (rezervări 20, oaspeți 20, istoric profil 15)
 - ✅ User menu (popover) + dialog setări cu hash routing (`#settings/account`)
 - ✅ Mobile responsive: sidebar hamburger, layout adaptat pe toate paginile
 - ✅ i18n complet în română

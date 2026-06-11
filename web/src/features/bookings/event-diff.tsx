@@ -8,6 +8,7 @@ import { t, type TranslationKey } from "@/lib/i18n"
 // Câmpurile neînregistrate (ex. uuid-uri tehnice) nu se afișează.
 const FIELDS: Record<string, { label: TranslationKey; format?: (v: unknown) => string }> = {
   unit: { label: "bookings.unit" },
+  guest: { label: "bookings.guest" },
   status: { label: "bookings.status", format: (v) => statusLabel(v as BookingStatus) },
   check_in: { label: "bookings.check_in", format: (v) => formatDateShort(String(v)) },
   check_out: { label: "bookings.check_out", format: (v) => formatDateShort(String(v)) },

@@ -98,6 +98,22 @@ edit-dates-dialog ──► update_booking_dates ──► UPDATE bookings ◄�
 
 ---
 
+## `link_booking_guest(p_booking_id, p_guest_id) returns void`
+
+**Scop**: re-asocierea unei rezervări cu alt profil de oaspete (procesarea manuală a rezervărilor venite din pagina publică). Schimbă **doar referința** `guest_id` — snapshot-ul `booked_*` (datele tastate la rezervare) rămâne neatins.
+
+| | |
+|---|---|
+| Migrație | `20260611190000` |
+| Security | DEFINER (`set search_path = ''`) |
+| Grants | `authenticated` ✅ · `anon`/PUBLIC ❌ |
+| Autorizare | `app.can_access_property(...)` → `FORBIDDEN`; profilul țintă trebuie să fie **din aceeași organizație** |
+| Frontend | `features/bookings/api.ts` → `linkBookingGuest()`, hook `useLinkBookingGuest`, folosit în pagina rezervării (`$bookingId.tsx`) |
+
+**Erori**: `BOOKING_NOT_FOUND`, `FORBIDDEN`, `BOOKING_NOT_LINKABLE` (status `blocked`), `GUEST_NOT_FOUND` (inexistent sau cross-org). Audit: eveniment `guest_changed` cu numele vechi/nou. Teste: 21a–d.
+
+---
+
 ## Schimbarea statusului — fără RPC, intenționat
 
 Statusul se schimbă prin `UPDATE` direct pe `bookings` (`features/bookings/api.ts` → `updateBookingStatus()`), sub RLS. Validarea tranzițiilor (forward + revert) e în trigger-ul `bookings_update_guard` ([../triggers.md](../triggers.md)) și oglindită în `web/src/features/bookings/status-rules.ts` — **modifică-le simultan**.
