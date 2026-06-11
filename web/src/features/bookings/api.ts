@@ -120,7 +120,20 @@ export async function createBooking(input: CreateBookingInput): Promise<string> 
 
 export async function updateBookingStatus(id: string, status: BookingStatus): Promise<void> {
   const { error } = await supabase.from("bookings").update({ status }).eq("id", id)
-  if (error) throw error
+  if (error) throw new Error(error.message)
+}
+
+export async function updateBookingDates(
+  bookingId: string,
+  checkIn: string,
+  checkOut: string
+): Promise<void> {
+  const { error } = await supabase.rpc("update_booking_dates", {
+    p_booking_id: bookingId,
+    p_check_in: checkIn,
+    p_check_out: checkOut,
+  })
+  if (error) throw new Error(error.message)
 }
 
 export async function reassignBooking(bookingId: string, unitId: string): Promise<void> {

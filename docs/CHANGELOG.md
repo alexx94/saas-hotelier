@@ -1,0 +1,345 @@
+# Changelog — SaaS Hotelier PMS
+
+Documentul înregistrează ce a existat la start, ce s-a adăugat în fiecare sprint și cum s-a procedat.
+Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică inversă.
+
+---
+
+## Sprint 1.4 — Snapshot oaspete pe rezervare + matching pe încredere (11 iun 2026)
+
+### Problema
+
+La rezervarea publică cu email existent dar nume/telefon diferite, datele tastate se pierdeau (se refolosea profilul vechi). Întrebare de design: cum tratăm profilul vs datele per rezervare, à la Booking/Pynbooking?
+
+### Soluția (migrația `20260611180000_booking_guest_snapshot_and_trusted_match.sql`)
+
+- **Profil vs snapshot**: `guests` = profilul viu; `bookings.booked_full_name/email/phone` = snapshot cu datele din momentul rezervării (backfill din profiluri pentru rezervările existente). Modificarea profilului nu atinge trecutul.
+- **Matching pe încredere** (`find_or_create_guest_internal` + `p_trusted`):
+  - *trusted* (staff): match email→telefon, profilul se actualizează cu datele noi
+  - *untrusted* (pagina publică/anon): match **doar pe email exact**, profilul nu se modifică niciodată (anti-abuz: telefoane fictive nu pot atașa rezervarea la alt profil și nu pot suprascrie date); telefon în coliziune → insert fără telefon (numărul rămâne în snapshot)
+- Tipuri regenerate (`database.types.ts`); fără schimbări UI (snapshot-ul va fi afișat când se face UI-ul de procesare manuală a rezervărilor publice).
+
+### Teste: 19a–c (snapshot + profil neatins de anon), 20 (staff actualizează profilul) — 20/20 PASS. TEST 8 făcut robust la date reale din DB-ul local.
+
+---
+
+## Sprint 1.3 — Unicitate oaspeți, audit de securitate RPC & documentație backend (11 iun 2026)
+
+### Probleme raportate
+
+1. Lipsă constrângere de unicitate pe oaspeți — același email/telefon se putea insera de mai multe ori
+2. RPC-urile security definer nedocumentate și greu de urmărit — cerută documentație modulară de backend
+3. Scepticism privind securitatea RPC-urilor definer (apeluri de la utilizatori fără acces, inserări cross-org)
+
+### Audit de securitate (detalii: `docs/backend/security-model.md`)
+
+S-a făcut inventarul live al funcțiilor (pg_proc + ACL-uri) și audit pe fiecare RPC. Găsite și remediate:
+
+- **🔴 Critic** — `find_or_create_guest`: security definer **fără verificare de apartenență la org** + executabilă de PUBLIC (grant-ul implicit Postgres nu fusese revocat) → orice vizitator anonim putea insera oaspeți în orice organizație și proba existența emailurilor/telefoanelor (`matched_by`). Fix: split `app.find_or_create_guest_internal` (revocată de la API) + wrapper public cu verificare `user_org_ids` → `FORBIDDEN`.
+- **🟠** `create_booking` accepta `guest_id` din altă organizație → guard `GUEST_NOT_FOUND`.
+- **🟠** RLS `organization_members`: un manager putea acorda/lua rolul `owner` (escaladare) → politici rescrise.
+- **🟠** `get_available_units`: grant rezidual PUBLIC (fără scurgere — invoker + RLS) → revocat.
+- **🟡** `check_unit_status_change` + `generate_units`: aceeași clasă de bug search_path din Sprint 1.2 → calificate + `set search_path = ''`.
+
+**Capcană documentată**: Postgres dă implicit EXECUTE rolului PUBLIC pe funcții noi — `revoke from anon` nu ajunge, trebuie `revoke from public, anon`.
+
+### Unicitate oaspeți — migrația `20260611170000_guest_uniqueness_and_security_hardening.sql`
+
+- **Decizie**: unicitate per organizație, separat pe email și pe telefon (aceleași chei ca matching-ul de dedupe — constraint-ul și logica nu pot diverge).
+- Trigger `guests_normalize`: email → `lower(trim)`, gol → NULL; telefon/nume → trim.
+- `app.normalize_phone()` (immutable, doar cifre) — folosită și în indexul unic pe expresie și în matching.
+- Indexuri unice parțiale: `(org_id, email)` și `(org_id, normalize_phone(phone))`.
+- Dedupe date existente în migrație (păstrat cel mai vechi, rezervările repunctate, audit-ul oprit temporar).
+- `find_or_create_guest_internal`: retry pe `unique_violation` (race între cereri concurente).
+- Frontend: pagina Oaspeți mapează `23505` → mesaj nou `guests.duplicate`; combobox-ul folosea deja RPC-ul de dedupe.
+
+### Teste noi (`db_tests.sql` 14–18, toate 18 PASS)
+
+Unicitate email/telefon (+ permis în altă org), `find_or_create_guest` cross-org → FORBIDDEN, anon → insufficient_privilege, manager nu poate acorda/escalada/șterge owner, `create_booking` cu guest străin → GUEST_NOT_FOUND.
+
+### Documentație backend nouă — `docs/backend/`
+
+Structură modulară: `README.md` (hartă + inventar funcții + query de regenerare + convenții), `security-model.md` (definer vs invoker, audit), `rls-policies.md` (matrice per tabel), `helpers.md`, `triggers.md`, `rpc/` (un fișier per feature: organizations, units, guests, bookings, public-api — fiecare RPC cu semnătură, securitate, erori, call-site-uri frontend).
+
+---
+
+## Sprint 1.2 — Fix reassign + istoric detaliat (11 iun 2026)
+
+### Probleme raportate
+
+1. „Mută în altă cameră" dădea „A apărut o eroare"
+2. Istoricul nu arăta ce s-a schimbat concret (ex. datele vechi vs. noi)
+
+### Cauza bugului de reassign
+
+Trigger-ul `app.validate_booking_update` (Sprint 1) citea tabela `units` **necalificat** (fără prefix `public.`) și fără `set search_path`. RPC-urile precum `reassign_booking` rulează cu `security definer set search_path = ''` — trigger-ele declanșate din ele moștenesc acest search_path gol, deci `units` nu mai era găsit → eroare. Editarea datelor mergea pentru că ramura ei din trigger nu citește nicio tabelă.
+
+**Regulă de reținut**: orice funcție trigger care citește tabele trebuie să aibă `set search_path = ''` și nume complet calificate (`public.units`), pentru că poate fi declanșată din contexte cu search_path golit.
+
+### Ce s-a implementat
+
+#### 1. Migrație `20260611160000_fix_trigger_search_path_audit_names.sql`
+- `validate_booking_update`: `set search_path = ''` + `public.units` calificat
+- `audit_booking` îmbunătățit: stochează **numele camerei** (cheia `unit`) în `old_data`/`new_data` în loc de UUID — istoricul devine lizibil direct din JSON
+
+#### 2. `event-diff.tsx` (nou) — afișare modulară a diferențelor din audit
+
+Component generic care citește JSON-ul `old_data`/`new_data` și afișează diferențele, fără logică hardcodată pe `event_type`:
+- **Registru de câmpuri** (`FIELDS`): cheie JSON → etichetă i18n + formatter opțional (`status` → `statusLabel`, `check_in/out` → format dată scurtă)
+- Câmpurile neînregistrate (UUID-uri tehnice) nu se afișează
+- Render: `Check-in: ~~13 iun.~~ → 14 iun.` (vechi tăiat, nou evidențiat); la `created` doar valorile noi
+- **Extensibilitate**: un câmp nou în trigger-ul de audit = o singură intrare în registru
+
+#### 3. `booking-history.tsx` — simplificat
+Înlocuite cele două blocuri hardcodate (reassigned/status_changed) cu `<EventDiff>` — acum toate tipurile de evenimente afișează detalii consistent.
+
+### Verificare
+- Test SQL care simulează exact contextul care eșua (`set_config('search_path', '', true)` + UPDATE unit_id) → trece; audit-ul conține numele camerei
+- `npx tsc --noEmit` → 0 erori
+- Preview: mutarea camerei funcționează (Camera 1 → Camera 3); istoricul afișează diff-uri complete pentru status, cameră și date
+
+**Notă**: evenimentele de reassign create înainte de acest fix stocau UUID-uri — apar fără detalii în istoric (registrul le filtrează intenționat). Evenimentele noi au numele camerei.
+
+---
+
+## Sprint 1.1 — Reguli de status, undo & fix editare date (11 iun 2026)
+
+### Probleme raportate de utilizator după Sprint 1
+
+1. Se putea pune „Cazat"/„Plecat" înainte de data de check-in/check-out, fără nicio atenționare
+2. Nicio cale de revenire (undo) dacă un status a fost setat greșit
+3. „Modifică datele" dădea mereu „A apărut o eroare"
+
+### Cauza bugului de la editare date
+
+RPC-ul `update_booking_dates` (Sprint 1) seta explicit coloana `stay`, dar `stay` e o coloană **GENERATED** în Postgres (se calculează automat din `check_in`/`check_out`). Postgres ridică eroarea `cannot insert a non-DEFAULT value into column "stay"` (428C9) la orice încercare de a o seta manual. Fix: eliminată linia `stay = daterange(...)` din UPDATE.
+
+**Lecție**: testele SQL din Sprint 1 verificau doar căile de blocare (statusuri terminale), nu și calea de succes a RPC-ului — de aceea bugul a scăpat. Acum testul TEST5 acoperă și calea de succes.
+
+### Decizie de design: undo prin tranziții de revenire, nu prin re-creare
+
+Întrebarea era: undo cu constrângeri sau forțăm crearea unei rezervări noi? **Răspuns: ambele, natural.** Fiecare status are o tranziție de revenire validată de trigger-ul DB:
+
+```
+forward:  pending → confirmed → checked_in → checked_out
+revert:   confirmed → pending, checked_in → confirmed,
+          checked_out → checked_in, no_show → confirmed,
+          cancelled → pending (reactivare)
+```
+
+Constrângerile sunt menținute automat: când o rezervare anulată e reactivată, rândul **reintră în constraint-ul EXCLUDE** — dacă între timp camera a fost rezervată pe acel interval, UPDATE-ul eșuează cu `exclusion_violation` și utilizatorul primește „Camera aleasă nu este disponibilă". În acel caz singura opțiune rămasă e o rezervare nouă (exact comportamentul corect — nu se poate „forța" un undo peste o rezervare existentă).
+
+**Pregătire pentru roluri**: tranzițiile revert sunt definite separat de cele forward (`revertStatuses` vs `nextStatuses` în `status-rules.ts`) — un feature viitor va putea restricționa revenirile la manager/owner fără să atingă fluxul normal.
+
+### Ce s-a implementat
+
+#### 1. Migrație `20260611150000_status_reverts_and_dates_fix.sql`
+- Fix `update_booking_dates` (eliminat `stay` din UPDATE)
+- Trigger `app.validate_booking_update` extins cu cele 5 tranziții de revenire
+
+#### 2. `status-rules.ts` (nou) — modul dedicat regulilor de status
+- `nextStatuses` (forward) + `revertStatuses` (undo) — mutate din `bookings.tsx`, oglindesc exact trigger-ul DB
+- `getRevertOptions(booking)` — exclude reactivarea blocărilor anulate (nu au oaspete)
+- `statusChangeWarning(booking, to)` — întoarce cheia i18n de atenționare sau `null`:
+  - „Cazat" înainte de data check-in → confirmare check-in timpuriu
+  - „Plecat" înainte de data check-out → confirmare plecare timpurie
+  - „Neprezentare" înainte ca data check-in să treacă → confirmare
+  - orice revert → confirmare generică; reactivare din anulat → mesaj specific
+
+#### 3. `confirm-dialog.tsx` (nou, generic în `components/`)
+Dialog reutilizabil de confirmare (title, description, onConfirm) — folosibil pentru orice acțiune sensibilă viitoare.
+
+#### 4. `bookings.tsx`
+- `requestStatusChange()` — interceptează schimbările: dacă `statusChangeWarning` întoarce mesaj, deschide `ConfirmDialog`; altfel aplică direct
+- Dropdown-ul de status afișează acum și secțiunea de undo: separator + „Corectează: X" cu iconiță Undo2
+- Eroarea `no_double_booking` (reactivare peste cameră ocupată) → toast „Camera nu este disponibilă"
+- Înlocuit `Select` cu `DropdownMenu` pentru acțiuni (Select-ul arăta gri/disabled fără valoare selectată)
+
+#### 5. i18n — 8 chei noi (`bookings.confirm_action`, `bookings.warn_*`, `bookings.revert_section`)
+
+### Verificare
+- 5 teste SQL noi — toate trec: lanț complet de undo, reactivare blocată de EXCLUDE când camera e ocupată, reactivare reușită când e liberă, tranziții invalide tot blocate, editare date funcțională
+- `npx tsc --noEmit` → 0 erori
+- Preview: editare date salvează corect; dropdown cu „Corectează: Cazat" pe rezervare „Plecat"; modal de confirmare apare; după Continuă statusul revine corect
+
+---
+
+## Sprint 1 — Booking Core (11 iun 2026)
+
+### Obiectiv
+Solidificarea booking engine-ului pentru producție: garanție server-side că nu există suprapuneri, statusuri invalide sau modificări pe rezervări terminate.
+
+### Audit inițial — ce exista deja
+
+Înainte de implementare, sistemul avea deja:
+
+| Componentă | Implementare |
+|---|---|
+| Anti double-booking | `EXCLUDE USING gist (unit_id WITH =, stay WITH &&)` în `bookings` — constraint atomic Postgres, nu logică aplicație |
+| Creare rezervare cu validare | RPC `create_booking` — auto-assign sau manual, prinde `exclusion_violation` |
+| Mutare rezervare (reassign) | RPC `reassign_booking` — validează status non-terminal, disponibilitate, și scrie audit event via trigger |
+| 7 statusuri + CHECK constraint | `pending / confirmed / checked_in / checked_out / cancelled / no_show / blocked` |
+| Audit complet (booking_events) | Trigger `AFTER INSERT OR UPDATE` înregistrează automat `created / status_changed / reassigned / dates_changed / updated` |
+| Auto-assign + manual assign | RPC `create_booking` suportă ambele moduri; UI permite selectare cameră cu preview liber/ocupat |
+| Tranziții status UI | Dropdown `nextStatuses` în `bookings.tsx` — filtrat la frontend |
+
+**Goluri identificate:**
+1. Tranzițiile de status nu erau validate în backend — un apel direct putea face `checked_out → confirmed`
+2. Nu exista niciun mecanism de modificare a datelor (check_in/check_out) pe rezervări existente
+3. RLS `bookings_update` fără `WITH CHECK` — orice coloană putea fi modificată direct prin client
+
+---
+
+### Ce s-a implementat
+
+#### 1. Trigger BEFORE UPDATE — validare server-side a tranzițiilor
+
+**Fișier:** `supabase/migrations/20260611140000_booking_transitions_and_dates.sql`
+
+**Funcție trigger:** `app.validate_booking_update()`
+
+Trigger `BEFORE UPDATE ON bookings` care:
+- **Tranziții status**: validează aceeași hartă ca frontend-ul (`nextStatuses`), dar la nivel DB. Statusuri terminale (`cancelled / checked_out / no_show`) sunt imuabile — orice update pe status ridică `INVALID_STATUS_TRANSITION`.
+- **Modificare date pe rezervări terminate**: dacă `check_in` sau `check_out` se modifică și statusul e terminal, ridică `BOOKING_NOT_EDITABLE`.
+- **Schimbare directă `unit_id`**: camera nouă trebuie să fie `active` și pe aceeași proprietate — protecție suplimentară față de RPC (acoperă și update-urile directe via client).
+
+Tranzițiile permise (identice cu frontend-ul):
+```
+pending    → confirmed | cancelled
+confirmed  → checked_in | cancelled | no_show
+checked_in → checked_out
+blocked    → cancelled
+```
+
+**Procedura de testare (rulată în sesiune):**
+5 teste SQL în `supabase db query`:
+- TEST1: `cancelled → confirmed` → blocat ✅
+- TEST2: lifecycle `confirmed→checked_in→checked_out`, apoi `checked_out→confirmed` → blocat ✅
+- TEST3: `pending→confirmed→cancelled` (tranziții valide) → trec ✅
+- TEST4: modificare `check_in` pe rezervare `cancelled` → `BOOKING_NOT_EDITABLE` ✅
+- TEST5: modificare `check_in` pe rezervare `checked_out` → `BOOKING_NOT_EDITABLE` ✅
+
+#### 2. RPC `update_booking_dates` — modificare date cu validare disponibilitate
+
+**Fișier:** `supabase/migrations/20260611140000_booking_transitions_and_dates.sql`
+
+Pattern identic cu `reassign_booking` (același fișier de referință: `20260611120000_unit_status_and_audit.sql:244`).
+
+Validări:
+- Booking există + utilizatorul are acces la proprietate (`app.can_access_property`)
+- Status non-terminal (`cancelled / checked_out / no_show` → `BOOKING_NOT_EDITABLE`)
+- `check_out > check_in` (→ `INVALID_DATE_RANGE`)
+- Update în bloc `BEGIN/EXCEPTION` — prinde `exclusion_violation` → `UNIT_NOT_AVAILABLE`
+
+Auditul (`dates_changed`) este scris automat de trigger-ul existent `bookings_audit` (nu a fost nevoie de cod suplimentar).
+
+#### 3. Fix RLS `bookings_update`
+
+**Fișier:** `supabase/migrations/20260611140000_booking_transitions_and_dates.sql`
+
+Adăugat `WITH CHECK (app.can_access_property(property_id))` — simetrie cu `USING`. Restul validărilor sunt delegate trigger-ului și EXCLUDE constraint.
+
+#### 4. `date-utils.ts` — extragere helper-e de dată
+
+**Fișier nou:** `web/src/features/bookings/date-utils.ts`
+
+`addDays(isoDate, days)` și `formatDateShort(isoDate)` erau duplicate în `booking-form-dialog.tsx`. Extrase în fișier separat, acum importate în ambele componente.
+
+#### 5. `updateBookingDates` în API + hook
+
+**`web/src/features/bookings/api.ts`:**
+- `updateBookingDates(bookingId, checkIn, checkOut)` → `supabase.rpc("update_booking_dates", ...)`
+- `updateBookingStatus` — eroarea aruncată e acum `new Error(error.message)` în loc de `throw error` direct, pentru a permite inspecția mesajului în catch
+
+**`web/src/features/bookings/hooks.ts`:**
+- `useUpdateBookingDates()` — pattern identic cu `useReassignBooking`: `useMutation` + `invalidateQueries({ queryKey: bookingKeys.all })` la succes
+
+#### 6. `EditDatesDialog` — dialog modificare date
+
+**Fișier nou:** `web/src/features/bookings/edit-dates-dialog.tsx`
+
+Dialog mic (~90 linii), pattern identic cu `reassign-dialog.tsx`:
+- Props: `{ booking, open, onOpenChange }`
+- `useForm` cu `values:` (se pre-populează cu datele existente când booking-ul se schimbă)
+- Zod schema: `check_out > check_in` refine
+- Check-out `disabled` până se alege check-in, `min={addDays(checkIn, 1)}`
+- Erori mapate: `UNIT_NOT_AVAILABLE`, `BOOKING_NOT_EDITABLE`, `INVALID_DATE_RANGE`, fallback `common.error`
+
+#### 7. UI `bookings.tsx` — buton „Modifică datele"
+
+**`web/src/routes/_app/app/bookings.tsx`:**
+- Import `EditDatesDialog` + iconița `CalendarDays` din lucide-react
+- Constantă `DATE_EDITABLE = new Set(["pending", "confirmed", "checked_in"])` — identică cu `REASSIGNABLE`
+- State `editDatesBooking` + mount `<EditDatesDialog>`
+- Buton icon `CalendarDays` în coloana Acțiuni, vizibil doar pe statusuri editabile (înaintea butonului reassign)
+- `onStatusChange` prinde acum și `INVALID_STATUS_TRANSITION` → toast specific
+
+#### 8. i18n — chei noi în `ro.ts`
+
+```ts
+"bookings.edit_dates"        → "Modifică datele"
+"bookings.dates_updated"     → "Datele rezervării au fost actualizate"
+"bookings.not_editable"      → "Rezervarea nu mai poate fi modificată (status final)"
+"bookings.invalid_transition" → "Această tranziție de status nu este permisă"
+"bookings.invalid_date_range" → "Check-out trebuie să fie după check-in"
+```
+
+---
+
+### Fișiere modificate / create
+
+| Fișier | Tip | Schimbare |
+|---|---|---|
+| `supabase/migrations/20260611140000_booking_transitions_and_dates.sql` | NOU | Trigger tranziții, RPC update_booking_dates, fix RLS |
+| `web/src/features/bookings/date-utils.ts` | NOU | Helper-e dată: addDays, formatDateShort |
+| `web/src/features/bookings/edit-dates-dialog.tsx` | NOU | Dialog modificare date rezervare |
+| `web/src/features/bookings/api.ts` | modificat | + updateBookingDates; fix throw în updateBookingStatus |
+| `web/src/features/bookings/hooks.ts` | modificat | + useUpdateBookingDates |
+| `web/src/features/bookings/booking-form-dialog.tsx` | modificat | Import addDays/formatDateShort din date-utils (deduplicare) |
+| `web/src/routes/_app/app/bookings.tsx` | modificat | + EditDatesDialog, buton CalendarDays, catch INVALID_STATUS_TRANSITION |
+| `web/src/lib/i18n/ro.ts` | modificat | + 5 chei noi pentru edit dates |
+
+---
+
+### Verificare finală
+
+- `supabase migration up` → aplicat fără erori
+- `supabase gen types typescript --local` → `update_booking_dates` prezent în `database.types.ts`
+- `npx tsc --noEmit` → 0 erori
+- 5 teste SQL backend → toate trec
+- Preview UI → buton CalendarDays vizibil în coloana Acțiuni pentru rezervări active
+
+---
+
+## Sesiunea inițială — Setup & Features de bază (10-11 iun 2026)
+
+### Ce s-a construit de la zero
+
+Aplicație PMS multi-tenant completă, pornind de la zero.
+
+**Backend (Supabase local via Docker):**
+- Schema DB completă: `organizations`, `organization_members`, `properties`, `unit_types`, `units`, `bookings`, `guests`, `booking_events` — cu RLS pe toate tabelele
+- Anti double-booking via `EXCLUDE USING gist (btree_gist)` — garanție atomică la nivel Postgres
+- RPC-uri: `create_booking`, `reassign_booking`, `get_available_units`, `generate_units`, `find_or_create_guest`
+- Trigger audit `booking_events` — înregistrează automat toate modificările pe bookings
+- Trigger `units_status_guard` — blochează dezactivarea/ștergerea camerelor cu rezervări viitoare
+- Fix bug `generate_units`: al doilea tip cu același prefix genera 0 camere — rezolvat prin while-loop care sare peste name-uri ocupate
+
+**Frontend (React + TypeScript + TanStack Router/Query + shadcn/ui):**
+- Auth complet (login/signup/logout/onboarding)
+- CRUD Proprietăți + pagina publică `/p/{slug}`
+- Tipuri de camere + generare bulk + adăugare ulterioară camere
+- Rezervări: creare (auto/manual assign), estimare cost, schimbare status, mutare cameră, audit trail vizibil
+- Calendar: grilă camere × zile cu tip + capacitate per cameră, tooltip detalii la click
+- Oaspeți: search full-text, creare inline cu anti-duplicare pe email/telefon
+- User menu (popover) + dialog Setări cu hash routing TanStack (`#settings/account`, scalabil)
+- Mobile responsive: sidebar hamburger, layout adaptat
+- i18n complet în română
+
+**Convenții stabilite (respectate consistent):**
+- Feature-based: `api.ts` (funcții pure) / `hooks.ts` (useQuery/useMutation + query keys) / component
+- TanStack nativ: `useLocation().hash` pentru hash routing, `useNavigate()` pentru navigare, niciodată `window.location`
+- `useEffect` doar pentru subscriptions externe sau DOM listeners native — nu pentru fetch sau state derivat
+- Texte UI mereu prin `t("cheie")` din `i18n/ro.ts`
+
+**GitHub:** https://github.com/alexx94/saas-hotelier (branch: main, public)

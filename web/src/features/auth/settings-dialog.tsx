@@ -154,7 +154,7 @@ export function SettingsDialog({ email }: { email: string | null }) {
       <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden sm:max-w-2xl">
         <DialogTitle className="sr-only">{t("nav.settings")}</DialogTitle>
 
-        <div className="flex h-[28rem] max-h-[90vh]">
+        <div className="flex flex-col sm:flex-row h-[28rem] max-h-[90vh]">
           {/* Sidebar — icons pe mobil, text pe sm+ */}
           <aside className="flex flex-row gap-1 border-b p-2 sm:flex-col sm:w-44 sm:border-b-0 sm:border-r sm:p-3 shrink-0">
             <div className="hidden sm:block px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide select-none">

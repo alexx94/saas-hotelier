@@ -50,8 +50,10 @@ function GuestsPage() {
       })
       setOpen(false)
       form.reset()
-    } catch {
-      toast.error(t("common.error"))
+    } catch (err) {
+      // 23505 = unique_violation (unicitate email/telefon per organizație)
+      const code = (err as { code?: string } | null)?.code
+      toast.error(code === "23505" ? t("guests.duplicate") : t("common.error"))
     }
   }
 

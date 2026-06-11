@@ -149,6 +149,7 @@ export const ro = {
   "guests.create_new": "Creează oaspete nou",
   "guests.found_by_email": "Oaspete existent găsit după email",
   "guests.found_by_phone": "Oaspete existent găsit după telefon",
+  "guests.duplicate": "Există deja un oaspete cu acest email sau telefon.",
 
   // booking — total și nopți
   "bookings.nights": "nopți",
@@ -173,6 +174,28 @@ export const ro = {
   "auth.confirm_password": "Confirmă parola",
   "auth.change_password": "Schimbă parola",
   "auth.password_changed": "Parola a fost schimbată cu succes",
+
+  // booking — confirmări schimbare status
+  "bookings.confirm_action": "Confirmare acțiune",
+  "bookings.confirm_continue": "Continuă",
+  "bookings.warn_early_checkin":
+    "Data de check-in nu a sosit încă. Cazezi oaspetele mai devreme?",
+  "bookings.warn_early_checkout":
+    "Oaspetele pleacă mai devreme decât data de check-out. Continui?",
+  "bookings.warn_no_show_early":
+    "Data de check-in nu a trecut încă. Sigur marchezi neprezentare?",
+  "bookings.warn_revert":
+    "Revii la statusul anterior. Continui?",
+  "bookings.warn_reinstate":
+    "Rezervarea anulată va fi reactivată. Camera trebuie să fie liberă pe interval. Continui?",
+  "bookings.revert_section": "Corectează",
+
+  // booking — editare date
+  "bookings.edit_dates": "Modifică datele",
+  "bookings.dates_updated": "Datele rezervării au fost actualizate",
+  "bookings.not_editable": "Rezervarea nu mai poate fi modificată (status final)",
+  "bookings.invalid_transition": "Această tranziție de status nu este permisă",
+  "bookings.invalid_date_range": "Check-out trebuie să fie după check-in",
 
   // pagina publică
   "public.check_availability": "Verifică disponibilitatea",

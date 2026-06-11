@@ -22,17 +22,9 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
-// ─── helpers dată ─────────────────────────────────────────────────────────────
+import { addDays, formatDateShort } from "./date-utils"
 
-function addDays(isoDate: string, days: number): string {
-  const d = new Date(isoDate)
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-
-function formatDateShort(isoDate: string): string {
-  return new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "short" }).format(new Date(isoDate))
-}
+// ─── constants ────────────────────────────────────────────────────────────────
 
 const NIGHT_SHORTCUTS = [1, 2, 3, 5, 7]
 
@@ -155,7 +147,7 @@ export function BookingFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) resetForm() }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("bookings.add")}</DialogTitle>
         </DialogHeader>

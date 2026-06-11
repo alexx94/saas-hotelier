@@ -1,16 +1,21 @@
 import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { toast } from "sonner"
-import { History, MoveRight, Plus } from "lucide-react"
+import { CalendarDays, History, MoveRight, Plus, Undo2 } from "lucide-react"
 import {
   PropertySelect, usePropertySelection,
 } from "@/features/properties/property-select"
 import { useBookings, useUpdateBookingStatus } from "@/features/bookings/hooks"
 import { BookingFormDialog } from "@/features/bookings/booking-form-dialog"
 import { ReassignDialog } from "@/features/bookings/reassign-dialog"
+import { EditDatesDialog } from "@/features/bookings/edit-dates-dialog"
 import { BookingHistory } from "@/features/bookings/booking-history"
 import { StatusBadge, statusLabel } from "@/features/bookings/status-badge"
+import {
+  getRevertOptions, nextStatuses, statusChangeWarning,
+} from "@/features/bookings/status-rules"
 import type { Booking, BookingStatus } from "@/features/bookings/api"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { t } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -18,8 +23,12 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  Select, SelectContent, SelectItem, SelectTrigger,
-} from "@/components/ui/select"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -30,14 +39,8 @@ export const Route = createFileRoute("/_app/app/bookings")({
   component: BookingsPage,
 })
 
-const nextStatuses: Record<string, BookingStatus[]> = {
-  pending: ["confirmed", "cancelled"],
-  confirmed: ["checked_in", "cancelled", "no_show"],
-  checked_in: ["checked_out"],
-  blocked: ["cancelled"],
-}
-
 const REASSIGNABLE = new Set(["pending", "confirmed", "checked_in"])
+const DATE_EDITABLE = new Set(["pending", "confirmed", "checked_in"])
 
 function BookingsPage() {
   const { properties, property, setPropertyId } = usePropertySelection()
@@ -46,13 +49,32 @@ function BookingsPage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [reassignBooking, setReassignBooking] = useState<Booking | null>(null)
+  const [editDatesBooking, setEditDatesBooking] = useState<Booking | null>(null)
   const [historyBooking, setHistoryBooking] = useState<Booking | null>(null)
+  const [confirmChange, setConfirmChange] = useState<{
+    booking: Booking
+    status: BookingStatus
+    warning: string
+  } | null>(null)
 
-  async function onStatusChange(id: string, status: BookingStatus) {
+  async function applyStatusChange(id: string, status: BookingStatus) {
     try {
       await updateStatus.mutateAsync({ id, status })
-    } catch {
-      toast.error(t("common.error"))
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : ""
+      if (msg.includes("INVALID_STATUS_TRANSITION")) toast.error(t("bookings.invalid_transition"))
+      else if (msg.includes("no_double_booking")) toast.error(t("bookings.unit_not_available"))
+      else toast.error(t("common.error"))
+    }
+  }
+
+  // Schimbările sensibile (date nepotrivite, undo) cer confirmare explicită
+  function requestStatusChange(booking: Booking, status: BookingStatus) {
+    const warningKey = statusChangeWarning(booking, status)
+    if (warningKey) {
+      setConfirmChange({ booking, status, warning: t(warningKey) })
+    } else {
+      applyStatusChange(booking.id, status)
     }
   }
 
@@ -86,6 +108,22 @@ function BookingsPage() {
         booking={reassignBooking}
         open={!!reassignBooking}
         onOpenChange={(o) => !o && setReassignBooking(null)}
+      />
+
+      <EditDatesDialog
+        booking={editDatesBooking}
+        open={!!editDatesBooking}
+        onOpenChange={(o) => !o && setEditDatesBooking(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmChange}
+        onOpenChange={(o) => !o && setConfirmChange(null)}
+        title={t("bookings.confirm_action")}
+        description={confirmChange?.warning ?? ""}
+        onConfirm={() => {
+          if (confirmChange) applyStatusChange(confirmChange.booking.id, confirmChange.status)
+        }}
       />
 
       {/* Dialog istoric */}
@@ -132,7 +170,9 @@ function BookingsPage() {
             <TableBody>
               {bookings.map((b) => {
                 const options = nextStatuses[b.status] ?? []
+                const reverts = getRevertOptions(b)
                 const canReassign = REASSIGNABLE.has(b.status)
+                const canEditDates = DATE_EDITABLE.has(b.status)
                 return (
                   <TableRow key={b.id}>
                     <TableCell className="font-medium">
@@ -155,17 +195,41 @@ function BookingsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        {options.length > 0 && (
-                          <Select onValueChange={(v) => onStatusChange(b.id, v as BookingStatus)}>
-                            <SelectTrigger className="h-7 w-28 text-xs">
-                              <span>{t("common.edit")}</span>
-                            </SelectTrigger>
-                            <SelectContent>
+                        {(options.length > 0 || reverts.length > 0) && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="sm" className="h-7 px-2 text-xs">
+                                {t("common.edit")}
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
                               {options.map((s) => (
-                                <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
+                                <DropdownMenuItem key={s} onClick={() => requestStatusChange(b, s)}>
+                                  {statusLabel(s)}
+                                </DropdownMenuItem>
                               ))}
-                            </SelectContent>
-                          </Select>
+                              {options.length > 0 && reverts.length > 0 && <DropdownMenuSeparator />}
+                              {reverts.map((s) => (
+                                <DropdownMenuItem
+                                  key={s}
+                                  onClick={() => requestStatusChange(b, s)}
+                                  className="text-muted-foreground"
+                                >
+                                  <Undo2 className="h-3.5 w-3.5" />
+                                  {t("bookings.revert_section")}: {statusLabel(s)}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                        {canEditDates && (
+                          <Button
+                            variant="ghost" size="icon" className="h-7 w-7 shrink-0"
+                            title={t("bookings.edit_dates")}
+                            onClick={() => setEditDatesBooking(b)}
+                          >
+                            <CalendarDays className="h-3.5 w-3.5" />
+                          </Button>
                         )}
                         {canReassign && (
                           <Button

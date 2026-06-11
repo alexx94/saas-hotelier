@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   createBooking, fetchAvailableUnits, fetchBookingEvents,
   fetchBookings, fetchBookingsInRange, fetchUnits,
-  reassignBooking, updateBookingStatus,
+  reassignBooking, updateBookingDates, updateBookingStatus,
   type BookingStatus, type CreateBookingInput,
 } from "./api"
 
@@ -87,6 +87,15 @@ export function useReassignBooking() {
   return useMutation({
     mutationFn: ({ bookingId, unitId }: { bookingId: string; unitId: string }) =>
       reassignBooking(bookingId, unitId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: bookingKeys.all }),
+  })
+}
+
+export function useUpdateBookingDates() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ bookingId, checkIn, checkOut }: { bookingId: string; checkIn: string; checkOut: string }) =>
+      updateBookingDates(bookingId, checkIn, checkOut),
     onSuccess: () => qc.invalidateQueries({ queryKey: bookingKeys.all }),
   })
 }

@@ -84,6 +84,9 @@ export type Database = {
       }
       bookings: {
         Row: {
+          booked_email: string | null
+          booked_full_name: string | null
+          booked_phone: string | null
           check_in: string
           check_out: string
           created_at: string
@@ -103,6 +106,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          booked_email?: string | null
+          booked_full_name?: string | null
+          booked_phone?: string | null
           check_in: string
           check_out: string
           created_at?: string
@@ -122,6 +128,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          booked_email?: string | null
+          booked_full_name?: string | null
+          booked_phone?: string | null
           check_in?: string
           check_out?: string
           created_at?: string
@@ -551,6 +560,10 @@ export type Database = {
       }
       reassign_booking: {
         Args: { p_booking_id: string; p_unit_id: string }
+        Returns: undefined
+      }
+      update_booking_dates: {
+        Args: { p_booking_id: string; p_check_in: string; p_check_out: string }
         Returns: undefined
       }
     }

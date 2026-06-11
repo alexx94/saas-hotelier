@@ -1,6 +1,7 @@
 import { format } from "date-fns"
 import { History } from "lucide-react"
 import { useBookingEvents } from "./hooks"
+import { EventDiff } from "./event-diff"
 import { t } from "@/lib/i18n"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { TranslationKey } from "@/lib/i18n"
@@ -35,18 +36,7 @@ export function BookingHistory({ bookingId }: Props) {
             <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <div className="flex-1">
               <span className="font-medium">{t(labelKey)}</span>
-              {ev.event_type === "reassigned" && ev.old_data && ev.new_data && (
-                <span className="ml-1 text-muted-foreground">
-                  (cameră schimbată)
-                </span>
-              )}
-              {ev.event_type === "status_changed" && ev.old_data && ev.new_data && (
-                <span className="ml-1 text-muted-foreground">
-                  ({(ev.old_data as Record<string, unknown>)["status"] as string}
-                  {" → "}
-                  {(ev.new_data as Record<string, unknown>)["status"] as string})
-                </span>
-              )}
+              <EventDiff oldData={ev.old_data} newData={ev.new_data} />
             </div>
             <span className="text-xs text-muted-foreground shrink-0">
               {format(new Date(ev.created_at), "dd.MM HH:mm")}
