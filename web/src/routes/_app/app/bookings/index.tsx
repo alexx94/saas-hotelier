@@ -11,6 +11,9 @@ import { ReassignDialog } from "@/features/bookings/reassign-dialog"
 import { EditDatesDialog } from "@/features/bookings/edit-dates-dialog"
 import { BookingHistory } from "@/features/bookings/booking-history"
 import { StatusBadge, statusLabel } from "@/features/bookings/status-badge"
+import { PaymentStatusBadge } from "@/features/payments/payment-status-badge"
+import type { PaymentStatus } from "@/features/payments/api"
+import { formatMoney } from "@/lib/money"
 import {
   getRevertOptions, nextStatuses, statusChangeWarning,
 } from "@/features/bookings/status-rules"
@@ -170,6 +173,7 @@ function BookingsPage() {
                 <TableHead>{t("bookings.check_in")}</TableHead>
                 <TableHead>{t("bookings.check_out")}</TableHead>
                 <TableHead>{t("bookings.total")}</TableHead>
+                <TableHead>{t("payments.payment")}</TableHead>
                 <TableHead>{t("bookings.status")}</TableHead>
                 <TableHead className="w-48">{t("common.actions")}</TableHead>
               </TableRow>
@@ -208,7 +212,21 @@ function BookingsPage() {
                     </TableCell>
                     <TableCell>{b.check_in}</TableCell>
                     <TableCell>{b.check_out}</TableCell>
-                    <TableCell>{Number(b.total_amount).toFixed(2)} {b.currency}</TableCell>
+                    <TableCell>
+                      {formatMoney(b.total_amount, b.currency)}
+                      {b.status !== "blocked" && (
+                        <span className="block text-xs text-muted-foreground">
+                          {t("payments.paid")}: {formatMoney(b.amount_paid, b.currency)}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {b.status === "blocked" ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <PaymentStatusBadge status={b.payment_status as PaymentStatus} />
+                      )}
+                    </TableCell>
                     <TableCell>
                       <StatusBadge status={b.status as BookingStatus} />
                     </TableCell>

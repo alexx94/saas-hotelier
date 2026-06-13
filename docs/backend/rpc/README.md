@@ -17,10 +17,12 @@
 | `update_booking_dates` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
 | `reassign_booking` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
 | `get_available_units` | rezervări | INVOKER | membri (prin RLS) | [bookings.md](bookings.md) |
+| `record_payment` | plăți | DEFINER | membri cu acces pe proprietate | [payments.md](payments.md) |
+| `get_revenue_summary` | plăți | DEFINER | membri cu acces pe proprietate | [payments.md](payments.md) |
 | `public_get_availability` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |
 | `public_create_booking` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |
 
-Funcții interne (schema `app`, neapelabile din API): `app.create_booking_internal` ([bookings.md](bookings.md)), `app.find_or_create_guest_internal` ([guests.md](guests.md)).
+Funcții interne (schema `app`, neapelabile din API): `app.create_booking_internal` ([bookings.md](bookings.md)), `app.find_or_create_guest_internal` ([guests.md](guests.md)), `app.sync_booking_payment` (trigger plăți, [payments.md](payments.md)).
 
 ## Contractul cu frontend-ul
 

@@ -7,8 +7,12 @@ import { useBooking, useLinkBookingGuest } from "@/features/bookings/hooks"
 import { BookingHistory } from "@/features/bookings/booking-history"
 import { StatusBadge } from "@/features/bookings/status-badge"
 import type { BookingStatus } from "@/features/bookings/api"
+import type { PaymentStatus } from "@/features/payments/api"
+import { PaymentStatusBadge } from "@/features/payments/payment-status-badge"
+import { PaymentsCard } from "@/features/payments/payments-card"
 import { GuestCombobox } from "@/features/guests/guest-combobox"
 import { t, type TranslationKey } from "@/lib/i18n"
+import { formatMoney } from "@/lib/money"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -72,6 +76,9 @@ function BookingDetailPage() {
         </Button>
         <h1 className="text-xl font-semibold md:text-2xl">{t("bookings.detail_title")}</h1>
         <StatusBadge status={booking.status as BookingStatus} />
+        {!isBlocked && (
+          <PaymentStatusBadge status={booking.payment_status as PaymentStatus} />
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -89,9 +96,15 @@ function BookingDetailPage() {
             <Row label={t("bookings.check_in")} value={booking.check_in} />
             <Row label={t("bookings.check_out")} value={`${booking.check_out} (${nights} ${t("bookings.nights")})`} />
             <Row label={t("bookings.guests_count")} value={String(booking.guests_count)} />
+            {!isBlocked && (
+              <Row
+                label={t("bookings.unit_price")}
+                value={formatMoney(booking.unit_price, booking.currency)}
+              />
+            )}
             <Row
               label={t("bookings.total")}
-              value={`${Number(booking.total_amount).toFixed(2)} ${booking.currency}`}
+              value={formatMoney(booking.total_amount, booking.currency)}
             />
             <Row
               label={t("bookings.source")}
@@ -151,6 +164,17 @@ function BookingDetailPage() {
           </Card>
         )}
       </div>
+
+      {/* Plăți */}
+      {!isBlocked && (
+        <PaymentsCard
+          bookingId={booking.id}
+          currency={booking.currency}
+          total={Number(booking.total_amount)}
+          amountPaid={Number(booking.amount_paid)}
+          paymentStatus={booking.payment_status as PaymentStatus}
+        />
+      )}
 
       {/* Istoric */}
       <Card>

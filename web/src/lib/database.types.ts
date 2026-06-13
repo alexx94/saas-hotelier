@@ -84,6 +84,7 @@ export type Database = {
       }
       bookings: {
         Row: {
+          amount_paid: number
           booked_email: string | null
           booked_full_name: string | null
           booked_phone: string | null
@@ -96,16 +97,19 @@ export type Database = {
           id: string
           notes: string | null
           org_id: string
+          payment_status: string
           property_id: string
           source: string
           status: string
           stay: unknown
           total_amount: number
           unit_id: string
+          unit_price: number
           unit_type_id: string
           updated_at: string
         }
         Insert: {
+          amount_paid?: number
           booked_email?: string | null
           booked_full_name?: string | null
           booked_phone?: string | null
@@ -118,16 +122,19 @@ export type Database = {
           id?: string
           notes?: string | null
           org_id: string
+          payment_status?: string
           property_id: string
           source?: string
           status?: string
           stay?: unknown
           total_amount?: number
           unit_id: string
+          unit_price?: number
           unit_type_id: string
           updated_at?: string
         }
         Update: {
+          amount_paid?: number
           booked_email?: string | null
           booked_full_name?: string | null
           booked_phone?: string | null
@@ -140,12 +147,14 @@ export type Database = {
           id?: string
           notes?: string | null
           org_id?: string
+          payment_status?: string
           property_id?: string
           source?: string
           status?: string
           stay?: unknown
           total_amount?: number
           unit_id?: string
+          unit_price?: number
           unit_type_id?: string
           updated_at?: string
         }
@@ -310,6 +319,85 @@ export type Database = {
           slug?: string
         }
         Relationships: []
+      }
+      payments: {
+        Row: {
+          amount: number
+          booking_id: string
+          created_at: string
+          currency: string
+          id: string
+          kind: string
+          method: string
+          note: string | null
+          org_id: string
+          paid_at: string
+          property_id: string
+          provider: string
+          provider_ref: string | null
+          recorded_by: string | null
+          recorded_by_email: string | null
+          status: string
+        }
+        Insert: {
+          amount: number
+          booking_id: string
+          created_at?: string
+          currency: string
+          id?: string
+          kind?: string
+          method?: string
+          note?: string | null
+          org_id: string
+          paid_at?: string
+          property_id: string
+          provider?: string
+          provider_ref?: string | null
+          recorded_by?: string | null
+          recorded_by_email?: string | null
+          status?: string
+        }
+        Update: {
+          amount?: number
+          booking_id?: string
+          created_at?: string
+          currency?: string
+          id?: string
+          kind?: string
+          method?: string
+          note?: string | null
+          org_id?: string
+          paid_at?: string
+          property_id?: string
+          provider?: string
+          provider_ref?: string | null
+          recorded_by?: string | null
+          recorded_by_email?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       properties: {
         Row: {
@@ -740,6 +828,15 @@ export type Database = {
           upcoming: number
         }[]
       }
+      get_revenue_summary: {
+        Args: { p_property_id: string }
+        Returns: {
+          currency: string
+          revenue_month: number
+          revenue_today: number
+          revenue_year: number
+        }[]
+      }
       link_booking_guest: {
         Args: { p_booking_id: string; p_guest_id: string }
         Returns: undefined
@@ -774,6 +871,18 @@ export type Database = {
       reassign_booking: {
         Args: { p_booking_id: string; p_unit_id: string }
         Returns: undefined
+      }
+      record_payment: {
+        Args: {
+          p_amount: number
+          p_booking_id: string
+          p_kind?: string
+          p_method?: string
+          p_note?: string
+          p_paid_at?: string
+          p_provider_ref?: string
+        }
+        Returns: string
       }
       remove_block: { Args: { p_block_id: string }; Returns: undefined }
       update_booking_dates: {

@@ -14,6 +14,7 @@ const EVENT_LABEL: Record<string, TranslationKey> = {
   reassigned: "bookings.event.reassigned",
   dates_changed: "bookings.event.dates_changed",
   guest_changed: "bookings.event.guest_changed",
+  payment_status: "bookings.event.payment_status",
   updated: "bookings.event.updated",
 }
 

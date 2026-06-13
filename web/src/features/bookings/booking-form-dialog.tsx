@@ -314,11 +314,12 @@ export function BookingFormDialog({
             <Textarea rows={2} {...form.register("notes")} />
           </div>
 
-          {/* Estimare total */}
-          {estimatedTotal !== null && (
+          {/* Estimare total: preț/noapte × nopți */}
+          {estimatedTotal !== null && selectedType && (
             <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-sm">
               <span className="text-muted-foreground">
-                {t("bookings.price_estimate")} · {nights} {t("bookings.nights")}
+                {t("bookings.price_estimate")} ·{" "}
+                {Number(selectedType.base_price).toFixed(2)} {currency} × {nights} {t("bookings.nights")}
               </span>
               <span className="font-semibold">
                 {estimatedTotal.toFixed(2)} {currency}

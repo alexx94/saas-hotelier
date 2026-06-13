@@ -1,6 +1,8 @@
 import { statusLabel } from "./status-badge"
 import { formatDateShort } from "./date-utils"
 import type { BookingStatus } from "./api"
+import { paymentStatusLabel } from "@/features/payments/payment-status"
+import type { PaymentStatus } from "@/features/payments/api"
 import { t, type TranslationKey } from "@/lib/i18n"
 
 // Registru de câmpuri afișabile din old_data/new_data (audit).
@@ -19,6 +21,10 @@ const BOOKING_FIELDS: EventFieldRegistry = {
   check_out: { label: "bookings.check_out", format: (v) => formatDateShort(String(v)) },
   guests_count: { label: "bookings.guests_count" },
   total_amount: { label: "bookings.total" },
+  payment_status: {
+    label: "payments.payment",
+    format: (v) => paymentStatusLabel(v as PaymentStatus),
+  },
   notes: { label: "bookings.notes" },
 }
 

@@ -1027,5 +1027,140 @@ begin
     raise exception 'TEST 28b FAIL: removed=%', v_removed;
   end if;
 end $$;
+reset role;
+
+-- ---------- TEST 29: plăți — snapshot preț, ledger, stare cached (Sprint 4) ----------
+-- temp table (fără RLS) ca să pasăm id-ul rezervării către testul cross-org de mai jos.
+-- creat ca postgres → trebuie grant explicit ca rolul `authenticated` să-l poată folosi.
+create temp table _pay_ids (id uuid);
+grant all on _pay_ids to authenticated;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare
+  v_booking uuid;
+  v_total   numeric;
+  v_price   numeric;
+  v_status  text;
+  v_paid    numeric;
+begin
+  -- rezervare nouă: 4 nopți × base_price 100 = 400, pe Camera 2, interval liber
+  v_booking := public.create_booking(
+    '30000000-0000-0000-0000-000000000001'::uuid,
+    '2028-03-01', '2028-03-05',
+    '50000000-0000-0000-0000-000000000001'::uuid,
+    '40000000-0000-0000-0000-000000000002'::uuid);
+  insert into _pay_ids values (v_booking);
+
+  select total_amount, unit_price, payment_status, amount_paid
+    into v_total, v_price, v_status, v_paid
+    from bookings where id = v_booking;
+  if v_price = 100 and v_total = 400 and v_status = 'unpaid' and v_paid = 0 then
+    raise notice 'TEST 29 PASS: snapshot pret=100, total=400, unpaid la creare';
+  else
+    raise exception 'TEST 29 FAIL: price=% total=% status=% paid=%', v_price, v_total, v_status, v_paid;
+  end if;
+
+  -- 29a: plată parțială => partial
+  perform public.record_payment(v_booking, 150, 'payment', 'cash');
+  select payment_status, amount_paid into v_status, v_paid from bookings where id = v_booking;
+  if v_status = 'partial' and v_paid = 150 then
+    raise notice 'TEST 29a PASS: plata partiala => partial, paid=150';
+  else raise exception 'TEST 29a FAIL: status=% paid=%', v_status, v_paid; end if;
+
+  -- 29b: restul => paid
+  perform public.record_payment(v_booking, 250, 'payment', 'card');
+  select payment_status into v_status from bookings where id = v_booking;
+  if v_status <> 'paid' then raise exception 'TEST 29b FAIL: status % (astept paid)', v_status; end if;
+  raise notice 'TEST 29b PASS: plata integrala => paid';
+
+  -- 29c: rambursare totală => refunded, amount_paid 0
+  perform public.record_payment(v_booking, 400, 'refund', 'card');
+  select payment_status, amount_paid into v_status, v_paid from bookings where id = v_booking;
+  if v_status = 'refunded' and v_paid = 0 then
+    raise notice 'TEST 29c PASS: rambursare totala => refunded, paid=0';
+  else raise exception 'TEST 29c FAIL: status=% paid=%', v_status, v_paid; end if;
+
+  -- 29d: 3 tranziții de stare în audit
+  if (select count(*) from booking_events
+      where booking_id = v_booking and event_type = 'payment_status') = 3 then
+    raise notice 'TEST 29d PASS: 3 evenimente payment_status in istoric';
+  else
+    raise exception 'TEST 29d FAIL: % evenimente payment_status',
+      (select count(*) from booking_events where booking_id = v_booking and event_type = 'payment_status');
+  end if;
+
+  -- 29e: rambursare > 0 cu suma invalidă => INVALID_AMOUNT
+  begin
+    perform public.record_payment(v_booking, 0, 'payment', 'cash');
+    raise exception 'TEST 29e FAIL: suma 0 acceptată';
+  exception when others then
+    if sqlerrm like '%INVALID_AMOUNT%' then raise notice 'TEST 29e PASS: suma 0 => INVALID_AMOUNT';
+    else raise; end if;
+  end;
+end $$;
+
+-- ---------- TEST 30: get_revenue_summary (venit net azi) ----------
+do $$
+declare v_rev record;
+begin
+  -- pe proprietatea A: 150 + 250 încasat, 400 rambursat azi => net 0
+  select * into v_rev from public.get_revenue_summary('20000000-0000-0000-0000-000000000001'::uuid);
+  if v_rev.revenue_today = 0 and v_rev.currency = 'RON' then
+    raise notice 'TEST 30 PASS: venit azi net = 0 (400 incasat - 400 rambursat), %', v_rev.currency;
+  else
+    raise exception 'TEST 30 FAIL: today=% currency=%', v_rev.revenue_today, v_rev.currency;
+  end if;
+end $$;
+reset role;
+
+-- ---------- TEST 31: record_payment cross-org => FORBIDDEN ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v_b uuid;
+begin
+  select id into v_b from _pay_ids limit 1;  -- temp table, fără RLS
+  begin
+    perform public.record_payment(v_b, 100, 'payment', 'cash');
+    raise exception 'TEST 31 FAIL: owner-b a inregistrat plata pe proprietatea A';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 31 PASS: record_payment cross-org => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 32: supraîncasare + recorded_by_email (Sprint 4.1) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated","email":"owner-a@test.ro"}';
+do $$
+declare v_b uuid; v_status text; v_paid numeric; v_total numeric; v_email text;
+begin
+  -- rezervare nouă (400), pe Camera 1, interval liber
+  v_b := public.create_booking(
+    '30000000-0000-0000-0000-000000000001'::uuid, '2028-06-01', '2028-06-05',
+    '50000000-0000-0000-0000-000000000001'::uuid, '40000000-0000-0000-0000-000000000001'::uuid);
+  select total_amount into v_total from bookings where id = v_b;
+
+  -- încasăm 500 pe un total de 400 => amount_paid 500 > total, status rămâne 'paid'
+  perform public.record_payment(v_b, 500, 'payment', 'card');
+  select payment_status, amount_paid into v_status, v_paid from bookings where id = v_b;
+  if v_paid = 500 and v_paid > v_total and v_status = 'paid' then
+    raise notice 'TEST 32 PASS: supraincasare vizibila (amount_paid=500 > total=400, status paid)';
+  else
+    raise exception 'TEST 32 FAIL: paid=% total=% status=%', v_paid, v_total, v_status;
+  end if;
+
+  -- 32a: cine a consemnat plata (snapshot email din JWT)
+  select recorded_by_email into v_email from payments where booking_id = v_b limit 1;
+  if v_email = 'owner-a@test.ro' then
+    raise notice 'TEST 32a PASS: recorded_by_email = %', v_email;
+  else
+    raise exception 'TEST 32a FAIL: recorded_by_email = %', v_email;
+  end if;
+end $$;
+reset role;
 
 rollback;

@@ -5,6 +5,49 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 4.1 — Plăți: rafinări UX (13 iun 2026)
+
+- **Supraîncasare vizibilă** (migrația de model neschimbată): cardul de plăți derivă `diff = total − amount_paid` **fără trunchiere la 0**. `diff < 0` → rând „Încasat în plus" + avertisment amber; rambursarea excedentului readuce restul la 0. Înainte „Rest de plată" arăta 0 și ascundea supraîncasarea.
+- **Lista de rezervări — coloana Total** afișează acum `total` + „Încasat: X" dedesubt (folosește denormalizarea `amount_paid`, deci zero query-uri în plus).
+- **Cine a consemnat plata** (migrația `20260613130000_payment_recorded_by_email.sql`): coloană `payments.recorded_by_email`, snapshot din `auth.jwt()` în `record_payment` (pattern `unit_events.actor_email`); afișată pe fiecare tranzacție.
+- **Paginare „Afișează mai mult"** pe lista de plăți (`usePayments` → `useInfiniteQuery`, 15/pagină, `dedupeById`), conform convenției de istoricuri. Rezumatul (total/încasat/stare) NU depinde de listă — vine din rândul `bookings` (agregat de trigger), deci O(1).
+- Teste DB 32/32a (supraîncasare + `recorded_by_email`). Chei i18n `payments.overpaid*`, `payments.recorded_by`.
+
+---
+
+## Sprint 4 — Pricing & Revenue (13 iun 2026)
+
+### Obiectiv
+
+Apropiere de un PMS comercial: preț pe rezervare cu snapshot, stare de plată și dashboard de venit. Cerință explicită de scalabilitate spre **plăți reale** (Stripe sau alt procesator) și, ulterior, **e-factură** — soluția nu trebuie re-arhitecturată atunci.
+
+### Soluția (migrația `20260613120000_pricing_and_payments.sql`)
+
+- **Price snapshot** — `bookings.unit_price` = prețul/noapte folosit la momentul rezervării (`base_price` se poate schimba; rezervarea își amintește). `total_amount` exista deja. `create_booking_internal` primește `p_unit_price` (NULL → `base_price` curent); ambele wrappere (`create_booking`, `public_create_booking`) îl pasează. Backfill din `total / nopți` cu trigger-ele de audit oprite (nu e acțiune de operator).
+- **Payments ledger — tabel `payments`**: registru imuabil de tranzacții (`kind` payment/refund, `amount` mereu pozitiv, `method`, `status` pending/completed/failed, `provider` `'manual'` azi / `'stripe'` mâine, `provider_ref` = id extern sau serie factură, `paid_at`, `recorded_by`). **De ce ledger și nu un câmp:** suportă plăți parțiale, rambursări, reconciliere cu procesator și raportare de venit; când vine Stripe, fiecare webhook = un rând, restul logicii neschimbat. Doar tranzacțiile `completed` intră în agregate (plățile `pending` async nu contează la venit până se confirmă — corect by design).
+- **Stare plată = agregat cached** — `bookings.payment_status` (unpaid/partial/paid/refunded) + `amount_paid`, întreținute de trigger-ul `payments_sync_booking` → `app.sync_booking_payment` (recalcul din ledger, fără update no-op). Niciodată numărat pe client (convenția „agregări server-side"). Schimbarea de stare e auditată (`booking_events.event_type='payment_status'`), vizibilă în istoric.
+- **RPC `record_payment(...)`** — DEFINER, autorizat prin `can_access_property`; moneda din rezervare, `provider/status/recorded_by` forțate; erori `BOOKING_NOT_PAYABLE`/`INVALID_KIND`/`INVALID_AMOUNT`/`INVALID_METHOD`. Ștergerea unei înregistrări greșite = `DELETE` sub RLS (`payments_delete`, owner/manager), trigger-ul resincronizează.
+- **RPC `get_revenue_summary(p_property_id)`** — venit azi/lună/an, server-side, în **timezone-ul proprietății**, sumă tranzacții `completed` cu refund pe minus.
+- **Audit trigger `app.audit_booking`** rescris: ramură nouă `payment_status` + guard care nu mai loghează update-uri fără câmp auditabil (ex. doar `amount_paid` recalculat).
+
+### Frontend (feature nou `payments`, modular api/hooks/componente)
+
+- **`api.ts`/`hooks.ts`** — `recordPayment`/`deletePayment`/`fetchPayments`/`fetchRevenueSummary`; `paymentKeys` cu invalidare cross-feature (plățile schimbă starea rezervării și venitul → invalidează `bookings`/`booking`/`booking-events`/`revenue`).
+- **`payment-status.ts` + `payment-status-badge.tsx`** — registru de culori/labels pe stare plată (pattern `status-badge.tsx`), reutilizabil.
+- **`record-payment-dialog.tsx`** — încasare/rambursare (sumă prefill = rest de plată, metodă, dată, notă), RHF+Zod.
+- **`payments-card.tsx`** — pe pagina rezervării: sumar total/încasat/rest, badge stare, listă tranzacții cu ștergere, butoane plată/rambursare.
+- **`revenue-cards.tsx`** — dashboard: 3 carduri venit azi/lună/an, cu selecție proprietate.
+- **Integrări**: dashboard (`_app/app/index.tsx`) afișează venitul; lista de rezervări are coloană stare plată; pagina rezervării arată preț/noapte (snapshot) + cardul de plăți; `event-diff.tsx`/`booking-history.tsx` afișează evenimentul `payment_status`. Helper nou `lib/money.ts` (`formatMoney`).
+- Chei i18n noi (`payments.*`, `revenue.*`, `bookings.unit_price`, `bookings.event.payment_status`).
+
+### Verificat
+
+- Trigger sync (DB, tranzacție cu rollback): `unpaid → partial → paid → refunded` corect, cu 3 evenimente `payment_status` în istoric.
+- Agregare venit (DB): azi/lună/an corecte cu bucketing pe timezone și refund pe minus.
+- `tsc --noEmit` curat; toate modulele noi compilează în Vite, fără erori în consolă.
+
+---
+
 ## Sprint 3 — Room Operations (12 iun 2026)
 
 ### Obiectiv
