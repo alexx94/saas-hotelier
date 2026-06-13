@@ -5,6 +5,81 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 3 — Room Operations (12 iun 2026)
+
+### Obiectiv
+
+Gestionare profesională a camerelor, stil Cloudbeds/Pynbooking. Statusurile (4 stări) și blocarea arhivării cu rezervări viitoare existau deja (migrația 3); sprintul a adăugat ce lipsea: numerotare flexibilă la generarea bulk, operațiuni bulk pe stări și audit trail per cameră.
+
+### Soluția (migrația `20260611220000_unit_events_and_bulk_ops.sql`)
+
+- **Audit trail camere — `unit_events`**: același model ca `booking_events`, scris exclusiv de trigger-ul `units_audit` (`app.audit_unit`, DEFINER + `search_path = ''`). Evenimente: `created`, `status_changed`, `renamed`, doar cu câmpurile relevante în `old_data`/`new_data`. În plus față de bookings: `actor_email` (snapshot din `auth.jwt()`) — "cine a modificat" se afișează fără join spre `auth.users`. RLS select prin `can_access_property`.
+- **RPC `bulk_update_unit_status(p_unit_ids uuid[], p_status text) → jsonb`** — SECURITY INVOKER (RLS `units_cud` autorizează, doar owner/manager). Comportament parțial: fiecare cameră se actualizează în sub-tranzacție; excepția `UNIT_HAS_FUTURE_BOOKINGS` din trigger-ul existent e prinsă per rând → `{"updated": n, "blocked": ["Camera 101", ...]}`. Validarea rămâne în trigger (sursă unică), RPC-ul doar orchestrează. Limită 500 id-uri.
+- **`generate_units`**: guard nou `INVALID_START` (`p_start_number ≥ 1`) — frontend-ul trimite acum start explicit.
+
+### Frontend (feature `unit-types`, refactor modular)
+
+- **`room-numbering.ts`** — parser pur pentru numerotare: `"101-120"` (interval inclusiv) sau `"20"` + start opțional → `{ count, start }`, max 500. Folosit și în dialogul de creare tip, și la "adaugă camere în plus".
+- **`unit-rows.tsx`** (extras din ruta `$propertyId.tsx`): rând per cameră cu checkbox de selecție, dropdown de stare, buton istoric; selectare-toate per tip.
+- **`bulk-actions-bar.tsx`** — Activează / Dezactivează / Arhivează pe selecție (arhivarea cere confirmare); toast cu `n camere actualizate` + listarea pe nume a celor blocate.
+- **`add-units-row.tsx`** — generare suplimentară cu numerotare nouă (câmpul de start se ascunde când se tastează interval).
+- **`unit-history-dialog.tsx`** — istoricul camerei (cine/ce/când, cu email-ul actorului). `EventDiff` din bookings a devenit reutilizabil: registrul de câmpuri e acum parametru (`fields`), cu registrul de bookings ca default — zero schimbări la apelanții existenți.
+- **`unit-status.ts`** — constantele de stare (labels/badge/dot) mutate din rută în feature, reutilizabile.
+- Chei i18n noi (`units.numbering*`, `units.bulk_*`, `unit.event.*`).
+
+### Verificat la zi (features existente, conform direcției proiectului)
+
+- Cele 4 stări + blocarea arhivării cu mesaj explicativ existau și respectă pattern-ul (trigger DB = sursa de adevăr, frontend doar mapează `UNIT_HAS_FUTURE_BOOKINGS` pe i18n) — neatinse.
+- Camerele non-active nu pot primi rezervări pe nicio cale (`create_booking_internal`, `reassign_booking`, API public filtrează `status = 'active'`), deci guard-ul de tranziție doar din `active` e suficient.
+
+### Completare (migrația `20260612100000_unit_type_events.sql`)
+
+- **Audit trail pe tipurile de camere — `unit_type_events`**: același model ca `unit_events`; trigger `unit_types_audit` cu evenimente `created`, `updated` (diff doar pe câmpurile schimbate: nume/capacitate/preț pe noapte), `archived`/`restored` (tranziții `is_active`). UI: buton istoric pe rândul tipului → `unit-type-history-dialog.tsx`.
+- **Refactor reutilizabil**: `event-history-dialog.tsx` — dialog generic de istoric (listă evenimente + actor + diff + timestamp); `UnitHistoryDialog` și `UnitTypeHistoryDialog` sunt wrappere subțiri cu propriile registre `EVENT_LABEL`/`FIELDS`. O entitate auditată nouă = trigger + wrapper, fără UI duplicat.
+- **Fix UX**: ștergerea unui tip cu rezervări viitoare ridica `UNIT_HAS_FUTURE_BOOKINGS` din trigger (nu FK 23503) — eroarea ajungea doar în consolă. Acum `deleteOrArchiveUnitType` returnează `has_future_bookings`, UI afișează toast explicativ; orice altă eroare → toast generic (handler cu try/catch).
+
+### Completare 2 (migrația `20260612110000` + feedback UI)
+
+- **RPC `bulk_delete_units(p_unit_ids uuid[]) → jsonb`** — ștergere în masă, aceeași logică per cameră ca individual: șterge / dezactivează (rezervări istorice, FK) / raportează blocate (rezervări viitoare, trigger). Buton „Șterge" în bara de acțiuni bulk.
+- **Reactivare tip arhivat**: buton `ArchiveRestore` pe rândul tipurilor cu `is_active = false` → `is_active = true` (+ eveniment `restored` în audit).
+- **Sortare naturală a camerelor** (`lib/natural-sort.ts`, `Intl.Collator` cu `numeric: true`): „Camera 9" < „Camera 10" < „Camera 101" — aplicată pe lista camerelor per tip, pe grila calendarului și pe dropdown-ul de camere libere. Fără zero-padding în date; doar ordinea de afișare.
+- Eticheta câmpului de numerotare: „Număr camere".
+- **Confirmări prin modal, nu `window.confirm`**: reutilizat `components/confirm-dialog.tsx` (cel de la rezervări/oaspeți), extins cu prop `destructive` (buton roșu). Aplicat pe: ștergere tip, ștergere cameră individuală, bulk arhivare, bulk ștergere.
+
+### Completare 3 — Availability Blocks + semantica statusurilor (migrațiile `20260612120000` + `20260612130000`)
+
+**Decizie de arhitectură** (după feedback): statusul camerei = stare **permanentă**; indisponibilitatea pe **interval** = tabel dedicat `room_blocks`. Prima iterație (block = pseudo-rezervare `status='blocked'`) a fost abandonată — migrația 17 face curățenie (drop RPC-uri vechi + coloana `block_reason`), migrează pseudo-rezervările existente în `room_blocks` și le șterge.
+
+- **`room_blocks`**: unit_id, start_date/end_date (+ `period` daterange generat), reason (`maintenance/renovation/owner_use/internal_use/other`), notes, created_by. EXCLUDE gist anti-suprapunere block↔block (aceeași garanție declarativă ca `no_double_booking`).
+- **Integritate cross-tabel în triggers** (sursa de adevăr pe orice cale de scriere): `room_blocks_validate` (block nou nu calcă peste rezervări active → `BLOCK_OVERLAPS_BOOKING`; doar camere active → `UNIT_NOT_ACTIVE`; org/property derivate server-side din cameră) și `bookings_block_guard` (rezervare nouă/mutată/reactivată nu calcă peste block-uri → `UNIT_BLOCKED`). Ambele serializate per cameră cu `pg_advisory_xact_lock` — elimină cursa "Admin A vede liber / Admin B salvează primul".
+- **Semantica statusurilor** (`check_unit_status_change` rescris): `inactive`/`out_of_service` permise cu rezervări viitoare (rezervările rămân, doar cele noi sunt oprite); `archived` + DELETE rămân stricte (`UNIT_HAS_FUTURE_BOOKINGS`).
+- **Availability engine complet** (disponibil = activ ∧ fără booking overlap ∧ fără block overlap): `app.create_booking_internal` (semnătura cu snapshot din migrația 8; alocarea auto sare camerele blocate, inclusiv la race — prinde `UNIT_BLOCKED` și încearcă următoarea), `get_available_units`, `public_get_availability`.
+- **RPC-uri** (INVOKER, validarea în triggers): `block_unit`, `bulk_block_units` (sare camerele cu suprapuneri/non-active, raport `{blocked, skipped[]}`), `remove_block`.
+- **Audit**: `block_created`/`block_updated`/`block_removed` în `unit_events` (istoricul camerei).
+- **Frontend**: `block-dialog.tsx` (creare blocaj cu motiv structurat + listă/ștergere per cameră; mod bulk pe selecție), buton blocare per cameră + în bara bulk; **calendar**: camerele non-arhivate apar toate cu badge de status + celule gri (fără pseudo-evenimente), block-urile desenate ca bare distincte (hașurate, cu motivul); opțiunea „Blocată" eliminată din formularul de rezervare.
+
+### Completare 4 — UX calendar + erori sugestive (migrația `20260612140000`)
+
+- **RPC `bulk_remove_blocks(p_unit_ids[], p_start, p_end) → int`** — eliminare în masă a blocajelor care ating un interval (un singur DELETE set-based; audit `block_removed` per rând din trigger). UI: buton secundar în dialogul de blocare bulk.
+- **Erori interpretate corect în UI**: helper `lib/errors.ts` (`errorMessage`) — Supabase aruncă uneori obiecte simple, nu instanțe de `Error`, deci `e instanceof Error` rata mesajul și totul cădea pe „A apărut o eroare". Acum `UNIT_NOT_AVAILABLE` → „Nu există camere libere...", `UNIT_BLOCKED` → mesaj dedicat, `BLOCK_OVERLAPS*` → mesaje dedicate. La alocare manuală fără camere libere, butonul Salvează e dezactivat + mesaj inline.
+- **Calendar**:
+  - blocajele au tooltip la click (interval, motiv, note, cameră) cu buton „Elimină blocajul" (ConfirmDialog) — simetric cu tooltip-ul de rezervare; poziționarea e helper comun (`tooltipPos`);
+  - culori distincte per motiv de blocaj (`BLOCK_REASON_CALENDAR_CLASS`: mentenanță=amber, renovare=violet, uz proprietar=sky, uz intern=teal, altul=zinc) + hașură comună (`BLOCK_STRIPES`);
+  - legendă minimalistă deasupra grilei (statusuri rezervări + motive blocaje + indisponibil);
+  - camerele non-active au badge + **celulele goale hașurate gri** pe tot rândul (fără pseudo-evenimente);
+  - click pe numele camerei → meniu de gestionare (`unit-actions-menu.tsx`, reutilizabil): schimbare status permanent + „Blocaje" (deschide același `block-dialog.tsx` de pe pagina proprietății, cu listă + ștergere).
+
+### Completare 5 — polish frontend (calendar + istoricuri)
+
+- **Fix randare calendar**: hașura și hover-ul stau acum pe containerul rândului (nu per celulă cu `h-12` fix) — când badge-ul de status mărește rândul, hașura și bordurile dintre zile acoperă toată înălțimea (celulele au `min-h-12` și se întind natural prin grid stretch).
+- **Hover pe rând**: `group` pe rândul camerei → tentă subtilă pe numele camerei + pe zona de zile; barele de rezervări/blocaje stau deasupra (z-index + fundal propriu), deci nu sunt afectate.
+- **Istoricuri cu „Afișează mai mult"** (cameră, tip de cameră, rezervare): `useInfiniteQuery` + aceeași paginație offset din `lib/pagination.ts` (pagini de 15, cele mai recente primele, ordine stabilă `created_at desc, id desc`, fără `count(*)`). Butonul cere pagina următoare; la epuizare (după cel puțin o paginare) apare „Ai ajuns la finalul istoricului." Istoricul rezervării a trecut de la fetch integral ascendent la paginat descendent. Gardă `dedupeById` (`lib/pagination.ts`) la randare: offsetul poate aluneca dacă alt user inserează un eveniment între două pagini — mutațiile proprii invalidează query-ul, scrierile concurente sunt acoperite de dedupe.
+- **Hover corect pe rândurile calendarului** (iterația 2): tenta `accent` înlocuia background-ul (accent ≈ alb în temă) și „ștergea" hașura. Acum hover = **overlay separat** `bg-foreground/5` (token de temă, merge și pe dark) cu `pointer-events-none`, sub barele de rezervări/blocaje (z-index) — nu modifică nimic din ce e randat. Hașura indisponibilelor a trecut pe tokens: `UNAVAILABLE_STRIPES` derivă din `--muted-foreground` prin `color-mix` (mai vizibilă + urmează tema), separată de `BLOCK_STRIPES` (dungi albe peste barele colorate).
+
+### Teste: 23a–e, 24a–e, 25 (room ops) + 26a–c (semantica statusurilor) + 27a–h (room_blocks: EXCLUDE, cross-tabel ambele direcții, availability, remove + audit, bulk skip, non-activ) + 28a–b (bulk_remove_blocks: interval fără blocaje = 0, eliminare în masă + audit) — toată suita PASS (63).
+
+---
+
 ## Sprint 2.1 — Statistici oaspete server-side + cursor pagination pe liste (11 iun 2026)
 
 ### Probleme raportate

@@ -650,4 +650,382 @@ begin
 end $$;
 reset role;
 
+-- ---------- TEST 23: Sprint 3 — audit camere + bulk status + numerotare ----------
+
+-- 23a: generate_units cu interval (start 101, count 3) + audit 'created'
+do $$
+declare v_created int; v_events int;
+begin
+  select public.generate_units(
+    '30000000-0000-0000-0000-000000000001', 3, 'Camera ', 101) into v_created;
+  if v_created <> 3 then
+    raise exception 'TEST 23a FAIL: create=% (asteptat 3)', v_created;
+  end if;
+  select count(*) into v_events from unit_events ue
+    join units u on u.id = ue.unit_id
+   where ue.event_type = 'created' and u.name in ('Camera 101','Camera 102','Camera 103');
+  if v_events = 3 then
+    raise notice 'TEST 23a PASS: interval 101-103 generat + 3 evenimente created';
+  else
+    raise exception 'TEST 23a FAIL: % evenimente created (asteptat 3)', v_events;
+  end if;
+end $$;
+
+-- 23b: p_start_number invalid => INVALID_START
+do $$
+begin
+  begin
+    perform public.generate_units('30000000-0000-0000-0000-000000000001', 1, 'X', 0);
+    raise exception 'TEST 23b FAIL: start 0 acceptat!';
+  exception when others then
+    if sqlerrm = 'INVALID_START' then
+      raise notice 'TEST 23b PASS: start invalid respins (INVALID_START)';
+    else raise; end if;
+  end;
+end $$;
+
+-- 23c: bulk archive — camera cu rezervare viitoare e blocata, restul trec
+do $$
+declare v_result jsonb; v_unit_busy uuid;
+begin
+  select id into v_unit_busy from units where name = 'Camera 101';
+  insert into bookings (org_id, property_id, unit_type_id, unit_id, guest_id,
+                        status, check_in, check_out, currency)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001', v_unit_busy,
+          '50000000-0000-0000-0000-000000000001','confirmed',
+          current_date + 300, current_date + 302,'RON');
+
+  select public.bulk_update_unit_status(
+    array(select id from units where name in ('Camera 101','Camera 102','Camera 103')),
+    'archived') into v_result;
+
+  if (v_result->>'updated')::int = 2
+     and v_result->'blocked' = '["Camera 101"]'::jsonb then
+    raise notice 'TEST 23c PASS: bulk archive — 2 actualizate, Camera 101 blocata';
+  else
+    raise exception 'TEST 23c FAIL: rezultat %', v_result;
+  end if;
+end $$;
+
+-- 23d: audit status_changed + renamed cu old/new corecte
+do $$
+declare v_ev record;
+begin
+  update units set name = 'Camera 103-bis' where name = 'Camera 103';
+  select * into v_ev from unit_events ue
+   where ue.event_type = 'renamed'
+   order by ue.created_at desc limit 1;
+  if v_ev.old_data->>'name' = 'Camera 103' and v_ev.new_data->>'name' = 'Camera 103-bis' then
+    raise notice 'TEST 23d PASS: audit renamed cu old/new corecte';
+  else
+    raise exception 'TEST 23d FAIL: old=% new=%', v_ev.old_data, v_ev.new_data;
+  end if;
+  if not exists (
+    select 1 from unit_events ue join units u on u.id = ue.unit_id
+    where ue.event_type = 'status_changed' and u.name = 'Camera 102'
+      and ue.new_data->>'status' = 'archived'
+  ) then
+    raise exception 'TEST 23d FAIL: lipseste evenimentul status_changed pe Camera 102';
+  end if;
+end $$;
+
+-- 23e: izolare RLS — userul org B nu vede evenimentele org A
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v_count int;
+begin
+  select count(*) into v_count from unit_events;
+  if v_count = 0 then
+    raise notice 'TEST 23e PASS: user strain vede 0 evenimente de camere';
+  else
+    raise exception 'TEST 23e FAIL: % evenimente vizibile cross-org', v_count;
+  end if;
+end $$;
+reset role;
+
+-- ---------- TEST 24: audit pe unit_types (created / updated / archived) ----------
+do $$
+declare v_type uuid; v_ev record;
+begin
+  insert into unit_types (org_id, property_id, name, capacity, base_price)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          'Twin audit', 2, 150)
+  returning id into v_type;
+
+  -- 24a: eveniment created
+  if not exists (select 1 from unit_type_events
+                 where unit_type_id = v_type and event_type = 'created'
+                   and (new_data->>'base_price')::numeric = 150) then
+    raise exception 'TEST 24a FAIL: lipseste evenimentul created';
+  end if;
+  raise notice 'TEST 24a PASS: created scris la insert tip';
+
+  -- 24b: schimbare pret => updated cu old/new doar pe base_price
+  update unit_types set base_price = 175 where id = v_type;
+  select * into v_ev from unit_type_events
+   where unit_type_id = v_type and event_type = 'updated'
+   order by created_at desc limit 1;
+  if (v_ev.old_data->>'base_price')::numeric = 150
+     and (v_ev.new_data->>'base_price')::numeric = 175
+     and v_ev.old_data ?& array['base_price'] and not v_ev.old_data ? 'name' then
+    raise notice 'TEST 24b PASS: updated cu diff doar pe base_price';
+  else
+    raise exception 'TEST 24b FAIL: old=% new=%', v_ev.old_data, v_ev.new_data;
+  end if;
+
+  -- 24c: update fara schimbari relevante => niciun eveniment nou
+  update unit_types set sort_order = sort_order where id = v_type;
+  if (select count(*) from unit_type_events where unit_type_id = v_type) <> 2 then
+    raise exception 'TEST 24c FAIL: eveniment scris pentru update fara schimbari';
+  end if;
+  raise notice 'TEST 24c PASS: update irelevant nu produce evenimente';
+
+  -- 24d: arhivare / reactivare
+  update unit_types set is_active = false where id = v_type;
+  update unit_types set is_active = true  where id = v_type;
+  if exists (select 1 from unit_type_events where unit_type_id = v_type and event_type = 'archived')
+     and exists (select 1 from unit_type_events where unit_type_id = v_type and event_type = 'restored') then
+    raise notice 'TEST 24d PASS: evenimente archived + restored';
+  else
+    raise exception 'TEST 24d FAIL: lipsesc archived/restored';
+  end if;
+end $$;
+
+-- 24e: izolare RLS — userul org B nu vede evenimentele org A
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v_count int;
+begin
+  select count(*) into v_count from unit_type_events;
+  if v_count = 0 then
+    raise notice 'TEST 24e PASS: user strain vede 0 evenimente de tip';
+  else
+    raise exception 'TEST 24e FAIL: % evenimente vizibile cross-org', v_count;
+  end if;
+end $$;
+reset role;
+
+-- ---------- TEST 25: bulk_delete_units — sterge / dezactiveaza / blocheaza ----------
+do $$
+declare v_result jsonb; v_free uuid; v_hist uuid; v_busy uuid;
+begin
+  -- 3 camere noi: una libera, una cu rezervare istorica, una cu rezervare viitoare
+  insert into units (org_id, property_id, unit_type_id, name)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001','Del libera') returning id into v_free;
+  insert into units (org_id, property_id, unit_type_id, name)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001','Del istorica') returning id into v_hist;
+  insert into units (org_id, property_id, unit_type_id, name)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001','Del viitoare') returning id into v_busy;
+
+  insert into bookings (org_id, property_id, unit_type_id, unit_id, guest_id,
+                        status, check_in, check_out, currency)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001', v_hist,
+          '50000000-0000-0000-0000-000000000001','checked_out',
+          current_date - 20, current_date - 18,'RON'),
+         ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001', v_busy,
+          '50000000-0000-0000-0000-000000000001','confirmed',
+          current_date + 400, current_date + 402,'RON');
+
+  select public.bulk_delete_units(array[v_free, v_hist, v_busy]) into v_result;
+
+  if (v_result->>'deleted')::int = 1
+     and (v_result->>'deactivated')::int = 1
+     and v_result->'blocked' = '["Del viitoare"]'::jsonb
+     and not exists (select 1 from units where id = v_free)
+     and exists (select 1 from units where id = v_hist and status = 'inactive')
+     and exists (select 1 from units where id = v_busy and status = 'active') then
+    raise notice 'TEST 25 PASS: bulk delete — 1 stearsa, 1 dezactivata, 1 blocata';
+  else
+    raise exception 'TEST 25 FAIL: rezultat %', v_result;
+  end if;
+end $$;
+
+-- ---------- TEST 26: semantica statusurilor (migrația 17) ----------
+-- inactive/out_of_service permise cu rezervări viitoare; archived rămâne strict
+do $$
+declare v_unit uuid;
+begin
+  insert into units (org_id, property_id, unit_type_id, name)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001','Sem 1') returning id into v_unit;
+  insert into bookings (org_id, property_id, unit_type_id, unit_id, guest_id,
+                        status, check_in, check_out, currency)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001', v_unit,
+          '50000000-0000-0000-0000-000000000001','confirmed',
+          current_date + 500, current_date + 502,'RON');
+
+  -- 26a: inactive cu rezervare viitoare => permis, rezervarea rămâne
+  update units set status = 'inactive' where id = v_unit;
+  update units set status = 'out_of_service' where id = v_unit;
+  if exists (select 1 from bookings where unit_id = v_unit and status = 'confirmed') then
+    raise notice 'TEST 26a PASS: inactive/out_of_service permise, rezervarea ramane';
+  else
+    raise exception 'TEST 26a FAIL: rezervarea a disparut';
+  end if;
+
+  -- 26b: archived cu rezervare viitoare => respins
+  begin
+    update units set status = 'archived' where id = v_unit;
+    raise exception 'TEST 26b FAIL: arhivare permisa cu rezervare viitoare!';
+  exception when others then
+    if sqlerrm = 'UNIT_HAS_FUTURE_BOOKINGS' then
+      raise notice 'TEST 26b PASS: archived respins cu rezervari viitoare';
+    else raise; end if;
+  end;
+
+  -- 26c: camera inactiva nu apare in get_available_units
+  if not exists (
+    select 1 from public.get_available_units(
+      '30000000-0000-0000-0000-000000000001', current_date + 500, current_date + 502)
+    where unit_id = v_unit
+  ) then
+    raise notice 'TEST 26c PASS: camera non-activa nu apare in availability';
+  else
+    raise exception 'TEST 26c FAIL: camera non-activa apare in availability';
+  end if;
+end $$;
+
+-- ---------- TEST 27: room_blocks — integritate + availability ----------
+do $$
+declare v_unit uuid; v_block uuid; v_result jsonb; v_free boolean;
+begin
+  insert into units (org_id, property_id, unit_type_id, name)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001','Blk 1') returning id into v_unit;
+
+  -- 27a: block valid pe interval liber
+  select public.block_unit(v_unit, '2027-03-10', '2027-03-15', 'maintenance', 'AC') into v_block;
+  raise notice 'TEST 27a PASS: block creat pe interval liber';
+
+  -- 27b: block peste alt block => respins (EXCLUDE)
+  begin
+    perform public.block_unit(v_unit, '2027-03-12', '2027-03-20', 'renovation');
+    raise exception 'TEST 27b FAIL: block suprapus acceptat!';
+  exception when others then
+    if sqlerrm = 'BLOCK_OVERLAPS' then
+      raise notice 'TEST 27b PASS: block peste block respins';
+    else raise; end if;
+  end;
+
+  -- 27c: block peste rezervare existenta => respins (trigger cross-tabel)
+  insert into bookings (org_id, property_id, unit_type_id, unit_id, guest_id,
+                        status, check_in, check_out, currency)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001', v_unit,
+          '50000000-0000-0000-0000-000000000001','confirmed','2027-04-10','2027-04-15','RON');
+  begin
+    perform public.block_unit(v_unit, '2027-04-12', '2027-04-20', 'maintenance');
+    raise exception 'TEST 27c FAIL: block peste rezervare acceptat!';
+  exception when others then
+    if sqlerrm = 'BLOCK_OVERLAPS_BOOKING' then
+      raise notice 'TEST 27c PASS: block peste rezervare respins';
+    else raise; end if;
+  end;
+
+  -- 27d: rezervare directa peste block => respinsa (trigger pe bookings)
+  begin
+    insert into bookings (org_id, property_id, unit_type_id, unit_id, guest_id,
+                          status, check_in, check_out, currency)
+    values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+            '30000000-0000-0000-0000-000000000001', v_unit,
+            '50000000-0000-0000-0000-000000000001','confirmed','2027-03-12','2027-03-14','RON');
+    raise exception 'TEST 27d FAIL: rezervare peste block acceptata!';
+  exception when others then
+    if sqlerrm = 'UNIT_BLOCKED' then
+      raise notice 'TEST 27d PASS: rezervare peste block respinsa';
+    else raise; end if;
+  end;
+
+  -- 27e: availability exclude camera pe intervalul blocat, o include in afara lui
+  select is_free into v_free from public.get_available_units(
+    '30000000-0000-0000-0000-000000000001', '2027-03-11', '2027-03-13')
+   where unit_id = v_unit;
+  if v_free then raise exception 'TEST 27e FAIL: camera blocata apare libera'; end if;
+  select is_free into v_free from public.get_available_units(
+    '30000000-0000-0000-0000-000000000001', '2027-05-01', '2027-05-03')
+   where unit_id = v_unit;
+  if not v_free then raise exception 'TEST 27e FAIL: camera libera apare blocata'; end if;
+  raise notice 'TEST 27e PASS: availability tine cont de block-uri';
+
+  -- 27f: remove_block => camera redevine disponibila + audit complet
+  perform public.remove_block(v_block);
+  select is_free into v_free from public.get_available_units(
+    '30000000-0000-0000-0000-000000000001', '2027-03-11', '2027-03-13')
+   where unit_id = v_unit;
+  if not v_free then raise exception 'TEST 27f FAIL: camera ramane blocata dupa remove'; end if;
+  if exists (select 1 from unit_events where unit_id = v_unit and event_type = 'block_created')
+     and exists (select 1 from unit_events where unit_id = v_unit and event_type = 'block_removed') then
+    raise notice 'TEST 27f PASS: remove_block elibereaza camera + audit block_created/removed';
+  else
+    raise exception 'TEST 27f FAIL: lipsesc evenimentele de audit pe block';
+  end if;
+
+  -- 27g: bulk_block_units — blocheaza unde e liber, sare unde e ocupat
+  select public.bulk_block_units(
+    array(select id from units where name in ('Blk 1','Camera 102')),
+    '2027-04-12', '2027-04-18', 'renovation') into v_result;
+  -- Blk 1 are rezervarea 10-15 apr => sarita; Camera 102 e archived (TEST 23c) => sarita
+  if (v_result->>'blocked')::int = 0
+     and v_result->'skipped' ?& array['Blk 1'] then
+    raise notice 'TEST 27g PASS: bulk block sare camerele ocupate/non-active';
+  else
+    raise exception 'TEST 27g FAIL: rezultat %', v_result;
+  end if;
+
+  -- 27h: block pe camera non-activa => respins
+  update units set status = 'out_of_service' where id = v_unit;
+  begin
+    perform public.block_unit(v_unit, '2027-06-01', '2027-06-05', 'maintenance');
+    raise exception 'TEST 27h FAIL: block pe camera non-activa acceptat!';
+  exception when others then
+    if sqlerrm = 'UNIT_NOT_ACTIVE' then
+      raise notice 'TEST 27h PASS: block pe camera non-activa respins';
+    else raise; end if;
+  end;
+end $$;
+
+-- ---------- TEST 28: bulk_remove_blocks — eliminare in masa pe interval ----------
+do $$
+declare v_u1 uuid; v_u2 uuid; v_result jsonb; v_removed int;
+begin
+  insert into units (org_id, property_id, unit_type_id, name)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001','Unb 1') returning id into v_u1;
+  insert into units (org_id, property_id, unit_type_id, name)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001','Unb 2') returning id into v_u2;
+
+  select public.bulk_block_units(array[v_u1, v_u2], '2027-07-01', '2027-07-10', 'renovation') into v_result;
+  if (v_result->>'blocked')::int <> 2 then
+    raise exception 'TEST 28 FAIL: setup bulk block %', v_result;
+  end if;
+
+  -- 28a: interval care nu atinge blocajele => 0 eliminate
+  select public.bulk_remove_blocks(array[v_u1, v_u2], '2027-08-01', '2027-08-05') into v_removed;
+  if v_removed <> 0 then
+    raise exception 'TEST 28a FAIL: % eliminate pe interval fara blocaje', v_removed;
+  end if;
+  raise notice 'TEST 28a PASS: interval fara blocaje => 0 eliminate';
+
+  -- 28b: interval care atinge blocajele => ambele eliminate + audit per blocaj
+  select public.bulk_remove_blocks(array[v_u1, v_u2], '2027-07-05', '2027-07-06') into v_removed;
+  if v_removed = 2
+     and not exists (select 1 from room_blocks where unit_id in (v_u1, v_u2))
+     and (select count(*) from unit_events
+          where unit_id in (v_u1, v_u2) and event_type = 'block_removed') = 2 then
+    raise notice 'TEST 28b PASS: 2 blocaje eliminate in masa + audit block_removed';
+  else
+    raise exception 'TEST 28b FAIL: removed=%', v_removed;
+  end if;
+end $$;
+
 rollback;

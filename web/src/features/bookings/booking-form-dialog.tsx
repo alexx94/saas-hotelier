@@ -10,6 +10,7 @@ import { useUnitTypes } from "@/features/unit-types/hooks"
 import { useAvailableUnits, useCreateBooking } from "./hooks"
 import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
+import { errorMessage } from "@/lib/errors"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,7 +37,9 @@ const schema = z
     check_in: z.string().min(10),
     check_out: z.string().min(10),
     guests_count: z.coerce.number().int().min(1),
-    status: z.enum(["pending", "confirmed", "blocked"]),
+    // Blocajele de disponibilitate nu mai sunt rezervări — se creează din
+    // pagina camerelor (Availability Blocks, migrația 17).
+    status: z.enum(["pending", "confirmed"]),
     guest_id: z.string().optional(),
     notes: z.string().optional(),
   })
@@ -44,10 +47,7 @@ const schema = z
     message: "Check-out trebuie să fie după check-in",
     path: ["check_out"],
   })
-  .refine(
-    (v) => v.status === "blocked" || !!v.guest_id,
-    { message: "Alege un oaspete", path: ["guest_id"] }
-  )
+  .refine((v) => !!v.guest_id, { message: "Alege un oaspete", path: ["guest_id"] })
 
 type FormInput = z.input<typeof schema>
 type FormValues = z.output<typeof schema>
@@ -76,7 +76,6 @@ export function BookingFormDialog({
     defaultValues: { guests_count: 1, status: "confirmed" },
   })
 
-  const status = form.watch("status")
   const unitTypeId = form.watch("unit_type_id")
   const checkIn = form.watch("check_in")
   const checkOut = form.watch("check_out")
@@ -90,6 +89,11 @@ export function BookingFormDialog({
 
   const activeTypes = (unitTypes ?? []).filter((ut) => ut.is_active)
   const selectedType = activeTypes.find((ut) => ut.id === unitTypeId)
+
+  // alocare manuală fără nicio cameră liberă pe interval → nu are sens submit-ul
+  const noFreeUnits =
+    roomMode === "manual" && !!datesValid && !loadingUnits &&
+    (availableUnits ?? []).every((u) => !u.is_free)
 
   const nights = datesValid && checkIn && checkOut
     ? Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000)
@@ -120,15 +124,11 @@ export function BookingFormDialog({
 
   async function onSubmit(values: FormValues) {
     try {
-      let resolvedGuestId: string | undefined
-      if (values.status !== "blocked") {
-        resolvedGuestId = values.guest_id
-      }
       await createBooking.mutateAsync({
         unitTypeId: values.unit_type_id,
         checkIn: values.check_in,
         checkOut: values.check_out,
-        guestId: resolvedGuestId,
+        guestId: values.guest_id,
         unitId: roomMode === "manual" && selectedUnitId ? selectedUnitId : undefined,
         guestsCount: values.guests_count,
         status: values.status,
@@ -139,8 +139,9 @@ export function BookingFormDialog({
       onOpenChange(false)
       resetForm()
     } catch (e) {
-      const message = e instanceof Error ? e.message : ""
+      const message = errorMessage(e)
       if (message.includes("UNIT_NOT_AVAILABLE")) toast.error(t("bookings.not_available"))
+      else if (message.includes("UNIT_BLOCKED")) toast.error(t("bookings.unit_blocked"))
       else toast.error(t("common.error"))
     }
   }
@@ -285,7 +286,6 @@ export function BookingFormDialog({
                 <SelectContent>
                   <SelectItem value="confirmed">{t("status.confirmed")}</SelectItem>
                   <SelectItem value="pending">{t("status.pending")}</SelectItem>
-                  <SelectItem value="blocked">{t("status.blocked")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -296,19 +296,17 @@ export function BookingFormDialog({
           </div>
 
           {/* Oaspete */}
-          {status !== "blocked" && (
-            <div className="space-y-2">
-              <Label>{t("bookings.guest")}</Label>
-              <GuestCombobox
-                orgId={currentOrg.id}
-                value={guestId}
-                onChange={handleGuestChange}
-              />
-              {form.formState.errors.guest_id && (
-                <p className="text-sm text-destructive">{form.formState.errors.guest_id.message}</p>
-              )}
-            </div>
-          )}
+          <div className="space-y-2">
+            <Label>{t("bookings.guest")}</Label>
+            <GuestCombobox
+              orgId={currentOrg.id}
+              value={guestId}
+              onChange={handleGuestChange}
+            />
+            {form.formState.errors.guest_id && (
+              <p className="text-sm text-destructive">{form.formState.errors.guest_id.message}</p>
+            )}
+          </div>
 
           {/* Note */}
           <div className="space-y-2">
@@ -328,7 +326,13 @@ export function BookingFormDialog({
             </div>
           )}
 
-          <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
+          {noFreeUnits && (
+            <p className="text-sm text-destructive">{t("bookings.not_available")}</p>
+          )}
+          <Button
+            type="submit" className="w-full"
+            disabled={form.formState.isSubmitting || noFreeUnits}
+          >
             {t("common.save")}
           </Button>
         </form>

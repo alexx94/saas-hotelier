@@ -1,10 +1,10 @@
 import {
-  keepPreviousData, useMutation, useQuery, useQueryClient,
+  keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query"
 import {
   createBooking, fetchAvailableUnits, fetchBooking, fetchBookingEvents,
-  fetchBookings, fetchBookingsInRange, fetchUnits, linkBookingGuest,
+  fetchBlocksInRange, fetchBookings, fetchBookingsInRange, fetchUnits, linkBookingGuest,
   reassignBooking, updateBookingDates, updateBookingStatus,
   type BookingListParams, type BookingStatus, type CreateBookingInput,
 } from "./api"
@@ -40,6 +40,11 @@ export const unitKeys = {
     ["units-available", unitTypeId, checkIn, checkOut, excludeId] as const,
 }
 
+export const blockKeys = {
+  range: (propertyId: string, from: string, to: string) =>
+    ["unit-blocks", propertyId, "range", { from, to }] as const,
+}
+
 export function useBookings(
   propertyId: string | undefined,
   params: BookingListParams = {}
@@ -58,6 +63,14 @@ export function useBookingsInRange(propertyId: string | undefined, from: string,
   return useQuery({
     queryKey: bookingKeys.range(propertyId ?? "", from, to),
     queryFn: () => fetchBookingsInRange(propertyId!, from, to),
+    enabled: !!propertyId,
+  })
+}
+
+export function useBlocksInRange(propertyId: string | undefined, from: string, to: string) {
+  return useQuery({
+    queryKey: blockKeys.range(propertyId ?? "", from, to),
+    queryFn: () => fetchBlocksInRange(propertyId!, from, to),
     enabled: !!propertyId,
   })
 }
@@ -84,9 +97,11 @@ export function useAvailableUnits(
 }
 
 export function useBookingEvents(bookingId: string | undefined) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: bookingKeys.events(bookingId ?? ""),
-    queryFn: () => fetchBookingEvents(bookingId!),
+    queryFn: ({ pageParam }) => fetchBookingEvents(bookingId!, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => (last.hasMore ? pages.length : undefined),
     enabled: !!bookingId,
   })
 }

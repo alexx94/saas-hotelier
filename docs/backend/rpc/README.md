@@ -6,6 +6,12 @@
 |---|---|---|---|---|
 | `create_organization` | organizații | DEFINER | authenticated (onboarding) | [organizations.md](organizations.md) |
 | `generate_units` | camere | INVOKER | owner/manager (prin RLS) | [units.md](units.md) |
+| `bulk_update_unit_status` | camere | INVOKER | owner/manager (prin RLS) | [units.md](units.md) |
+| `bulk_delete_units` | camere | INVOKER | owner/manager (prin RLS) | [units.md](units.md) |
+| `block_unit` | blocaje camere | INVOKER | membri (prin RLS) | [units.md](units.md) |
+| `bulk_block_units` | blocaje camere | INVOKER | membri (prin RLS) | [units.md](units.md) |
+| `remove_block` | blocaje camere | INVOKER | membri (prin RLS) | [units.md](units.md) |
+| `bulk_remove_blocks` | blocaje camere | INVOKER | membri (prin RLS) | [units.md](units.md) |
 | `find_or_create_guest` | oaspeți | DEFINER | authenticated, doar org proprie | [guests.md](guests.md) |
 | `create_booking` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
 | `update_booking_dates` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |

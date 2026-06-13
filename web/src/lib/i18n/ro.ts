@@ -11,10 +11,13 @@ export const ro = {
   "common.name": "Nume",
   "common.error": "A apărut o eroare",
   "common.confirm_delete": "Sigur vrei să ștergi?",
+  "common.confirm_action": "Confirmare acțiune",
   "common.no_results": "Niciun rezultat",
   "common.back": "Înapoi",
   "common.prev_page": "Înapoi",
   "common.next_page": "Înainte",
+  "common.show_more": "Afișează mai mult",
+  "history.end": "Ai ajuns la finalul istoricului.",
 
   // auth
   "auth.email": "Email",
@@ -92,6 +95,9 @@ export const ro = {
   "bookings.notes": "Note",
   "bookings.source": "Sursă",
   "bookings.not_available": "Nu există camere libere pe intervalul ales.",
+  "bookings.unit_blocked":
+    "Camera este blocată (mentenanță/indisponibilă) pe intervalul ales.",
+  "calendar.legend.unavailable": "Cameră indisponibilă (status)",
   "bookings.created": "Rezervare creată",
   "bookings.block": "Blochează camera",
 
@@ -164,6 +170,81 @@ export const ro = {
   "units.add_count": "Câte camere",
   "units.add_prefix": "Prefix",
   "units.added_toast": "camere adăugate",
+
+  // camere — numerotare bulk (Sprint 3)
+  "units.numbering": "Număr camere",
+  "units.numbering_placeholder": "ex: 101-120 sau 20",
+  "units.numbering_hint":
+    "Interval (101-120) sau număr de camere (cu start opțional).",
+  "units.start_at": "Începe de la",
+  "units.invalid_numbering":
+    "Format invalid. Folosește un interval (ex: 101-120) sau un număr de camere (max 500).",
+
+  // camere — operațiuni bulk (Sprint 3)
+  "units.selected": "selectate",
+  "units.bulk_activate": "Activează",
+  "units.bulk_deactivate": "Dezactivează",
+  "units.bulk_archive": "Arhivează",
+  "units.bulk_block": "Blochează",
+  "units.block": "Blochează",
+  "units.bulk_updated_toast": "camere actualizate",
+  "units.bulk_blocked_toast": "Blocate (au rezervări viitoare):",
+  "units.bulk_archive_confirm":
+    "Arhivezi camerele selectate? Nu vor mai putea fi rezervate.",
+  "units.bulk_delete": "Șterge",
+  "units.bulk_deleted_toast": "camere șterse",
+  "units.bulk_deactivated_toast": "dezactivate (au rezervări istorice)",
+
+  // camere — istoric (Sprint 3)
+  "units.history": "Istoric cameră",
+  "units.history_empty": "Niciun eveniment înregistrat.",
+  "unit.event.created": "Cameră creată",
+  "unit.event.status_changed": "Stare schimbată",
+  "unit.event.renamed": "Redenumită",
+  "unit.event.block_created": "Blocaj creat",
+  "unit.event.block_updated": "Blocaj modificat",
+  "unit.event.block_removed": "Blocaj eliminat",
+  "unit.event.by": "de",
+
+  // tipuri de camere — istoric + ștergere blocată (Sprint 3)
+  "unit_types.history": "Istoric tip cameră",
+  "unit_type.event.created": "Tip creat",
+  "unit_type.event.updated": "Actualizat",
+  "unit_type.event.archived": "Arhivat",
+  "unit_type.event.restored": "Reactivat",
+  // blocaje de disponibilitate (Sprint 3 — Availability Blocks)
+  "blocks.title": "Blocaje",
+  "blocks.manage": "Blocaje",
+  "blocks.add": "Adaugă blocaj",
+  "blocks.create": "Creează blocaj",
+  "blocks.start": "De la",
+  "blocks.end": "Până la",
+  "blocks.reason": "Motiv",
+  "blocks.notes": "Note",
+  "blocks.empty": "Niciun blocaj pentru această cameră.",
+  "blocks.created": "Blocaj creat. Camera nu poate fi rezervată pe interval.",
+  "blocks.removed": "Blocaj eliminat. Camera redevine disponibilă.",
+  "blocks.overlaps": "Intervalul se suprapune cu o rezervare sau alt blocaj existent.",
+  "blocks.invalid_dates": "Data de sfârșit trebuie să fie după cea de început.",
+  "blocks.unit_not_active": "Doar camerele active pot fi blocate.",
+  "blocks.bulk_done": "camere blocate",
+  "blocks.bulk_skipped": "Sărite (suprapunere cu rezervări/blocaje):",
+  "blocks.confirm_remove": "Elimini acest blocaj? Camera redevine disponibilă pe interval.",
+  "blocks.remove": "Elimină blocajul",
+  "blocks.bulk_remove": "Elimină blocajele din interval",
+  "blocks.bulk_remove_confirm":
+    "Elimini toate blocajele care ating intervalul ales, de pe camerele selectate?",
+  "blocks.bulk_removed_toast": "blocaje eliminate",
+  "blocks.reason.maintenance": "Mentenanță",
+  "blocks.reason.renovation": "Renovare",
+  "blocks.reason.owner_use": "Uz proprietar",
+  "blocks.reason.internal_use": "Uz intern",
+  "blocks.reason.other": "Alt motiv",
+
+  "unit_types.restore": "Reactivează",
+  "unit_types.restored_toast": "Tipul a fost reactivat.",
+  "unit_types.has_future_bookings":
+    "Tipul are camere cu rezervări viitoare. Mută-le sau anulează-le mai întâi.",
 
   // booking — UX date
   "bookings.checkout_from": "de la",

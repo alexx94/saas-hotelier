@@ -32,19 +32,22 @@ frontend (api.ts per feature)
 | [triggers.md](triggers.md) | Toate trigger-ele + funcțiile lor (validări, audit, normalizare) |
 | [rpc/README.md](rpc/README.md) | **Index-ul tuturor RPC-urilor** + convenții |
 | [rpc/organizations.md](rpc/organizations.md) | `create_organization` |
-| [rpc/units.md](rpc/units.md) | `generate_units` |
+| [rpc/units.md](rpc/units.md) | `generate_units`, `bulk_update_unit_status` |
 | [rpc/guests.md](rpc/guests.md) | `find_or_create_guest` (+ varianta internă), `get_guest_stats` |
 | [rpc/bookings.md](rpc/bookings.md) | `create_booking`, `update_booking_dates`, `reassign_booking`, `link_booking_guest`, `get_available_units` + engine-ul intern |
 | [rpc/public-api.md](rpc/public-api.md) | API-ul anonim: `public_get_availability`, `public_create_booking` |
 
 ## Inventarul funcțiilor (cine ce poate apela)
 
-Stare la 2026-06-11, după migrația 10 (`20260611200000`). ✅ = are EXECUTE.
+Stare la 2026-06-12, după migrația 18 (`20260612140000`). ✅ = are EXECUTE.
 
 | Funcție | Schema | Security | `anon` | `authenticated` | Documentată în |
 |---|---|---|---|---|---|
 | `create_organization` | public | DEFINER | ❌ | ✅ | [rpc/organizations.md](rpc/organizations.md) |
 | `generate_units` | public | INVOKER | ❌ | ✅ (RLS decide) | [rpc/units.md](rpc/units.md) |
+| `bulk_update_unit_status` | public | INVOKER | ❌ | ✅ (RLS decide) | [rpc/units.md](rpc/units.md) |
+| `bulk_delete_units` | public | INVOKER | ❌ | ✅ (RLS decide) | [rpc/units.md](rpc/units.md) |
+| `block_unit` / `bulk_block_units` / `remove_block` / `bulk_remove_blocks` | public | INVOKER | ❌ | ✅ (RLS decide) | [rpc/units.md](rpc/units.md) |
 | `find_or_create_guest` | public | DEFINER | ❌ | ✅ (doar org proprie) | [rpc/guests.md](rpc/guests.md) |
 | `create_booking` | public | DEFINER | ❌ | ✅ (doar prop. accesibile) | [rpc/bookings.md](rpc/bookings.md) |
 | `update_booking_dates` | public | DEFINER | ❌ | ✅ (doar prop. accesibile) | [rpc/bookings.md](rpc/bookings.md) |
@@ -58,7 +61,7 @@ Stare la 2026-06-11, după migrația 10 (`20260611200000`). ✅ = are EXECUTE.
 | `app.find_or_create_guest_internal` | app | DEFINER | ❌ | ❌ (doar din RPC-uri) | [rpc/guests.md](rpc/guests.md) |
 | `app.user_org_ids` / `user_role` / `can_access_property` / `is_org_role` | app | DEFINER | helpers RLS | helpers RLS | [helpers.md](helpers.md) |
 | `app.normalize_phone` | app | INVOKER | helper pur | helper pur | [helpers.md](helpers.md) |
-| `app.set_updated_at` / `audit_booking` / `validate_booking_update` / `check_unit_status_change` / `normalize_guest_row` | app | trigger | n/a | n/a | [triggers.md](triggers.md) |
+| `app.set_updated_at` / `audit_booking` / `audit_unit` / `audit_unit_type` / `audit_room_block` / `validate_booking_update` / `check_unit_status_change` / `validate_room_block` / `check_booking_block_overlap` / `normalize_guest_row` | app | trigger | n/a | n/a | [triggers.md](triggers.md) |
 
 ### Cum regenerezi inventarul (mentenanță)
 

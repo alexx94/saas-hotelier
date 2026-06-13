@@ -4,7 +4,7 @@
 
 ---
 
-## Starea curentă a proiectului (11 iun 2026)
+## Starea curentă a proiectului (13 iun 2026 — Sprint 3 complet)
 
 Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 **https://github.com/alexx94/saas-hotelier**
@@ -47,9 +47,19 @@ web/src/
       api.ts
       hooks.ts
       property-select.tsx
-    unit-types/
+    unit-types/         ← gestionarea camerelor (Sprint 3)
       api.ts
       hooks.ts
+      unit-status.ts    ← constante status (labels/badge/dot) reutilizabile
+      room-numbering.ts ← parser numerotare bulk ("101-120" sau count+start)
+      block-reason.ts   ← motive blocaje + culori calendar + hașuri (tokens)
+      unit-rows.tsx     ← rândurile camerelor (selecție, status, istoric)
+      bulk-actions-bar.tsx
+      add-units-row.tsx
+      block-dialog.tsx  ← creare/listare/ștergere blocaje (single + bulk)
+      unit-actions-menu.tsx ← meniu rapid pe cameră (folosit în calendar)
+      event-history-dialog.tsx ← dialog istoric GENERIC (orice entitate auditată)
+      unit-history-dialog.tsx / unit-type-history-dialog.tsx ← wrappere
     organizations/
       api.ts
       hooks.ts
@@ -85,6 +95,9 @@ web/src/
       ro.ts           ← toate textele UI
     database.types.ts ← generat din Supabase (nu edita manual)
     utils.ts          ← cn() + altele
+    pagination.ts     ← offset pagination (Page, pageRange, toPage, dedupeById)
+    errors.ts         ← errorMessage() — extragere mesaj din erori Supabase
+    natural-sort.ts   ← naturalCompare ("Camera 9" < "Camera 10")
 ```
 
 ---
@@ -130,6 +143,7 @@ La `invalidateQueries` folosești mereu din acest obiect, niciodată string lite
 - La schimbarea oricărui filtru: `pagination.reset()` în același handler (nu useEffect)
 - `placeholderData: keepPreviousData` pe orice query paginat
 - **Agregări/totaluri = mereu server-side** (RPC, ex. `get_guest_stats`) — niciodată numărate pe client din lista paginată
+- **Istoricuri (audit) = „Afișează mai mult"** (Sprint 3): `useInfiniteQuery` peste același offset (`pageRange`/`toPage`, pagini de 15, `created_at desc, id desc`), nu fetch integral — istoricurile cresc nelimitat. La randare se aplică `dedupeById` (offsetul poate aluneca la scrieri concurente). Erorile Supabase se citesc cu `errorMessage()` din `lib/errors.ts` (nu `e instanceof Error` — PostgREST aruncă uneori obiecte simple).
 
 `enabled` în `useQuery` se setează explicit când ai parametri opționali:
 ```ts
@@ -220,6 +234,8 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 - Tranzițiile de status (forward + revert/undo) sunt validate în trigger DB `app.validate_booking_update` și oglindite în `web/src/features/bookings/status-rules.ts` — **modifică-le în ambele locuri simultan**
 - `revertStatuses` e separat de `nextStatuses` intenționat — feature viitor de roluri va restricționa undo-ul la manager/owner
 - Istoricul (audit) se afișează generic prin registrul `FIELDS` din `event-diff.tsx` — câmp nou în audit = o intrare în registru, fără logică pe event_type
+- **Integritate cross-tabel (block↔booking)**: EXCLUDE nu funcționează între două tabele — validarea stă în triggers pe AMBELE direcții (`room_blocks_validate`, `bookings_block_guard`), serializate per cameră cu `pg_advisory_xact_lock`. Orice constrângere viitoare între două tabele urmează același pattern.
+- **Culori de domeniu = registre centralizate** (`status-badge.tsx`, `unit-status.ts`, `block-reason.ts`), nu clase prin componente; tot ce e structural (hover, hașuri, fundaluri) stă pe tokens de temă (variabile CSS oklch din `index.css`). Hover pe suprafețe cu conținut randat = overlay separat (`bg-foreground/5`), nu înlocuire de background.
 
 ---
 
@@ -229,6 +245,8 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 - ✅ CRUD proprietăți + pagina publică `/p/{slug}`
 - ✅ Tipuri de camere + generare bulk + adăugare camere suplimentare la tip existent
 - ✅ Stări camere: active/inactive/mentenanță/arhivate (arhivare blocată dacă rezervări viitoare)
+- ✅ **Sprint 3 — Room Operations**: numerotare flexibilă la generare bulk (interval „101-120" sau count + start, parser în `unit-types/room-numbering.ts`), operațiuni bulk pe selecție (activare/dezactivare/arhivare, RPC `bulk_update_unit_status` cu raport parțial — camerele blocate de rezervări viitoare sunt listate pe nume), audit trail per cameră (`unit_events` + trigger `units_audit`, cu `actor_email`) și per tip de cameră (`unit_type_events`: preț/capacitate/nume + arhivare/reactivare); UI generic `event-history-dialog.tsx` cu wrappere per entitate, `EventDiff` reutilizabil cu registru de câmpuri injectabil; ștergerea tipului cu rezervări viitoare dă mesaj explicativ (nu doar eroare în consolă)
+- ✅ **Sprint 3 — Availability Blocks**: statusul camerei = stare permanentă (`inactive`/`out_of_service` permise cu rezervări viitoare — rezervările rămân, doar cele noi sunt oprite; `archived` strict); indisponibilitate pe interval = tabel `room_blocks` (motiv structurat, EXCLUDE block↔block, triggers cross-tabel block↔booking cu advisory lock per cameră); availability = activ ∧ fără booking ∧ fără block (engine + pagina publică); UI: `block-dialog.tsx` (single + bulk, listă/ștergere blocaje), calendar cu badge status + celule gri pe camere non-active și bare hașurate pentru block-uri; blocajele intră în istoricul camerei
 - ✅ Rezervări: creare cu alocare auto/manual, estimare cost, schimbare status, mutare cameră, audit trail
 - ✅ **Booking lifecycle solid (Sprint 1–1.2)**: tranziții status validate server-side (trigger DB), modificare date rezervare (RPC + UI), undo/revert pe statusuri cu confirmare (modal pentru acțiuni timpurii/revert), istoric cu diff lizibil (vechi → nou), RLS fix
 - ✅ Calendar (grilă camere × zile): tip + capacitate per cameră, tooltip detalii la click

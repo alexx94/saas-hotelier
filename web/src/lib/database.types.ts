@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -373,6 +373,175 @@ export type Database = {
           },
         ]
       }
+      room_blocks: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          end_date: string
+          id: string
+          notes: string | null
+          org_id: string
+          period: unknown
+          property_id: string
+          reason: string
+          start_date: string
+          unit_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          end_date: string
+          id?: string
+          notes?: string | null
+          org_id: string
+          period?: unknown
+          property_id: string
+          reason?: string
+          start_date: string
+          unit_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          end_date?: string
+          id?: string
+          notes?: string | null
+          org_id?: string
+          period?: unknown
+          property_id?: string
+          reason?: string
+          start_date?: string
+          unit_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_blocks_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "room_blocks_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "room_blocks_unit_id_fkey"
+            columns: ["unit_id"]
+            isOneToOne: false
+            referencedRelation: "units"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      unit_events: {
+        Row: {
+          actor_email: string | null
+          actor_id: string | null
+          created_at: string
+          event_type: string
+          id: string
+          new_data: Json | null
+          old_data: Json | null
+          org_id: string
+          unit_id: string
+        }
+        Insert: {
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          event_type: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          org_id: string
+          unit_id: string
+        }
+        Update: {
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          org_id?: string
+          unit_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unit_events_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unit_events_unit_id_fkey"
+            columns: ["unit_id"]
+            isOneToOne: false
+            referencedRelation: "units"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      unit_type_events: {
+        Row: {
+          actor_email: string | null
+          actor_id: string | null
+          created_at: string
+          event_type: string
+          id: string
+          new_data: Json | null
+          old_data: Json | null
+          org_id: string
+          unit_type_id: string
+        }
+        Insert: {
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          event_type: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          org_id: string
+          unit_type_id: string
+        }
+        Update: {
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          org_id?: string
+          unit_type_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unit_type_events_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unit_type_events_unit_type_id_fkey"
+            columns: ["unit_type_id"]
+            isOneToOne: false
+            referencedRelation: "unit_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       unit_types: {
         Row: {
           base_price: number
@@ -484,6 +653,35 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      block_unit: {
+        Args: {
+          p_end: string
+          p_notes?: string
+          p_reason?: string
+          p_start: string
+          p_unit_id: string
+        }
+        Returns: string
+      }
+      bulk_block_units: {
+        Args: {
+          p_end: string
+          p_notes?: string
+          p_reason?: string
+          p_start: string
+          p_unit_ids: string[]
+        }
+        Returns: Json
+      }
+      bulk_delete_units: { Args: { p_unit_ids: string[] }; Returns: Json }
+      bulk_remove_blocks: {
+        Args: { p_end: string; p_start: string; p_unit_ids: string[] }
+        Returns: number
+      }
+      bulk_update_unit_status: {
+        Args: { p_status: string; p_unit_ids: string[] }
+        Returns: Json
+      }
       create_booking: {
         Args: {
           p_check_in: string
@@ -577,6 +775,7 @@ export type Database = {
         Args: { p_booking_id: string; p_unit_id: string }
         Returns: undefined
       }
+      remove_block: { Args: { p_block_id: string }; Returns: undefined }
       update_booking_dates: {
         Args: { p_booking_id: string; p_check_in: string; p_check_out: string }
         Returns: undefined

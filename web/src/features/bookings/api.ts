@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase"
+import { naturalCompare } from "@/lib/natural-sort"
 import type { Tables } from "@/lib/database.types"
 import { pageRange, toPage, type Page } from "@/lib/pagination"
 
@@ -65,15 +66,33 @@ export async function fetchBookingsInRange(
   return data as Booking[]
 }
 
+// Pentru calendar: toate camerele în exploatare (inclusiv inactive/mentenanță —
+// rezervările lor existente rămân vizibile; doar arhivatele ies din grilă).
 export async function fetchUnits(propertyId: string): Promise<Unit[]> {
   const { data, error } = await supabase
     .from("units")
     .select("*, unit_types(name, capacity, base_price)")
     .eq("property_id", propertyId)
-    .eq("status", "active")
-    .order("name")
+    .neq("status", "archived")
   if (error) throw error
-  return data as Unit[]
+  return (data as Unit[]).sort((a, b) => naturalCompare(a.name, b.name))
+}
+
+export type RoomBlock = Tables<"room_blocks">
+
+export async function fetchBlocksInRange(
+  propertyId: string,
+  from: string,
+  to: string
+): Promise<RoomBlock[]> {
+  const { data, error } = await supabase
+    .from("room_blocks")
+    .select("*")
+    .eq("property_id", propertyId)
+    .lt("start_date", to)
+    .gt("end_date", from)
+  if (error) throw error
+  return data
 }
 
 export async function fetchAvailableUnits(
@@ -89,7 +108,7 @@ export async function fetchAvailableUnits(
     p_exclude_booking_id: excludeBookingId ?? undefined,
   })
   if (error) throw error
-  return data as AvailableUnit[]
+  return (data as AvailableUnit[]).sort((a, b) => naturalCompare(a.name, b.name))
 }
 
 // Detaliu complet pentru pagina rezervării
@@ -117,14 +136,23 @@ export async function linkBookingGuest(bookingId: string, guestId: string): Prom
   if (error) throw error
 }
 
-export async function fetchBookingEvents(bookingId: string): Promise<BookingEvent[]> {
+// Paginat, cele mai recente primele — UI-ul cere pagina următoare cu "Afișează mai mult"
+export const EVENTS_PAGE_SIZE = 15
+
+export async function fetchBookingEvents(
+  bookingId: string,
+  page: number
+): Promise<Page<BookingEvent>> {
+  const [from, to] = pageRange(page, EVENTS_PAGE_SIZE)
   const { data, error } = await supabase
     .from("booking_events")
     .select("*")
     .eq("booking_id", bookingId)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .range(from, to)
   if (error) throw error
-  return data
+  return toPage(data, EVENTS_PAGE_SIZE)
 }
 
 export type CreateBookingInput = {
@@ -134,7 +162,8 @@ export type CreateBookingInput = {
   guestId?: string
   unitId?: string
   guestsCount?: number
-  status?: "pending" | "confirmed" | "blocked"
+  // blocajele nu mai sunt rezervări — vezi room_blocks (Availability Blocks)
+  status?: "pending" | "confirmed"
   total?: number
   notes?: string
 }

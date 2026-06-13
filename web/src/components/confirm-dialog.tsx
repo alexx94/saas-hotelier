@@ -10,11 +10,12 @@ type Props = {
   title: string
   description: string
   confirmLabel?: string
+  destructive?: boolean
   onConfirm: () => void
 }
 
 export function ConfirmDialog({
-  open, onOpenChange, title, description, confirmLabel, onConfirm,
+  open, onOpenChange, title, description, confirmLabel, destructive, onConfirm,
 }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -27,7 +28,10 @@ export function ConfirmDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={() => { onConfirm(); onOpenChange(false) }}>
+          <Button
+            variant={destructive ? "destructive" : "default"}
+            onClick={() => { onConfirm(); onOpenChange(false) }}
+          >
             {confirmLabel ?? t("bookings.confirm_continue")}
           </Button>
         </div>

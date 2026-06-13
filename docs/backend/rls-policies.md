@@ -1,7 +1,7 @@
 # Politici RLS
 
 > RLS este activat pe **toate** tabelele. Politicile folosesc helper-ele din schema `app` ([helpers.md](helpers.md)) — toate SECURITY DEFINER ca să nu intre în recursie cu RLS.
-> Definițiile: `20260610110000_rls_and_rpc.sql`; întărite în `20260611140000` (WITH CHECK pe bookings) și `20260611170000` (organization_members).
+> Definițiile: `20260610110000_rls_and_rpc.sql`; întărite în `20260611140000` (WITH CHECK pe bookings) și `20260611170000` (organization_members); tabele noi: `20260611220000` (unit_events), `20260612100000` (unit_type_events), `20260612130000` (room_blocks).
 
 ## Matricea de acces
 
@@ -16,6 +16,9 @@
 | `guests` | membru org | membru org (orice rol) | membru org | membru org |
 | `bookings` | `can_access_property` — **niciodată anon** | `can_access_property` | `can_access_property` (USING + WITH CHECK) | owner |
 | `booking_events` | `can_access_property` (prin booking) | ❌ (exclusiv trigger `bookings_audit`) | ❌ | ❌ |
+| `unit_events` | `can_access_property` (prin unit) | ❌ (exclusiv trigger `units_audit` / `room_blocks_audit`) | ❌ | ❌ |
+| `unit_type_events` | `can_access_property` (prin tip) | ❌ (exclusiv trigger `unit_types_audit`) | ❌ | ❌ |
+| `room_blocks` | `can_access_property` | `can_access_property` (validare în trigger) | `can_access_property` | `can_access_property` |
 
 ## Grants pe coloane pentru `anon` (vitrina publică)
 
@@ -31,7 +34,8 @@ Orice coloană nouă pe aceste tabele este **invizibilă pentru anon** până la
 1. **Izolare cross-tenant** — totul trece prin `app.user_org_ids()` (org-urile userului) sau `app.can_access_property()` (org + restricții per-proprietate prin `member_property_access`). Testat: `db_tests.sql` testele 7–9.
 2. **UPDATE are întotdeauna și WITH CHECK** — altfel un user ar putea muta rândul într-o stare pe care nu o mai controlează (ex. alt `org_id`). Fixat pe `bookings` în migrația 4.
 3. **Fără escaladare de rol** — politicile pe `organization_members` compară rolul *rândului scris*, nu doar rolul apelantului (migrația 7, testul 17).
-4. **Tabelele de audit nu se scriu din API** — `booking_events` doar prin trigger.
+4. **Tabelele de audit nu se scriu din API** — `booking_events`, `unit_events`, `unit_type_events` doar prin triggers (DEFINER); RLS-ul lor are exclusiv SELECT.
+5. **`room_blocks` derivă `org_id`/`property_id` din cameră în trigger** — clientul nu le poate falsifica; politica autorizează, trigger-ul normalizează și validează (suprapuneri, cameră activă).
 
 ## Capcană de reținut
 

@@ -5,11 +5,23 @@ import {
   PropertySelect, usePropertySelection,
 } from "@/features/properties/property-select"
 import {
-  useBookingsInRange, useUnits,
+  useBlocksInRange, useBookingsInRange, useUnits,
 } from "@/features/bookings/hooks"
-import type { Booking, BookingStatus } from "@/features/bookings/api"
+import type { Booking, BookingStatus, RoomBlock } from "@/features/bookings/api"
 import { BookingFormDialog } from "@/features/bookings/booking-form-dialog"
 import { statusColors, StatusBadge, statusLabel } from "@/features/bookings/status-badge"
+import type { UnitStatus } from "@/features/unit-types/api"
+import { UNIT_STATUS_BADGE_CLASS, UNIT_STATUS_LABEL } from "@/features/unit-types/unit-status"
+import {
+  BLOCK_REASON_CALENDAR_CLASS, BLOCK_REASON_LABEL, BLOCK_STRIPES,
+  UNAVAILABLE_STRIPES, blockCalendarClass, blockReasonLabel,
+} from "@/features/unit-types/block-reason"
+import { BLOCK_REASONS } from "@/features/unit-types/api"
+import { UnitActionsMenu } from "@/features/unit-types/unit-actions-menu"
+import { BlockDialog } from "@/features/unit-types/block-dialog"
+import { useRemoveBlock } from "@/features/unit-types/hooks"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { toast } from "sonner"
 import { t } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -24,16 +36,28 @@ function toISO(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-// ─── tooltip rezervare ────────────────────────────────────────────────────────
+// ─── tooltips (rezervare / blocaj) ───────────────────────────────────────────
 
-type TooltipState = { booking: Booking; x: number; y: number }
+type TooltipState =
+  | { kind: "booking"; booking: Booking; x: number; y: number }
+  | { kind: "block"; block: RoomBlock; x: number; y: number }
+
+// poziționare comună: lângă click, fără să iasă din viewport
+function tooltipPos(x: number, y: number, width: number, estimatedH: number) {
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1024
+  const vh = typeof window !== "undefined" ? window.innerHeight : 768
+  return {
+    left: Math.max(8, Math.min(x, vw - width - 8)),
+    top: y + estimatedH > vh ? Math.max(8, y - estimatedH - 10) : y + 8,
+  }
+}
 
 function BookingTooltip({
   tooltip,
   onClose,
   currency,
 }: {
-  tooltip: TooltipState
+  tooltip: Extract<TooltipState, { kind: "booking" }>
   onClose: () => void
   currency: string
 }) {
@@ -43,13 +67,7 @@ function BookingTooltip({
   )
 
   const TOOLTIP_W = 288
-  const vw = typeof window !== "undefined" ? window.innerWidth : 1024
-  const vh = typeof window !== "undefined" ? window.innerHeight : 768
-
-  const left = Math.max(8, Math.min(tooltip.x, vw - TOOLTIP_W - 8))
-  const top = tooltip.y + 260 > vh
-    ? Math.max(8, tooltip.y - 270)
-    : tooltip.y + 8
+  const { left, top } = tooltipPos(tooltip.x, tooltip.y, TOOLTIP_W, 260)
 
   return (
     <>
@@ -131,6 +149,130 @@ function BookingTooltip({
   )
 }
 
+// fereastră mică la click pe un blocaj: interval, motiv, note + eliminare
+function BlockTooltip({
+  tooltip,
+  unitName,
+  onClose,
+}: {
+  tooltip: Extract<TooltipState, { kind: "block" }>
+  unitName: string | undefined
+  onClose: () => void
+}) {
+  const { block: rb } = tooltip
+  const removeBlock = useRemoveBlock()
+  const [confirmRemove, setConfirmRemove] = useState(false)
+
+  const TOOLTIP_W = 272
+  const { left, top } = tooltipPos(tooltip.x, tooltip.y, TOOLTIP_W, 200)
+
+  async function onRemove() {
+    try {
+      await removeBlock.mutateAsync(rb.id)
+      toast.success(t("blocks.removed"))
+      onClose()
+    } catch {
+      toast.error(t("common.error"))
+    }
+  }
+
+  return (
+    <>
+      {/* z sub dialogul de confirmare (z-50): la deschiderea modalului, overlay-ul
+          lui acoperă și estompează tooltip-ul, fără să-l mai închidem */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        style={{ position: "fixed", top, left, width: TOOLTIP_W, zIndex: 41 }}
+        className="rounded-lg border bg-popover shadow-xl text-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 border-b p-3 pb-2">
+          <p className="font-semibold">{blockReasonLabel(rb.reason)}</p>
+          <button
+            onClick={onClose}
+            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="space-y-1.5 p-3 text-xs">
+          {unitName && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t("bookings.unit")}</span>
+              <span className="font-medium">{unitName}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("blocks.start")}</span>
+            <span className="font-medium">{rb.start_date}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("blocks.end")}</span>
+            <span className="font-medium">{rb.end_date}</span>
+          </div>
+          {rb.notes && (
+            <p className="border-t pt-1.5 mt-1 text-muted-foreground italic leading-snug">
+              {rb.notes}
+            </p>
+          )}
+          <Button
+            variant="outline" size="sm"
+            className="mt-1.5 w-full text-destructive"
+            disabled={removeBlock.isPending}
+            onClick={() => setConfirmRemove(true)}
+          >
+            {t("blocks.remove")}
+          </Button>
+        </div>
+      </div>
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title={t("common.confirm_action")}
+        description={t("blocks.confirm_remove")}
+        confirmLabel={t("common.delete")}
+        destructive
+        onConfirm={onRemove}
+      />
+    </>
+  )
+}
+
+// ─── legendă culori (minimalistă) ─────────────────────────────────────────────
+
+const LEGEND_BOOKING_STATUSES: BookingStatus[] = [
+  "pending", "confirmed", "checked_in", "checked_out",
+]
+
+function CalendarLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+      {LEGEND_BOOKING_STATUSES.map((s) => (
+        <span key={s} className="flex items-center gap-1">
+          <span className={cn("h-2.5 w-2.5 rounded-sm border", statusColors[s])} />
+          {statusLabel(s)}
+        </span>
+      ))}
+      {BLOCK_REASONS.map((r) => (
+        <span key={r} className="flex items-center gap-1">
+          <span
+            className={cn("h-2.5 w-2.5 rounded-sm border", BLOCK_REASON_CALENDAR_CLASS[r])}
+            style={{ backgroundImage: BLOCK_STRIPES }}
+          />
+          {t(BLOCK_REASON_LABEL[r])}
+        </span>
+      ))}
+      <span className="flex items-center gap-1">
+        <span
+          className="h-2.5 w-2.5 rounded-sm border bg-muted"
+          style={{ backgroundImage: UNAVAILABLE_STRIPES }}
+        />
+        {t("calendar.legend.unavailable")}
+      </span>
+    </div>
+  )
+}
+
 // ─── pagina calendar ──────────────────────────────────────────────────────────
 
 function CalendarPage() {
@@ -141,6 +283,9 @@ function CalendarPage() {
   })
   const [open, setOpen] = useState(false)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+  const [blockTarget, setBlockTarget] = useState<
+    { kind: "single"; unitId: string; unitName: string } | null
+  >(null)
 
   const monthStart = useMemo(() => toISO(month), [month])
   const monthEnd = useMemo(
@@ -153,6 +298,7 @@ function CalendarPage() {
 
   const { data: units, isLoading: loadingUnits } = useUnits(property?.id)
   const { data: bookings } = useBookingsInRange(property?.id, monthStart, monthEnd)
+  const { data: blocks } = useBlocksInRange(property?.id, monthStart, monthEnd)
 
   // grupare unică pe cameră — evită un filter peste toate rezervările per rând
   const bookingsByUnit = useMemo(() => {
@@ -165,6 +311,16 @@ function CalendarPage() {
     }
     return map
   }, [bookings])
+
+  const blocksByUnit = useMemo(() => {
+    const map = new Map<string, RoomBlock[]>()
+    for (const rb of blocks ?? []) {
+      const list = map.get(rb.unit_id)
+      if (list) list.push(rb)
+      else map.set(rb.unit_id, [rb])
+    }
+    return map
+  }, [blocks])
 
   const monthLabel = month.toLocaleDateString("ro-RO", {
     month: "long", year: "numeric", timeZone: "UTC",
@@ -233,6 +389,9 @@ function CalendarPage() {
         />
       )}
 
+      {/* legendă subtilă pentru culorile din grilă */}
+      {units && units.length > 0 && <CalendarLegend />}
+
       {loadingUnits ? (
         <Skeleton className="h-96 w-full" />
       ) : !units || units.length === 0 ? (
@@ -269,28 +428,98 @@ function CalendarPage() {
             {/* rând per cameră */}
             {units.map((unit) => {
               const unitBookings = bookingsByUnit.get(unit.id) ?? []
+              const unitBlocks = blocksByUnit.get(unit.id) ?? []
+              const unitStatus = (unit.status ?? "active") as UnitStatus
+              const isOperational = unitStatus === "active"
               return (
-                <div key={unit.id} className="col-span-full grid grid-cols-subgrid border-b last:border-b-0">
-                  <div className="sticky left-0 z-10 border-r bg-card p-2 truncate">
-                    <p className="font-medium truncate leading-tight">{unit.name}</p>
-                    {unit.unit_types && (
-                      <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-muted-foreground leading-tight truncate">
-                        <span className="truncate">{unit.unit_types.name}</span>
-                        <span className="mx-0.5 shrink-0">·</span>
-                        <Users className="h-2.5 w-2.5 shrink-0" />
-                        <span className="shrink-0">{unit.unit_types.capacity}</span>
-                      </p>
-                    )}
-                  </div>
+                <div key={unit.id} className="group col-span-full grid grid-cols-subgrid border-b last:border-b-0">
+                  {/* click pe cameră = meniu de gestionare (status + blocaje) */}
+                  <UnitActionsMenu
+                    unitId={unit.id}
+                    unitName={unit.name}
+                    unitStatus={unitStatus}
+                    propertyId={property!.id}
+                    onManageBlocks={() =>
+                      setBlockTarget({ kind: "single", unitId: unit.id, unitName: unit.name })
+                    }
+                  >
+                    <button className="relative sticky left-0 z-10 border-r bg-card p-2 truncate text-left">
+                      {/* hover = strat separat peste conținut, nu înlocuiește fundalul */}
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 bg-foreground/5 opacity-0 transition-opacity group-hover:opacity-100"
+                      />
+                      <p className="font-medium truncate leading-tight">{unit.name}</p>
+                      {unit.unit_types && (
+                        <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-muted-foreground leading-tight truncate">
+                          <span className="truncate">{unit.unit_types.name}</span>
+                          <span className="mx-0.5 shrink-0">·</span>
+                          <Users className="h-2.5 w-2.5 shrink-0" />
+                          <span className="shrink-0">{unit.unit_types.capacity}</span>
+                        </p>
+                      )}
+                      {/* statusul permanent explică celulele hașurate — fără blocuri artificiale */}
+                      {!isOperational && (
+                        <span className={cn(
+                          "mt-1 inline-block rounded border px-1 py-px text-[9px] font-medium leading-tight",
+                          UNIT_STATUS_BADGE_CLASS[unitStatus]
+                        )}>
+                          {t(UNIT_STATUS_LABEL[unitStatus])}
+                        </span>
+                      )}
+                    </button>
+                  </UnitActionsMenu>
+                  {/* hașura stă pe container (acoperă toată înălțimea rândului,
+                      inclusiv când badge-ul îl face mai înalt);
+                      celulele au min-h și se întind natural (grid stretch) */}
                   <div
-                    className="relative col-span-full col-start-2 grid"
+                    className={cn(
+                      "relative col-span-full col-start-2 grid",
+                      !isOperational && "bg-muted"
+                    )}
                     style={{
                       gridTemplateColumns: `repeat(${daysInMonth}, minmax(2rem, 1fr))`,
+                      ...(!isOperational ? { backgroundImage: UNAVAILABLE_STRIPES } : undefined),
                     }}
                   >
                     {Array.from({ length: daysInMonth }, (_, i) => (
-                      <div key={i} className="h-12 border-r last:border-r-0" />
+                      <div key={i} className="min-h-12 border-r last:border-r-0" />
                     ))}
+                    {/* hover = strat propriu sub barele de rezervări/blocaje (z-4/5):
+                        umbrește subtil rândul fără să afecteze hașura sau culorile */}
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 z-[3] bg-foreground/5 opacity-0 transition-opacity group-hover:opacity-100"
+                    />
+                    {/* blocaje de disponibilitate — evenimente cu interval, desenate efectiv */}
+                    {unitBlocks.map((rb) => {
+                      const startDay =
+                        rb.start_date < monthStart ? 1 : Number(rb.start_date.slice(8, 10))
+                      const endDay =
+                        rb.end_date >= monthEnd ? daysInMonth + 1 : Number(rb.end_date.slice(8, 10))
+                      return (
+                        <div
+                          key={rb.id}
+                          title={blockReasonLabel(rb.reason)}
+                          className={cn(
+                            "absolute inset-y-1.5 z-[4] flex cursor-pointer items-center overflow-hidden rounded-md border border-dashed px-2 text-xs font-medium transition-opacity hover:opacity-80",
+                            blockCalendarClass(rb.reason)
+                          )}
+                          style={{
+                            left: `calc(${((startDay - 1) / daysInMonth) * 100}% + 2px)`,
+                            width: `calc(${((endDay - startDay) / daysInMonth) * 100}% - 4px)`,
+                            backgroundImage: BLOCK_STRIPES,
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                            setTooltip({ kind: "block", block: rb, x: rect.left, y: rect.bottom })
+                          }}
+                        >
+                          <span className="truncate">{blockReasonLabel(rb.reason)}</span>
+                        </div>
+                      )
+                    })}
                     {unitBookings.map((b) => {
                       const startDay =
                         b.check_in < monthStart
@@ -315,7 +544,7 @@ function CalendarPage() {
                           onClick={(e) => {
                             e.stopPropagation()
                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                            setTooltip({ booking: b as Booking, x: rect.left, y: rect.bottom })
+                            setTooltip({ kind: "booking", booking: b as Booking, x: rect.left, y: rect.bottom })
                           }}
                         >
                           <span className="truncate">
@@ -332,11 +561,27 @@ function CalendarPage() {
         </Card>
       )}
 
-      {tooltip && (
+      {tooltip?.kind === "booking" && (
         <BookingTooltip
           tooltip={tooltip}
           onClose={() => setTooltip(null)}
           currency={currency}
+        />
+      )}
+      {tooltip?.kind === "block" && (
+        <BlockTooltip
+          tooltip={tooltip}
+          unitName={units?.find((u) => u.id === tooltip.block.unit_id)?.name}
+          onClose={() => setTooltip(null)}
+        />
+      )}
+
+      {/* gestionare blocaje pe camera aleasă din meniul de pe rând */}
+      {property && (
+        <BlockDialog
+          propertyId={property.id}
+          target={blockTarget}
+          onClose={() => setBlockTarget(null)}
         />
       )}
     </div>

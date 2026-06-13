@@ -10,6 +10,12 @@
 | `bookings_update_guard` | bookings | BEFORE UPDATE | `app.validate_booking_update` | validare tranziții status + date + cameră |
 | `bookings_audit` | bookings | AFTER INSERT/UPDATE | `app.audit_booking` | scrie istoricul în `booking_events` |
 | `units_status_guard` | units | BEFORE UPDATE/DELETE | `app.check_unit_status_change` | blochează dezactivarea/ștergerea cu rezervări viitoare |
+| `units_audit` | units | AFTER INSERT/UPDATE | `app.audit_unit` | scrie istoricul în `unit_events` |
+| `unit_types_audit` | unit_types | AFTER INSERT/UPDATE | `app.audit_unit_type` | scrie istoricul în `unit_type_events` |
+| `room_blocks_validate` | room_blocks | BEFORE INSERT/UPDATE | `app.validate_room_block` | block doar pe camere active, fără suprapunere cu rezervări |
+| `bookings_block_guard` | bookings | BEFORE INSERT/UPDATE | `app.check_booking_block_overlap` | rezervările nu calcă peste block-uri |
+| `room_blocks_audit` | room_blocks | AFTER INS/UPD/DEL | `app.audit_room_block` | block created/updated/removed → `unit_events` |
+| `room_blocks_set_updated_at` | room_blocks | BEFORE UPDATE | `app.set_updated_at` | `updated_at = now()` automat |
 | `guests_normalize` | guests | BEFORE INSERT/UPDATE | `app.normalize_guest_row` | normalizare email/telefon/nume |
 
 ## Detalii
@@ -24,8 +30,20 @@ Sursa de adevăr pentru ciclul de viață al rezervării:
 ### `app.audit_booking` (migrațiile 3 → 6)
 SECURITY DEFINER (poate scrie în `booking_events` peste lipsa de INSERT direct). Determină `event_type` (`created`/`status_changed`/`reassigned`/`dates_changed`/`updated`) și scrie doar câmpurile relevante în `old_data`/`new_data` — cu **numele camerei**, nu UUID, pentru afișare directă. `actor_id = auth.uid()` (NULL pentru rezervările publice). Frontend-ul afișează generic prin registrul `FIELDS` din `event-diff.tsx`.
 
-### `app.check_unit_status_change` (migrațiile 3 → 7)
-La tranziția `active → orice altceva` sau DELETE: dacă există rezervări viitoare active pe cameră → `UNIT_HAS_FUTURE_BOOKINGS`. UI-ul oferă arhivare în loc de ștergere.
+### `app.audit_unit` (migrația 13 — Sprint 3)
+SECURITY DEFINER + `set search_path = ''` (scrie în `unit_events` fără INSERT direct din app). Evenimente: `created` (nume + status inițial), `status_changed` (old/new status, plus numele dacă s-a schimbat simultan), `renamed` (old/new nume); update-urile fără schimbări relevante nu produc evenimente. Pe lângă `actor_id = auth.uid()` salvează și `actor_email` (snapshot din `auth.jwt()`) — afișarea "cine a modificat" nu cere join spre `auth.users`. Frontend: `unit-history-dialog.tsx` prin registrul `UNIT_FIELDS` (același mecanism `EventDiff` ca la bookings).
+
+### `app.audit_unit_type` (migrația 14 — Sprint 3)
+Același model ca `audit_unit`, pe `unit_type_events`. Evenimente: `created` (nume/capacitate/preț), `updated` (diff doar pe câmpurile schimbate dintre `name`/`capacity`/`base_price`), `archived`/`restored` (tranziții `is_active`); update-urile fără schimbări relevante nu produc evenimente. Un câmp nou auditat = un `if` în trigger + o intrare în registrul `TYPE_FIELDS` din `unit-type-history-dialog.tsx`.
+
+### `app.check_unit_status_change` (migrațiile 3 → 7 → 17)
+Doar scoaterea **definitivă** din exploatare (tranziția spre `archived` sau DELETE) cere zero rezervări viitoare → `UNIT_HAS_FUTURE_BOOKINGS`. `inactive`/`out_of_service` sunt permise oricând: rezervările existente rămân, doar rezervările noi sunt oprite (engine-ul filtrează `status = 'active'`).
+
+### `app.validate_room_block` + `app.check_booking_block_overlap` (migrația 17)
+Integritatea **cross-tabel** block↔booking: EXCLUDE nu funcționează între două tabele, deci validarea trăiește în triggers pe ambele direcții — block nou peste rezervări active → `BLOCK_OVERLAPS_BOOKING`; rezervare nouă/mutată/reactivată peste block → `UNIT_BLOCKED`. Ambele iau `pg_advisory_xact_lock` per cameră înainte de verificare: două tranzacții concurente (block + booking pe aceeași cameră) se serializează, nu se pot strecura una pe lângă cealaltă. `validate_room_block` cere și camera `active` (`UNIT_NOT_ACTIVE`) și derivă `org_id`/`property_id` din cameră (clientul nu le poate falsifica). Suprapunerea block↔block e declarativă: EXCLUDE `no_overlapping_blocks` pe `room_blocks`.
+
+### `app.audit_room_block` (migrația 17)
+SECURITY DEFINER; scrie `block_created`/`block_updated`/`block_removed` în `unit_events` (istoricul camerei include și blocajele — cine/ce interval/ce motiv/când).
 
 ### `app.normalize_guest_row` (migrația 7)
 `full_name` → trim; `email` → `lower(trim())`, gol → NULL; `phone` → trim, gol → NULL. Garantează că indexul unic pe `(org_id, email)` funcționează fără expresii — orice insert, pe orice cale, e normalizat înainte de constraint.

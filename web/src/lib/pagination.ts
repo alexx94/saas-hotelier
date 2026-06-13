@@ -24,6 +24,16 @@ export function toPage<TItem>(rows: TItem[], pageSize: number): Page<TItem> {
   }
 }
 
+// Offset pagination poate repeta un rând dacă apare o inserare nouă între două
+// pagini (offsetul alunecă). Mutațiile proprii invalidează query-ul, dar scrierile
+// concurente ale altui user nu — dedupe pe id la randare, ieftin și suficient
+// pentru listele "Afișează mai mult" (infinite query).
+export function dedupeById<T extends { id: string }>(items: T[] | undefined): T[] | undefined {
+  if (!items) return items
+  const seen = new Set<string>()
+  return items.filter((it) => (seen.has(it.id) ? false : (seen.add(it.id), true)))
+}
+
 // Pagină curentă (0-based) + navigare înainte/înapoi.
 // reset() la schimbarea filtrelor (search, proprietate etc.).
 export function usePagination() {

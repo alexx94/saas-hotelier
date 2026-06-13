@@ -104,6 +104,22 @@ create table units (
 --  * modificarea nr. de camere: crește -> generate_units adaugă; scade -> șterge doar
 --    camere fără rezervări, altfel le dezactivează.
 
+-- Evoluții ulterioare (vezi migrațiile + CHANGELOG):
+--  * migrația 3: is_active -> status text ('active','inactive','out_of_service','archived'),
+--    trigger units_status_guard (blochează dezactivarea cu rezervări viitoare);
+--  * migrația 13 (Sprint 3): tabel unit_events (audit cine/ce/când per cameră, cu actor_email
+--    snapshot, scris exclusiv de trigger-ul units_audit) + RPC bulk_update_unit_status
+--    (activare/dezactivare/arhivare în masă, raport per cameră);
+--  * migrația 14 (Sprint 3): tabel unit_type_events — același model de audit pe tipuri
+--    (created / updated cu diff pe nume/capacitate/preț / archived / restored);
+--  * migrația 17 (Sprint 3 — Availability Blocks): separarea conceptelor —
+--    units.status = stare PERMANENTĂ (inactive/out_of_service NU mai cer zero
+--    rezervări viitoare; doar archived/DELETE rămân stricte), iar indisponibilitatea
+--    pe INTERVAL = tabel dedicat room_blocks (EXCLUDE anti-suprapunere block↔block;
+--    block↔booking validat în triggers pe ambele direcții, serializat per cameră cu
+--    advisory lock). Disponibil = activ ∧ fără booking overlap ∧ fără block overlap.
+--    Pseudo-rezervările status='blocked' au fost migrate în room_blocks și eliminate.
+
 -- ============ GUESTS & BOOKINGS ============
 create table guests (
   id          uuid primary key default gen_random_uuid(),

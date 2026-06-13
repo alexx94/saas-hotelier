@@ -2,7 +2,9 @@ import { format } from "date-fns"
 import { History } from "lucide-react"
 import { useBookingEvents } from "./hooks"
 import { EventDiff } from "./event-diff"
+import { dedupeById } from "@/lib/pagination"
 import { t } from "@/lib/i18n"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { TranslationKey } from "@/lib/i18n"
 
@@ -18,9 +20,10 @@ const EVENT_LABEL: Record<string, TranslationKey> = {
 type Props = { bookingId: string }
 
 export function BookingHistory({ bookingId }: Props) {
-  const { data: events, isLoading } = useBookingEvents(bookingId)
+  const query = useBookingEvents(bookingId)
+  const events = dedupeById(query.data?.pages.flatMap((p) => p.items))
 
-  if (isLoading) return <Skeleton className="h-16 w-full" />
+  if (query.isLoading) return <Skeleton className="h-16 w-full" />
 
   if (!events || events.length === 0) {
     return (
@@ -45,6 +48,19 @@ export function BookingHistory({ bookingId }: Props) {
           </div>
         )
       })}
+      {query.hasNextPage ? (
+        <Button
+          variant="ghost" size="sm" className="w-full"
+          disabled={query.isFetchingNextPage}
+          onClick={() => query.fetchNextPage()}
+        >
+          {t("common.show_more")}
+        </Button>
+      ) : (query.data?.pages.length ?? 0) > 1 ? (
+        <p className="pt-1 text-center text-xs text-muted-foreground">
+          {t("history.end")}
+        </p>
+      ) : null}
     </div>
   )
 }
