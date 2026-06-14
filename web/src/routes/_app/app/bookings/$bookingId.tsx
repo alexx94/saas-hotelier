@@ -11,6 +11,8 @@ import type { PaymentStatus } from "@/features/payments/api"
 import { PaymentStatusBadge } from "@/features/payments/payment-status-badge"
 import { PaymentsCard } from "@/features/payments/payments-card"
 import { GuestCombobox } from "@/features/guests/guest-combobox"
+import { PriceBreakdown } from "@/features/pricing/price-breakdown"
+import type { PriceQuote } from "@/features/pricing/api"
 import { t, type TranslationKey } from "@/lib/i18n"
 import { formatMoney } from "@/lib/money"
 import { Button } from "@/components/ui/button"
@@ -65,6 +67,8 @@ function BookingDetailPage() {
   const isBlocked = booking.status === "blocked"
   const nights =
     (new Date(booking.check_out).getTime() - new Date(booking.check_in).getTime()) / 86400000
+  // snapshot-ul de preț salvat la creare (nu se recalculează)
+  const breakdown = booking.price_breakdown as unknown as PriceQuote | null
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -95,7 +99,10 @@ function BookingDetailPage() {
             />
             <Row label={t("bookings.check_in")} value={booking.check_in} />
             <Row label={t("bookings.check_out")} value={`${booking.check_out} (${nights} ${t("bookings.nights")})`} />
-            <Row label={t("bookings.guests_count")} value={String(booking.guests_count)} />
+            <Row
+              label={t("bookings.guests_count")}
+              value={`${booking.adults} ${t("occupancy.adults").toLowerCase()} · ${booking.children} ${t("occupancy.children").toLowerCase()}`}
+            />
             {!isBlocked && (
               <Row
                 label={t("bookings.unit_price")}
@@ -112,6 +119,12 @@ function BookingDetailPage() {
             />
             <Row label={t("bookings.created_at")} value={booking.created_at.slice(0, 10)} />
             {booking.notes && <Row label={t("bookings.notes")} value={booking.notes} />}
+            {!isBlocked && breakdown && breakdown.nights?.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <p className="text-muted-foreground">{t("pricing.breakdown")}</p>
+                <PriceBreakdown quote={breakdown} />
+              </div>
+            )}
           </CardContent>
         </Card>
 

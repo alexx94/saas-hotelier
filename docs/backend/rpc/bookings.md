@@ -29,11 +29,13 @@ edit-dates-dialog ──► update_booking_dates ──► UPDATE bookings ◄�
 
 **Snapshot oaspete** (migrația 8): scrie `booked_full_name/email/phone` — parametrii `p_snap_*` (datele tastate la rezervarea publică) sau, dacă sunt NULL (fluxul admin), o copie a profilului din acel moment. Rezervările trecute nu se schimbă când profilul e actualizat.
 
-**Erori**: `UNIT_TYPE_NOT_FOUND`, `INVALID_DATES`, `CAPACITY_EXCEEDED`, `UNIT_NOT_AVAILABLE`.
+**Erori**: `UNIT_TYPE_NOT_FOUND`, `INVALID_DATES`, `OCCUPANCY_EXCEEDED`, `UNIT_NOT_AVAILABLE`.
+
+> Sprint 4.5: semnătura internă primește `p_adults/p_children` (în loc de `p_guests_count`) + `p_total/p_breakdown/p_unit_price` (snapshot din motorul de preț). Vezi [pricing.md](pricing.md).
 
 ---
 
-## `create_booking(p_unit_type_id, p_check_in, p_check_out, p_guest_id, p_unit_id, p_guests_count, p_status, p_total, p_notes) returns uuid`
+## `create_booking(p_unit_type_id, p_check_in, p_check_out, p_guest_id, p_unit_id, p_adults, p_children, p_status, p_notes) returns uuid`
 
 **Scop**: creare rezervare din admin (cu oaspete) sau blocare cameră (`status='blocked'`, fără oaspete).
 
@@ -45,7 +47,7 @@ edit-dates-dialog ──► update_booking_dates ──► UPDATE bookings ◄�
 | Autorizare | `app.can_access_property(...)` → `FORBIDDEN`; `p_guest_id` trebuie să existe **în org-ul proprietății** → `GUEST_NOT_FOUND` |
 | Frontend | `features/bookings/api.ts` → `createBooking()`, folosit de `booking-form-dialog.tsx` |
 
-**Validări**: status inițial doar `pending`/`confirmed`/`blocked` (`INVALID_STATUS`); oaspete obligatoriu dacă nu e blocked (`GUEST_REQUIRED`). `p_total` NULL → calculat `nopți × base_price`. `source` e **forțat** (`admin`/`blocked`) — clientul nu îl controlează.
+**Validări**: status inițial doar `pending`/`confirmed`/`blocked` (`INVALID_STATUS`); oaspete obligatoriu dacă nu e blocked (`GUEST_REQUIRED`); ocupare `OCCUPANCY_EXCEEDED`. Prețul (total + breakdown + unit_price) e calculat **server-side** din `app.compute_price` și snapshot-uit — clientul nu mai trimite total (Sprint 4.5). `source` e **forțat** (`admin`/`blocked`).
 
 ---
 

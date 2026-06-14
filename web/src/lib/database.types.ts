@@ -84,20 +84,23 @@ export type Database = {
       }
       bookings: {
         Row: {
+          adults: number
           amount_paid: number
           booked_email: string | null
           booked_full_name: string | null
           booked_phone: string | null
           check_in: string
           check_out: string
+          children: number
           created_at: string
           currency: string
           guest_id: string | null
-          guests_count: number
+          guests_count: number | null
           id: string
           notes: string | null
           org_id: string
           payment_status: string
+          price_breakdown: Json
           property_id: string
           source: string
           status: string
@@ -109,20 +112,23 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          adults?: number
           amount_paid?: number
           booked_email?: string | null
           booked_full_name?: string | null
           booked_phone?: string | null
           check_in: string
           check_out: string
+          children?: number
           created_at?: string
           currency: string
           guest_id?: string | null
-          guests_count?: number
+          guests_count?: number | null
           id?: string
           notes?: string | null
           org_id: string
           payment_status?: string
+          price_breakdown?: Json
           property_id: string
           source?: string
           status?: string
@@ -134,20 +140,23 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          adults?: number
           amount_paid?: number
           booked_email?: string | null
           booked_full_name?: string | null
           booked_phone?: string | null
           check_in?: string
           check_out?: string
+          children?: number
           created_at?: string
           currency?: string
           guest_id?: string | null
-          guests_count?: number
+          guests_count?: number | null
           id?: string
           notes?: string | null
           org_id?: string
           payment_status?: string
+          price_breakdown?: Json
           property_id?: string
           source?: string
           status?: string
@@ -461,6 +470,70 @@ export type Database = {
           },
         ]
       }
+      rate_rules: {
+        Row: {
+          created_at: string
+          end_date: string
+          id: string
+          kind: string
+          name: string
+          org_id: string
+          price: number
+          property_id: string
+          start_date: string
+          unit_type_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          end_date: string
+          id?: string
+          kind: string
+          name: string
+          org_id: string
+          price: number
+          property_id: string
+          start_date: string
+          unit_type_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          end_date?: string
+          id?: string
+          kind?: string
+          name?: string
+          org_id?: string
+          price?: number
+          property_id?: string
+          start_date?: string
+          unit_type_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rate_rules_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rate_rules_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rate_rules_unit_type_id_fkey"
+            columns: ["unit_type_id"]
+            isOneToOne: false
+            referencedRelation: "unit_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       room_blocks: {
         Row: {
           created_at: string
@@ -633,39 +706,51 @@ export type Database = {
       unit_types: {
         Row: {
           base_price: number
-          capacity: number
           created_at: string
           description: Json
           id: string
           is_active: boolean
+          max_adults: number
+          max_children: number
           name: string
           org_id: string
           property_id: string
           sort_order: number
+          weekend_adjustment_type: string
+          weekend_adjustment_value: number
+          weekend_days: number[]
         }
         Insert: {
           base_price?: number
-          capacity?: number
           created_at?: string
           description?: Json
           id?: string
           is_active?: boolean
+          max_adults?: number
+          max_children?: number
           name: string
           org_id: string
           property_id: string
           sort_order?: number
+          weekend_adjustment_type?: string
+          weekend_adjustment_value?: number
+          weekend_days?: number[]
         }
         Update: {
           base_price?: number
-          capacity?: number
           created_at?: string
           description?: Json
           id?: string
           is_active?: boolean
+          max_adults?: number
+          max_children?: number
           name?: string
           org_id?: string
           property_id?: string
           sort_order?: number
+          weekend_adjustment_type?: string
+          weekend_adjustment_value?: number
+          weekend_days?: number[]
         }
         Relationships: [
           {
@@ -772,13 +857,13 @@ export type Database = {
       }
       create_booking: {
         Args: {
+          p_adults?: number
           p_check_in: string
           p_check_out: string
+          p_children?: number
           p_guest_id?: string
-          p_guests_count?: number
           p_notes?: string
           p_status?: string
-          p_total?: number
           p_unit_id?: string
           p_unit_type_id: string
         }
@@ -828,6 +913,15 @@ export type Database = {
           upcoming: number
         }[]
       }
+      get_rate_calendar: {
+        Args: { p_from: string; p_property_id: string; p_to: string }
+        Returns: {
+          day: string
+          kind: string
+          rate: number
+          unit_type_id: string
+        }[]
+      }
       get_revenue_summary: {
         Args: { p_property_id: string }
         Returns: {
@@ -843,11 +937,12 @@ export type Database = {
       }
       public_create_booking: {
         Args: {
+          p_adults?: number
           p_check_in: string
           p_check_out: string
+          p_children?: number
           p_email: string
           p_full_name: string
-          p_guests_count?: number
           p_notes?: string
           p_phone?: string
           p_slug: string
@@ -856,17 +951,32 @@ export type Database = {
         Returns: Json
       }
       public_get_availability: {
-        Args: { p_check_in: string; p_check_out: string; p_slug: string }
+        Args: {
+          p_adults?: number
+          p_check_in: string
+          p_check_out: string
+          p_children?: number
+          p_slug: string
+        }
         Returns: {
           available_units: number
-          capacity: number
           currency: string
           description: Json
+          max_adults: number
+          max_children: number
           name: string
           price_per_night: number
           total_price: number
           unit_type_id: string
         }[]
+      }
+      quote_price: {
+        Args: {
+          p_check_in: string
+          p_check_out: string
+          p_unit_type_id: string
+        }
+        Returns: Json
       }
       reassign_booking: {
         Args: { p_booking_id: string; p_unit_id: string }

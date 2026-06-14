@@ -16,7 +16,9 @@ export type Booking = Tables<"bookings"> & {
 }
 
 export type Unit = Tables<"units"> & {
-  unit_types: { name: string; capacity: number; base_price: number } | null
+  unit_types: {
+    name: string; max_adults: number; max_children: number; base_price: number
+  } | null
 }
 
 export type BookingEvent = Tables<"booking_events">
@@ -71,7 +73,7 @@ export async function fetchBookingsInRange(
 export async function fetchUnits(propertyId: string): Promise<Unit[]> {
   const { data, error } = await supabase
     .from("units")
-    .select("*, unit_types(name, capacity, base_price)")
+    .select("*, unit_types(name, max_adults, max_children, base_price)")
     .eq("property_id", propertyId)
     .neq("status", "archived")
   if (error) throw error
@@ -161,10 +163,11 @@ export type CreateBookingInput = {
   checkOut: string
   guestId?: string
   unitId?: string
-  guestsCount?: number
+  adults?: number
+  children?: number
   // blocajele nu mai sunt rezervări — vezi room_blocks (Availability Blocks)
   status?: "pending" | "confirmed"
-  total?: number
+  // prețul (total + breakdown) e calculat și snapshot-uit server-side, din engine
   notes?: string
 }
 
@@ -175,9 +178,9 @@ export async function createBooking(input: CreateBookingInput): Promise<string> 
     p_check_out: input.checkOut,
     p_guest_id: input.guestId ?? undefined,
     p_unit_id: input.unitId ?? undefined,
-    p_guests_count: input.guestsCount ?? 1,
+    p_adults: input.adults ?? 1,
+    p_children: input.children ?? 0,
     p_status: input.status ?? "confirmed",
-    p_total: input.total ?? undefined,
     p_notes: input.notes ?? undefined,
   })
   if (error) throw error

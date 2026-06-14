@@ -369,6 +369,65 @@ export const ro = {
   "revenue.today": "Venit azi",
   "revenue.month": "Venit luna aceasta",
   "revenue.year": "Venit anul acesta",
+
+  // capacitate & ocupare (Sprint 4.5)
+  "unit_types.occupancy": "Capacitate",
+  "unit_types.max_adults": "Maxim adulți",
+  "unit_types.max_children": "Maxim copii",
+  "occupancy.adults": "Adulți",
+  "occupancy.children": "Copii",
+
+  // config weekend (Sprint 4.5)
+  "unit_types.weekend_pricing": "Preț weekend",
+  "unit_types.weekend_type": "Ajustare",
+  "unit_types.weekend_none": "Fără",
+  "unit_types.weekend_percent": "Procent (%)",
+  "unit_types.weekend_amount": "Sumă fixă",
+  "unit_types.weekend_value": "Valoare",
+  "unit_types.weekend_days": "Zile de weekend",
+  "unit_types.weekend_hint":
+    "Suprataxa se aplică doar nopților de weekend rămase pe prețul de bază — NU peste tarifele de sezon sau preferențiale (acelea au prioritate).",
+
+  // pricing engine — sezoane + override-uri (Sprint 4.5)
+  "pricing.manage": "Prețuri",
+  "pricing.kind.season": "Sezon",
+  "pricing.kind.override": "Tarif preferențial",
+  "pricing.kind.base": "Preț de bază",
+  "pricing.rule_name": "Denumire",
+  "pricing.start": "De la",
+  "pricing.end": "Până la (inclusiv)",
+  "pricing.price": "Preț / noapte",
+  "pricing.invalid_dates": "Data de sfârșit trebuie să fie >= data de început.",
+  "pricing.past_dates": "Perioada trebuie să se încheie azi sau în viitor.",
+  "pricing.rule_created": "Sezon creat",
+  "pricing.rule_updated": "Sezon actualizat",
+  "pricing.rule_deleted": "Sezon șters",
+  "pricing.delete_confirm": "Ștergi acest sezon?",
+  // dialog sezoane (per tip de cameră)
+  "pricing.seasons_title": "Tarife sezoniere",
+  "pricing.seasons_subtitle":
+    "Prețuri pe perioade pentru acest tip. Tarifele preferențiale (override, din calendar) au prioritate peste sezon. La suprapunerea a două sezoane se aplică cel modificat ultima dată.",
+  "pricing.add_season": "Adaugă tarif sezon",
+  "pricing.seasons_empty": "Niciun sezon. Se folosește prețul de bază.",
+  // dialog override (din calendar — tarif preferențial pe perioadă, toate camerele tipului)
+  "pricing.override_action": "Tarif preferențial",
+  "pricing.override_title": "Tarife preferențiale (override)",
+  "pricing.override_subtitle":
+    "Tarif pe perioadă determinată, aplicat automat tuturor camerelor tipului ales. Are prioritate peste sezon.",
+  "pricing.add_override": "Adaugă tarif preferențial",
+  "pricing.override_empty": "Niciun tarif preferențial activ.",
+  "pricing.override_created": "Tarif preferențial creat",
+  "pricing.override_deleted": "Tarif preferențial șters",
+  "pricing.override_delete_confirm": "Ștergi acest tarif preferențial?",
+  // breakdown + calendar
+  "pricing.breakdown": "Detaliu preț",
+  "pricing.weekend_badge": "weekend",
+  "pricing.nights_total": "Total sejur",
+  "pricing.rates_legend": "Tarif/noapte",
+
+  // zile săptămână (DOW Postgres: 0=Duminică … 6=Sâmbătă)
+  "dow.0": "Du", "dow.1": "Lu", "dow.2": "Ma", "dow.3": "Mi",
+  "dow.4": "Jo", "dow.5": "Vi", "dow.6": "Sâ",
 } as const
 
 export type TranslationKey = keyof typeof ro

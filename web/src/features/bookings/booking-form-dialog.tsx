@@ -7,6 +7,9 @@ import { Bot, User } from "lucide-react"
 import { useCurrentOrg } from "@/features/organizations/context"
 import { GuestCombobox } from "@/features/guests/guest-combobox"
 import { useUnitTypes } from "@/features/unit-types/hooks"
+import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
+import { PriceBreakdown } from "@/features/pricing/price-breakdown"
+import { useQuotePrice } from "@/features/pricing/hooks"
 import { useAvailableUnits, useCreateBooking } from "./hooks"
 import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -28,6 +31,8 @@ import { addDays, formatDateShort } from "./date-utils"
 // ─── constants ────────────────────────────────────────────────────────────────
 
 const NIGHT_SHORTCUTS = [1, 2, 3, 5, 7]
+// limită de bun simț pentru ocupare când nu e ales încă un tip de cameră
+const MAX_OCCUPANCY_UNBOUNDED = 25
 
 // ─── schema ───────────────────────────────────────────────────────────────────
 
@@ -36,7 +41,7 @@ const schema = z
     unit_type_id: z.string().uuid(),
     check_in: z.string().min(10),
     check_out: z.string().min(10),
-    guests_count: z.coerce.number().int().min(1),
+    // adulți/copii sunt gestionați ca state (steppere) — vezi mai jos
     // Blocajele de disponibilitate nu mai sunt rezervări — se creează din
     // pagina camerelor (Availability Blocks, migrația 17).
     status: z.enum(["pending", "confirmed"]),
@@ -70,10 +75,12 @@ export function BookingFormDialog({
   const [guestId, setGuestId] = useState<string | null>(null)
   const [roomMode, setRoomMode] = useState<"auto" | "manual">("auto")
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+  const [adults, setAdults] = useState(1)
+  const [children, setChildren] = useState(0)
 
   const form = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { guests_count: 1, status: "confirmed" },
+    defaultValues: { status: "confirmed" },
   })
 
   const unitTypeId = form.watch("unit_type_id")
@@ -89,24 +96,37 @@ export function BookingFormDialog({
 
   const activeTypes = (unitTypes ?? []).filter((ut) => ut.is_active)
   const selectedType = activeTypes.find((ut) => ut.id === unitTypeId)
+  const maxAdults = selectedType?.max_adults ?? MAX_OCCUPANCY_UNBOUNDED
+  const maxChildren = selectedType?.max_children ?? MAX_OCCUPANCY_UNBOUNDED
+
+  // estimare preț server-side (același motor ca la creare — sursă unică de adevăr)
+  const { data: quote } = useQuotePrice(
+    datesValid ? unitTypeId : undefined, checkIn ?? "", checkOut ?? ""
+  )
 
   // alocare manuală fără nicio cameră liberă pe interval → nu are sens submit-ul
   const noFreeUnits =
     roomMode === "manual" && !!datesValid && !loadingUnits &&
     (availableUnits ?? []).every((u) => !u.is_free)
 
-  const nights = datesValid && checkIn && checkOut
-    ? Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000)
-    : 0
-  const estimatedTotal = nights > 0 && selectedType
-    ? nights * Number(selectedType.base_price)
-    : null
+  // la schimbarea tipului, restrânge ocuparea la limitele lui
+  function selectType(v: string) {
+    form.setValue("unit_type_id", v)
+    setSelectedUnitId(null)
+    const next = activeTypes.find((ut) => ut.id === v)
+    if (next) {
+      setAdults((a) => Math.min(Math.max(1, a), next.max_adults))
+      setChildren((c) => Math.min(c, next.max_children))
+    }
+  }
 
   function resetForm() {
-    form.reset({ guests_count: 1, status: "confirmed", guest_id: undefined })
+    form.reset({ status: "confirmed", guest_id: undefined })
     setGuestId(null)
     setRoomMode("auto")
     setSelectedUnitId(null)
+    setAdults(1)
+    setChildren(0)
   }
 
   function handleGuestChange(id: string) {
@@ -130,10 +150,10 @@ export function BookingFormDialog({
         checkOut: values.check_out,
         guestId: values.guest_id,
         unitId: roomMode === "manual" && selectedUnitId ? selectedUnitId : undefined,
-        guestsCount: values.guests_count,
+        adults,
+        children,
         status: values.status,
         notes: values.notes,
-        total: estimatedTotal ?? undefined,
       })
       toast.success(t("bookings.created"))
       onOpenChange(false)
@@ -157,7 +177,7 @@ export function BookingFormDialog({
           {/* Tip cameră */}
           <div className="space-y-2">
             <Label>{t("bookings.unit_type")}</Label>
-            <Select onValueChange={(v) => { form.setValue("unit_type_id", v); setSelectedUnitId(null) }}>
+            <Select onValueChange={selectType}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {activeTypes.map((ut) => (
@@ -277,22 +297,28 @@ export function BookingFormDialog({
             </div>
           )}
 
-          {/* Status + persoane */}
+          {/* Status */}
+          <div className="space-y-2">
+            <Label>{t("bookings.status")}</Label>
+            <Select defaultValue="confirmed" onValueChange={(v) => form.setValue("status", v as FormValues["status"])}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="confirmed">{t("status.confirmed")}</SelectItem>
+                <SelectItem value="pending">{t("status.pending")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Ocupare: adulți (min 1) + copii (min 0) */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>{t("bookings.status")}</Label>
-              <Select defaultValue="confirmed" onValueChange={(v) => form.setValue("status", v as FormValues["status"])}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="confirmed">{t("status.confirmed")}</SelectItem>
-                  <SelectItem value="pending">{t("status.pending")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>{t("bookings.guests_count")}</Label>
-              <Input type="number" min={1} {...form.register("guests_count")} />
-            </div>
+            <OccupancyStepper
+              label={t("occupancy.adults")} value={adults} onChange={setAdults}
+              min={1} max={maxAdults}
+            />
+            <OccupancyStepper
+              label={t("occupancy.children")} value={children} onChange={setChildren}
+              min={0} max={maxChildren}
+            />
           </div>
 
           {/* Oaspete */}
@@ -314,16 +340,11 @@ export function BookingFormDialog({
             <Textarea rows={2} {...form.register("notes")} />
           </div>
 
-          {/* Estimare total: preț/noapte × nopți */}
-          {estimatedTotal !== null && selectedType && (
-            <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-sm">
-              <span className="text-muted-foreground">
-                {t("bookings.price_estimate")} ·{" "}
-                {Number(selectedType.base_price).toFixed(2)} {currency} × {nights} {t("bookings.nights")}
-              </span>
-              <span className="font-semibold">
-                {estimatedTotal.toFixed(2)} {currency}
-              </span>
+          {/* Estimare preț: breakdown per noapte din motor (override > sezon > base + weekend) */}
+          {quote && quote.nights.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>{t("bookings.price_estimate")}</Label>
+              <PriceBreakdown quote={quote} />
             </div>
           )}
 

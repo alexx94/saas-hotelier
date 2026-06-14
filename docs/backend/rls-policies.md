@@ -25,7 +25,7 @@
 `revoke all ... from anon` global, apoi grant **doar** pe coloanele safe:
 
 - `properties`: `id, name, slug, type, description, address, city, country, timezone, currency, default_locale, is_published` — fără `org_id`, `settings`, `created_at`.
-- `unit_types`: `id, property_id, name, description, capacity, base_price, is_active, sort_order` — fără `org_id`.
+- `unit_types`: `id, property_id, name, description, base_capacity, max_adults, max_children, base_price, is_active, sort_order` — fără `org_id` și fără config weekend / `rate_rules` (prețurile publice vin prin RPC `public_get_availability`).
 
 Orice coloană nouă pe aceste tabele este **invizibilă pentru anon** până la un grant explicit — comportament sigur implicit.
 

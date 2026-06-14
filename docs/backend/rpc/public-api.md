@@ -2,9 +2,9 @@
 
 > Singurele funcții executabile de **anon**. Modelul hibrid: `properties`/`unit_types` se citesc direct (RLS `is_published` + grants pe coloane safe), dar orice atinge `bookings`/`guests` trece obligatoriu prin aceste RPC-uri DEFINER — `bookings` nu se expune la anon sub nicio formă.
 
-## `public_get_availability(p_slug, p_check_in, p_check_out) returns table(...)`
+## `public_get_availability(p_slug, p_check_in, p_check_out, p_adults=1, p_children=0) returns table(...)`
 
-**Scop**: disponibilitatea pe tipuri de cameră pentru o proprietate publicată: `{unit_type_id, name, description, capacity, price_per_night, total_price, currency, available_units}`.
+**Scop**: disponibilitatea pe tipuri de cameră pentru o proprietate publicată: `{unit_type_id, name, description, max_adults, max_children, price_per_night, total_price, currency, available_units}`. Sprint 4.5: filtrează tipurile cu `max_adults≥adults and max_children≥children`; prețurile vin din motorul `app.compute_price` (vezi [pricing.md](pricing.md)).
 
 | | |
 |---|---|
@@ -16,7 +16,7 @@
 
 **Limite anti-abuz**: `check_in ≥ azi`, `check_out > check_in`, max 365 nopți. Returnează doar agregate (număr de camere libere) — niciun detaliu despre rezervările existente sau oaspeți.
 
-## `public_create_booking(p_slug, p_unit_type_id, p_check_in, p_check_out, p_full_name, p_email, p_phone, p_guests_count, p_notes) returns jsonb`
+## `public_create_booking(p_slug, p_unit_type_id, p_check_in, p_check_out, p_full_name, p_email, p_phone, p_adults=1, p_children=0, p_notes) returns jsonb`
 
 **Scop**: rezervare de pe pagina publică, atomic: dedupe/creare oaspete + creare booking `pending`. Returnează `{booking_id, status:'pending'}`.
 
@@ -28,11 +28,11 @@
 | Autorizare | implicită: proprietatea trebuie `is_published`, tipul activ și al proprietății |
 | Frontend | `features/public-booking/api.ts` → `createPublicBooking()`, ruta `p.$slug.tsx` |
 
-**Valori forțate server-side** (clientul nu le controlează): `status='pending'`, `source='public'`, `total = nopți × base_price`, moneda proprietății, camera aleasă de auto-asignare.
+**Valori forțate server-side** (clientul nu le controlează): `status='pending'`, `source='public'`, preț (total + breakdown) din `app.compute_price`, moneda proprietății, camera aleasă de auto-asignare.
 
 **Flux**: validări → `app.find_or_create_guest_internal(org, ..., trusted=false)` — match **doar pe email**, profilul existent **nu se modifică** (anti-abuz; vezi [guests.md](guests.md)) → `app.create_booking_internal(...)` cu **snapshot**: datele exact cum le-a tastat vizitatorul se salvează pe `bookings.booked_*`, indiferent ce conține profilul.
 
-**Erori**: `PROPERTY_NOT_FOUND`, `UNIT_TYPE_NOT_FOUND`, `INVALID_DATES`, `GUEST_DETAILS_REQUIRED`, `CAPACITY_EXCEEDED`, `UNIT_NOT_AVAILABLE`.
+**Erori**: `PROPERTY_NOT_FOUND`, `UNIT_TYPE_NOT_FOUND`, `INVALID_DATES`, `GUEST_DETAILS_REQUIRED`, `OCCUPANCY_EXCEEDED`, `UNIT_NOT_AVAILABLE`.
 
 ## ⚠️ Limitare cunoscută
 

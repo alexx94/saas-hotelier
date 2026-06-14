@@ -4,7 +4,7 @@
 
 ---
 
-## Starea curentă a proiectului (13 iun 2026 — Sprint 4 complet)
+## Starea curentă a proiectului (13 iun 2026 — Sprint 4.5 complet)
 
 Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 **https://github.com/alexx94/saas-hotelier**
@@ -60,6 +60,12 @@ web/src/
       unit-actions-menu.tsx ← meniu rapid pe cameră (folosit în calendar)
       event-history-dialog.tsx ← dialog istoric GENERIC (orice entitate auditată)
       unit-history-dialog.tsx / unit-type-history-dialog.tsx ← wrappere
+    pricing/            ← motor de preț + ocupare (Sprint 4.5)
+      api.ts / hooks.ts ← rate_rules CRUD + quote_price (estimare)
+      rate-rules-dialog.tsx ← gestionare sezoane/override per tip de cameră
+      occupancy-stepper.tsx ← stepper +/- adulți/copii (reutilizabil)
+      price-breakdown.tsx   ← detaliu preț per noapte (reutilizabil)
+      weekend-days-toggle.tsx / weekend-pricing.ts ← config + helper zile weekend
     organizations/
       api.ts
       hooks.ts
@@ -252,6 +258,7 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 - ✅ Calendar (grilă camere × zile): tip + capacitate per cameră, tooltip detalii la click
 - ✅ Oaspeți: search, creare inline cu anti-duplicare pe email/telefon
 - ✅ **Sprint 2 — Guest Experience**: profil oaspete (`/app/guests/{id}`: editare, ștergere blocată dacă are rezervări, istoric paginat, statistici server-side total/viitoare/anulate via `get_guest_stats`), pagina rezervării (`/app/bookings/{id}`) cu snapshot vs profil + re-asociere profil (`link_booking_guest`), offset pagination pe toate listele (rezervări 20, oaspeți 20, istoric profil 15)
+- ✅ **Sprint 4.5 — Pricing Engine & Occupancy**: capacitate = `max_adults`/`max_children` (înlocuiesc `capacity`; `base_capacity` eliminat — fără rol); ocupare adulți/copii ca steppere +/- peste tot (admin, public, formular tip cameră; adulți min 1, copii min 0; max = tipul ales sau 25); motor de preț **dinamic** `app.compute_price` — **sezoane** (per tip) + **override-uri** („tarif preferențial", din calendar, toate camerele tipului); override > sezon, iar la suprapunere în același kind câștigă cea mai recent modificată regulă (fără prioritate numerică); suprataxă weekend configurabilă; **snapshot imuabil** la creare (`total_amount` + `price_breakdown` jsonb). Calendarul pictează tariful pe celulele goale (`get_rate_calendar`). RPC noi: `quote_price`, `get_rate_calendar`. Validare „fără date trecute" doar în UI. occupancy pricing exclus intenționat. Feature `pricing/` (RateRulesDialog seasons, OverrideDialog, OccupancyStepper, PriceBreakdown). Doc: [`docs/backend/rpc/pricing.md`](backend/rpc/pricing.md)
 - ✅ **Sprint 4 — Pricing & Revenue**: snapshot preț/noapte pe rezervare (`bookings.unit_price`); **payments ledger** (`payments` — kind payment/refund, status pending/completed/failed, provider+provider_ref pregătite pentru Stripe & e-factură); stare plată = agregat cached (`payment_status` unpaid/partial/paid/refunded + `amount_paid`) întreținut de trigger din ledger; RPC `record_payment` + `get_revenue_summary` (venit azi/lună/an, server-side, în tz proprietății); feature frontend `payments/` (card plăți pe rezervare, dialog încasare/rambursare, carduri venit pe dashboard, coloană stare în listă); helper `lib/money.ts`. Doc: [`docs/backend/rpc/payments.md`](backend/rpc/payments.md)
 - ✅ User menu (popover) + dialog setări cu hash routing (`#settings/account`)
 - ✅ Mobile responsive: sidebar hamburger, layout adaptat pe toate paginile

@@ -1,12 +1,12 @@
 import { useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { useForm } from "react-hook-form"
+import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import {
   ArchiveRestore, ArrowLeft, BedDouble, ChevronDown, ChevronRight,
-  ExternalLink, History, Pencil, Plus, Trash2,
+  ExternalLink, History, Pencil, Plus, Tag, Trash2, User,
 } from "lucide-react"
 import { useProperty, useUpdateProperty } from "@/features/properties/hooks"
 import {
@@ -16,6 +16,10 @@ import type { UnitType } from "@/features/unit-types/api"
 import { UnitRows } from "@/features/unit-types/unit-rows"
 import { UnitTypeHistoryDialog } from "@/features/unit-types/unit-type-history-dialog"
 import { parseRoomNumbering } from "@/features/unit-types/room-numbering"
+import { RateRulesDialog } from "@/features/pricing/rate-rules-dialog"
+import { WeekendDaysToggle } from "@/features/pricing/weekend-days-toggle"
+import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
+import { DEFAULT_WEEKEND_DAYS } from "@/features/pricing/weekend-pricing"
 import { t } from "@/lib/i18n"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,6 +27,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -37,10 +44,17 @@ export const Route = createFileRoute("/_app/app/properties/$propertyId")({
 
 // ─── schemas ─────────────────────────────────────────────────────────────────
 
+const capacityFields = {
+  max_adults: z.coerce.number().int().min(1),
+  max_children: z.coerce.number().int().min(0),
+  base_price: z.coerce.number().min(0),
+  weekend_adjustment_type: z.enum(["none", "percent", "amount"]),
+  weekend_adjustment_value: z.coerce.number().min(0),
+}
+
 const createSchema = z.object({
   name: z.string().min(2),
-  capacity: z.coerce.number().int().min(1),
-  base_price: z.coerce.number().min(0),
+  ...capacityFields,
   rooms_spec: z.string().refine(
     (v) => parseRoomNumbering(v) !== null,
     { message: "invalid_numbering" }
@@ -52,20 +66,20 @@ type CreateValues = z.output<typeof createSchema>
 
 const editTypeSchema = z.object({
   name: z.string().min(2),
-  capacity: z.coerce.number().int().min(1),
-  base_price: z.coerce.number().min(0),
+  ...capacityFields,
 })
 type EditTypeValues = z.output<typeof editTypeSchema>
 
 // ─── rând tip cameră ─────────────────────────────────────────────────────────
 
 function UnitTypeRow({
-  ut, propertyId, currency, onEdit,
+  ut, propertyId, currency, onEdit, onRates,
 }: {
   ut: UnitType
   propertyId: string
   currency: string
   onEdit: (ut: UnitType) => void
+  onRates: (ut: UnitType) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -109,7 +123,16 @@ function UnitTypeRow({
             )}
           </button>
         </TableCell>
-        <TableCell>{ut.capacity}</TableCell>
+        <TableCell>
+          <span className="flex items-center gap-1.5 text-sm">
+            <span className="flex items-center gap-0.5" title={t("occupancy.adults")}>
+              <User className="h-4 w-4 text-muted-foreground" />{ut.max_adults}
+            </span>
+            <span className="flex items-center gap-0.5" title={t("occupancy.children")}>
+              <User className="h-3 w-3 text-muted-foreground" />{ut.max_children}
+            </span>
+          </span>
+        </TableCell>
         <TableCell>
           {Number(ut.base_price).toFixed(2)} {currency}
           <span className="ml-1 text-xs text-muted-foreground">/ noapte</span>
@@ -127,6 +150,9 @@ function UnitTypeRow({
                 <ArchiveRestore className="h-4 w-4" />
               </Button>
             )}
+            <Button variant="ghost" size="icon" className="h-8 w-8" title={t("pricing.manage")} onClick={() => onRates(ut)}>
+              <Tag className="h-4 w-4" />
+            </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setHistoryOpen(true)}>
               <History className="h-4 w-4" />
             </Button>
@@ -160,6 +186,74 @@ function UnitTypeRow({
   )
 }
 
+// ─── câmpuri comune capacitate + preț + weekend (creare/editare tip) ──────────
+
+function UnitTypeFields({
+  form, currency, days, setDays,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  form: UseFormReturn<any>
+  currency: string
+  days: number[]
+  setDays: (d: number[]) => void
+}) {
+  const weekendType = form.watch("weekend_adjustment_type") as string
+  // steppere +/- pentru ocupare maximă (adulți min 1 / copii min 0, plafon 25)
+  const maxAdults = Number(form.watch("max_adults") ?? 1)
+  const maxChildren = Number(form.watch("max_children") ?? 0)
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4">
+        <OccupancyStepper
+          label={t("unit_types.max_adults")} value={maxAdults}
+          onChange={(v) => form.setValue("max_adults", v)} min={1} max={25}
+        />
+        <OccupancyStepper
+          label={t("unit_types.max_children")} value={maxChildren}
+          onChange={(v) => form.setValue("max_children", v)} min={0} max={25}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>{t("unit_types.base_price")} ({currency})</Label>
+        <Input type="number" min={0} step="0.01" {...form.register("base_price")} />
+      </div>
+
+      {/* preț weekend */}
+      <div className="space-y-3 rounded-md border p-3">
+        <Label className="text-sm font-medium">{t("unit_types.weekend_pricing")}</Label>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>{t("unit_types.weekend_type")}</Label>
+            <Select
+              value={weekendType}
+              onValueChange={(v) => form.setValue("weekend_adjustment_type", v)}
+            >
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("unit_types.weekend_none")}</SelectItem>
+                <SelectItem value="percent">{t("unit_types.weekend_percent")}</SelectItem>
+                <SelectItem value="amount">{t("unit_types.weekend_amount")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {weekendType !== "none" && (
+            <div className="space-y-2">
+              <Label>{t("unit_types.weekend_value")}</Label>
+              <Input type="number" min={0} step="0.01" {...form.register("weekend_adjustment_value")} />
+            </div>
+          )}
+        </div>
+        {weekendType !== "none" && (
+          <>
+            <WeekendDaysToggle value={days} onChange={setDays} />
+            <p className="text-xs text-muted-foreground">{t("unit_types.weekend_hint")}</p>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
 // ─── pagina principală ────────────────────────────────────────────────────────
 
 function PropertyDetailPage() {
@@ -172,10 +266,20 @@ function PropertyDetailPage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [editingType, setEditingType] = useState<UnitType | null>(null)
+  const [ratesType, setRatesType] = useState<UnitType | null>(null)
+  // weekend_days e gestionat ca state (toggle-uri), nu prin RHF
+  const [createDays, setCreateDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
+  const [editDays, setEditDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
+
+  const createDefaults: z.input<typeof createSchema> = {
+    name: "", max_adults: 2, max_children: 0, base_price: 0,
+    weekend_adjustment_type: "none", weekend_adjustment_value: 0,
+    rooms_spec: "1", rooms_start: "", room_prefix: "Camera ",
+  }
 
   const createForm = useForm<z.input<typeof createSchema>, unknown, CreateValues>({
     resolver: zodResolver(createSchema),
-    defaultValues: { capacity: 2, base_price: 0, rooms_spec: "1", rooms_start: "", room_prefix: "Camera " },
+    defaultValues: createDefaults,
   })
   const editTypeForm = useForm<z.input<typeof editTypeSchema>, unknown, EditTypeValues>({
     resolver: zodResolver(editTypeSchema),
@@ -198,15 +302,20 @@ function PropertyDetailPage() {
           org_id: property!.org_id,
           property_id: property!.id,
           name: values.name,
-          capacity: values.capacity,
+          max_adults: values.max_adults,
+          max_children: values.max_children,
           base_price: values.base_price,
+          weekend_adjustment_type: values.weekend_adjustment_type,
+          weekend_adjustment_value: values.weekend_adjustment_value,
+          weekend_days: createDays,
         },
         roomsCount: numbering.count,
         roomPrefix: values.room_prefix,
         startNumber: numbering.start,
       })
       setCreateOpen(false)
-      createForm.reset({ capacity: 2, base_price: 0, rooms_spec: "1", rooms_start: "", room_prefix: "Camera " })
+      createForm.reset(createDefaults)
+      setCreateDays(DEFAULT_WEEKEND_DAYS)
       toast.success(`${values.name} creat. ${unitsCreated} ${t("units.added_toast")}`)
     } catch {
       toast.error(t("common.error"))
@@ -218,7 +327,15 @@ function PropertyDetailPage() {
     try {
       await updateUnitType.mutateAsync({
         id: editingType.id,
-        patch: { name: values.name, capacity: values.capacity, base_price: values.base_price },
+        patch: {
+          name: values.name,
+          max_adults: values.max_adults,
+          max_children: values.max_children,
+          base_price: values.base_price,
+          weekend_adjustment_type: values.weekend_adjustment_type,
+          weekend_adjustment_value: values.weekend_adjustment_value,
+          weekend_days: editDays,
+        },
       })
       setEditingType(null)
     } catch {
@@ -229,9 +346,13 @@ function PropertyDetailPage() {
   function openEdit(ut: UnitType) {
     editTypeForm.reset({
       name: ut.name,
-      capacity: String(ut.capacity) as unknown as number,
+      max_adults: String(ut.max_adults) as unknown as number,
+      max_children: String(ut.max_children) as unknown as number,
       base_price: String(ut.base_price) as unknown as number,
+      weekend_adjustment_type: ut.weekend_adjustment_type as "none" | "percent" | "amount",
+      weekend_adjustment_value: String(ut.weekend_adjustment_value) as unknown as number,
     })
+    setEditDays(ut.weekend_days ?? DEFAULT_WEEKEND_DAYS)
     setEditingType(ut)
   }
 
@@ -301,7 +422,7 @@ function PropertyDetailPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>{t("unit_types.name")}</TableHead>
-                <TableHead>{t("unit_types.capacity")}</TableHead>
+                <TableHead>{t("unit_types.occupancy")}</TableHead>
                 <TableHead>{t("unit_types.base_price")}</TableHead>
                 <TableHead>{t("unit_types.units")}</TableHead>
                 <TableHead className="w-28 text-right">{t("common.actions")}</TableHead>
@@ -315,6 +436,7 @@ function PropertyDetailPage() {
                   propertyId={propertyId}
                   currency={property.currency}
                   onEdit={openEdit}
+                  onRates={setRatesType}
                 />
               ))}
             </TableBody>
@@ -331,16 +453,7 @@ function PropertyDetailPage() {
               <Label>{t("unit_types.name")}</Label>
               <Input placeholder="Cameră dublă standard" {...createForm.register("name")} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t("unit_types.capacity")}</Label>
-                <Input type="number" min={1} {...createForm.register("capacity")} />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("unit_types.base_price")} ({property.currency})</Label>
-                <Input type="number" min={0} step="0.01" {...createForm.register("base_price")} />
-              </div>
-            </div>
+            <UnitTypeFields form={createForm} currency={property.currency} days={createDays} setDays={setCreateDays} />
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>{t("units.numbering")}</Label>
@@ -380,16 +493,7 @@ function PropertyDetailPage() {
               <Label>{t("unit_types.name")}</Label>
               <Input {...editTypeForm.register("name")} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t("unit_types.capacity")}</Label>
-                <Input type="number" min={1} {...editTypeForm.register("capacity")} />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("unit_types.base_price")} ({property.currency})</Label>
-                <Input type="number" min={0} step="0.01" {...editTypeForm.register("base_price")} />
-              </div>
-            </div>
+            <UnitTypeFields form={editTypeForm} currency={property.currency} days={editDays} setDays={setEditDays} />
             <p className="text-xs text-muted-foreground">
               Modificarea prețului afectează rezervările <strong>viitoare</strong> — cele existente rămân cu prețul lor.
             </p>
@@ -399,6 +503,16 @@ function PropertyDetailPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* dialog reguli de preț (sezoane / override-uri) */}
+      <RateRulesDialog
+        unitTypeId={ratesType?.id ?? null}
+        unitTypeName={ratesType?.name}
+        orgId={property.org_id}
+        propertyId={property.id}
+        currency={property.currency}
+        onClose={() => setRatesType(null)}
+      />
     </div>
   )
 }

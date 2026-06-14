@@ -75,12 +75,28 @@ create table unit_types (
   property_id  uuid not null references properties(id) on delete cascade,
   name         text not null,
   description  jsonb not null default '{}',
-  capacity     int  not null default 2 check (capacity > 0),
-  base_price   numeric(12,2) not null default 0, -- preț/noapte; pricing engine viitor o suprascrie
+  -- capacitate (Sprint 4.5 — înlocuiește `capacity`): doar adulți + copii (constrângeri;
+  -- occupancy pricing e exclus). `base_capacity` a fost eliminat (migrația 26) — nu avea rol.
+  max_adults    int not null default 2 check (max_adults > 0),
+  max_children  int not null default 0 check (max_children >= 0),
+  base_price   numeric(12,2) not null default 0, -- preț/noapte; fallback pentru pricing engine
+  -- config weekend (Sprint 4.5): ajustare pe nopțile de weekend, peste prețul rezolvat
+  weekend_adjustment_type  text not null default 'none' check (... in none/percent/amount),
+  weekend_adjustment_value numeric(12,2) not null default 0,
+  weekend_days  int2[] not null default '{5,6}', -- DOW Postgres; default Vi+Sâ
   is_active    boolean not null default true,
   sort_order   int not null default 0,
   created_at   timestamptz not null default now()
 );
+
+-- Pricing engine (Sprint 4.5, migrațiile 24–25): tabel `rate_rules` (kind season/override)
+-- cu prețuri pe interval; funcția `app.compute_price` rezolvă per noapte
+-- override > season > base_price (la suprapunere câștigă cea mai RECENT modificată regulă,
+-- `updated_at` desc — fără prioritate numerică); weekend = prioritate minimă (doar pe base,
+-- nu peste sezon/override). Snapshot imuabil pe
+-- bookings (total_amount + price_breakdown jsonb). Sezoane = per tip (UI); override-uri =
+-- din calendar (se aplică tuturor camerelor tipului); `get_rate_calendar` pictează tariful
+-- pe celulele calendarului. Vezi docs/backend/rpc/pricing.md.
 
 -- CAMERA fizică: "101", "102"... Pe ea stau rezervările și constraint-ul anti-double-booking.
 create table units (
@@ -146,8 +162,13 @@ create table bookings (
   check_out     date not null,
   stay          daterange generated always as
                 (daterange(check_in, check_out, '[)')) stored,
-  guests_count  int not null default 1,
-  total_amount  numeric(12,2) not null default 0,
+  -- ocupare (Sprint 4.5): adults > 0 obligatoriu; guests_count e GENERATED (= adults+children)
+  adults        int not null default 1 check (adults > 0),
+  children      int not null default 0 check (children >= 0),
+  guests_count  int generated always as (adults + children) stored,
+  total_amount  numeric(12,2) not null default 0,  -- snapshot la creare (din pricing engine)
+  unit_price    numeric(12,2) not null default 0,  -- media/noapte snapshot
+  price_breakdown jsonb not null default '{}',     -- detaliu per-noapte la creare (imuabil)
   currency      char(3) not null,
   source        text not null default 'admin'
                 check (source in ('admin','public','blocked')), -- viitor: 'booking_com','airbnb'
@@ -176,11 +197,10 @@ create index on bookings (org_id, created_at desc);
 create index on bookings using gist (unit_id, stay); -- creat implicit de EXCLUDE, verificat
 ```
 
-### Extensii viitoare (NU în MVP, dar schema le permite)
-- `payments(booking_id, amount, currency, provider, status)` — tabel nou, zero refactor.
-- `rate_plans` / `seasonal_prices(unit_id, daterange, price)` — `base_price` devine fallback.
-- Channel manager: `source` primește valori noi; tabel `channel_connections` + `external_refs(booking_id, channel, external_id)`.
-- `rate_plans`/`seasonal_prices` se atașează pe `unit_type_id` (prețul e per tip, nu per cameră).
+### Extensii (parțial implementate)
+- `payments(booking_id, amount, currency, provider, status)` — ✅ implementat (Sprint 4).
+- `rate_rules(unit_type_id, kind, daterange, price)` — ✅ implementat (Sprint 4.5): `base_price` e fallback; preț per **tip** (nu per cameră), via `app.compute_price`; la suprapunere câștigă cea mai recent modificată regulă.
+- Channel manager: `source` primește valori noi; tabel `channel_connections` + `external_refs(booking_id, channel, external_id)` — viitor.
 
 ## 2. RLS — strategie
 

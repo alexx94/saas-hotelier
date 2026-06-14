@@ -13,7 +13,8 @@ const EVENT_LABEL: Record<string, TranslationKey> = {
 // Câmp nou auditat în app.audit_unit_type = o intrare nouă aici.
 const TYPE_FIELDS: EventFieldRegistry = {
   name: { label: "unit_types.name" },
-  capacity: { label: "unit_types.capacity" },
+  max_adults: { label: "unit_types.max_adults" },
+  max_children: { label: "unit_types.max_children" },
   base_price: { label: "unit_types.base_price", format: (v) => Number(v).toFixed(2) },
 }
 

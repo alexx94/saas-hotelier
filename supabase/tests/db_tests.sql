@@ -24,9 +24,9 @@ insert into properties (id, org_id, name, slug, is_published) values
   ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001',
    'Hotel Secret', 'hotel-secret-test', false);
 
-insert into unit_types (id, org_id, property_id, name, capacity, base_price) values
+insert into unit_types (id, org_id, property_id, name, max_adults, max_children, base_price) values
   ('30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
-   '20000000-0000-0000-0000-000000000001', 'Dubla standard', 2, 100);
+   '20000000-0000-0000-0000-000000000001', 'Dubla standard', 2, 1, 100);
 
 insert into units (id, org_id, property_id, unit_type_id, name) values
   ('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
@@ -77,7 +77,7 @@ begin
   v_id := app.create_booking_internal(
     '30000000-0000-0000-0000-000000000001', null,
     '50000000-0000-0000-0000-000000000001',
-    '2026-07-02','2026-07-04', 2, 'confirmed', 'admin', 200, null);
+    '2026-07-02','2026-07-04', 2, 0, 'confirmed', 'admin', 200, '{}'::jsonb, 100, null);
   select unit_id into v_unit from bookings where id = v_id;
   if v_unit = '40000000-0000-0000-0000-000000000002' then
     raise notice 'TEST 3 PASS: auto-asignare a ales Camera 2';
@@ -94,7 +94,7 @@ begin
     v_id := app.create_booking_internal(
       '30000000-0000-0000-0000-000000000001', null,
       '50000000-0000-0000-0000-000000000001',
-      '2026-07-02','2026-07-04', 2, 'confirmed', 'admin', 200, null);
+      '2026-07-02','2026-07-04', 2, 0, 'confirmed', 'admin', 200, '{}'::jsonb, 100, null);
     raise exception 'TEST 4 FAIL: overbooking permis!';
   exception when others then
     if sqlerrm = 'UNIT_NOT_AVAILABLE' then
@@ -132,7 +132,7 @@ do $$
 declare v jsonb;
 begin
   v := public_create_booking('hotel-test','30000000-0000-0000-0000-000000000001',
-        '2026-09-01','2026-09-03','Maria Ionescu','maria@test.ro','0722000000',2,null);
+        '2026-09-01','2026-09-03','Maria Ionescu','maria@test.ro','0722000000',2,0,null);
   if v->>'status' = 'pending' then
     raise notice 'TEST 6 PASS: rezervare publica creata cu status pending';
   else
@@ -459,7 +459,7 @@ begin
   begin
     v_id := public.create_booking(
       '30000000-0000-0000-0000-000000000001', '2026-10-01', '2026-10-03',
-      (select id from _t18), null, 1, 'confirmed', null, null);
+      (select id from _t18), null, 1, 0, 'confirmed', null);
     raise exception 'TEST 18 FAIL: booking cu guest din altă organizație permis!';
   exception when others then
     if sqlerrm = 'GUEST_NOT_FOUND' then
@@ -481,7 +481,7 @@ begin
   -- 'maria@test.ro' există din TEST 6 (Maria Ionescu / 0722000000);
   -- vizitatorul tastează alt nume + alt telefon
   v := public_create_booking('hotel-test','30000000-0000-0000-0000-000000000001',
-        '2026-11-01','2026-11-03','Maria Schimbat','MARIA@test.ro','0799999999',1,null);
+        '2026-11-01','2026-11-03','Maria Schimbat','MARIA@test.ro','0799999999',1,0,null);
   insert into _t19 values ((v->>'booking_id')::uuid);
 end $$;
 reset role;
@@ -749,9 +749,9 @@ reset role;
 do $$
 declare v_type uuid; v_ev record;
 begin
-  insert into unit_types (org_id, property_id, name, capacity, base_price)
+  insert into unit_types (org_id, property_id, name, max_adults, max_children, base_price)
   values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
-          'Twin audit', 2, 150)
+          'Twin audit', 2, 1, 150)
   returning id into v_type;
 
   -- 24a: eveniment created
@@ -1160,6 +1160,355 @@ begin
   else
     raise exception 'TEST 32a FAIL: recorded_by_email = %', v_email;
   end if;
+end $$;
+reset role;
+
+-- ============================================================
+-- Sprint 4.5 — Pricing Engine & Occupancy Model
+-- ============================================================
+-- tip dedicat pentru pricing (max 4 adulți / 2 copii) + o cameră, izolat de seed
+insert into unit_types (id, org_id, property_id, name, max_adults, max_children, base_price)
+values ('300000aa-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001', 'Pricing', 4, 2, 100);
+insert into units (id, org_id, property_id, unit_type_id, name)
+values ('400000aa-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001', '300000aa-0000-0000-0000-000000000001', 'Pricing 1');
+
+-- ---------- TEST 33: validare occupancy (adulți/copii vs max) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_b uuid; v_ad int; v_ch int; v_gc int;
+begin
+  -- 33a: în limite (2 adulți + 1 copil pe seed, max 2/1) => OK
+  v_b := public.create_booking(
+    '30000000-0000-0000-0000-000000000001'::uuid, '2029-02-01', '2029-02-03',
+    '50000000-0000-0000-0000-000000000001'::uuid, null, 2, 1);
+  select adults, children, guests_count into v_ad, v_ch, v_gc from bookings where id = v_b;
+  if v_ad = 2 and v_ch = 1 and v_gc = 3 then
+    raise notice 'TEST 33a PASS: adults=2 children=1 guests_count(generated)=3';
+  else raise exception 'TEST 33a FAIL: adults=% children=% gc=%', v_ad, v_ch, v_gc; end if;
+
+  -- 33b: prea mulți adulți => OCCUPANCY_EXCEEDED
+  begin
+    perform public.create_booking(
+      '30000000-0000-0000-0000-000000000001'::uuid, '2029-03-01', '2029-03-03',
+      '50000000-0000-0000-0000-000000000001'::uuid, null, 3, 0);
+    raise exception 'TEST 33b FAIL: 3 adulți peste max 2 acceptat';
+  exception when others then
+    if sqlerrm like '%OCCUPANCY_EXCEEDED%' then raise notice 'TEST 33b PASS: adulți peste max => OCCUPANCY_EXCEEDED';
+    else raise; end if;
+  end;
+
+  -- 33c: prea mulți copii => OCCUPANCY_EXCEEDED
+  begin
+    perform public.create_booking(
+      '30000000-0000-0000-0000-000000000001'::uuid, '2029-03-01', '2029-03-03',
+      '50000000-0000-0000-0000-000000000001'::uuid, null, 1, 2);
+    raise exception 'TEST 33c FAIL: 2 copii peste max 1 acceptat';
+  exception when others then
+    if sqlerrm like '%OCCUPANCY_EXCEEDED%' then raise notice 'TEST 33c PASS: copii peste max => OCCUPANCY_EXCEEDED';
+    else raise; end if;
+  end;
+
+  -- 33d: 0 adulți => respins (adults > 0)
+  begin
+    perform public.create_booking(
+      '30000000-0000-0000-0000-000000000001'::uuid, '2029-03-01', '2029-03-03',
+      '50000000-0000-0000-0000-000000000001'::uuid, null, 0, 1);
+    raise exception 'TEST 33d FAIL: 0 adulți acceptat';
+  exception when others then
+    if sqlerrm like '%OCCUPANCY_EXCEEDED%' then raise notice 'TEST 33d PASS: 0 adulți => OCCUPANCY_EXCEEDED';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 34: compute_price — fallback base (fără reguli, fără weekend) ----------
+do $$
+declare v_q jsonb;
+begin
+  v_q := app.compute_price('300000aa-0000-0000-0000-000000000001', '2029-01-05', '2029-01-08');
+  if (v_q->>'total')::numeric = 300 and (v_q->>'avg_nightly')::numeric = 100
+     and (v_q->>'night_count')::int = 3 and jsonb_array_length(v_q->'nights') = 3 then
+    raise notice 'TEST 34 PASS: base fallback 3×100 = 300';
+  else raise exception 'TEST 34 FAIL: %', v_q; end if;
+end $$;
+
+-- ---------- TEST 35: seasonal pricing ----------
+do $$
+declare v_q jsonb;
+begin
+  insert into rate_rules (org_id, property_id, unit_type_id, kind, name, start_date, end_date, price)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000aa-0000-0000-0000-000000000001','season','Sezon estival','2029-02-01','2029-02-28', 200);
+  -- 3 nopți integral în sezon => 3×200
+  v_q := app.compute_price('300000aa-0000-0000-0000-000000000001', '2029-02-10', '2029-02-13');
+  if (v_q->>'total')::numeric = 600
+     and (v_q->'nights'->0->>'kind') = 'season' then
+    raise notice 'TEST 35 PASS: sezon 3×200 = 600';
+  else raise exception 'TEST 35 FAIL: %', v_q; end if;
+end $$;
+
+-- ---------- TEST 36: override are prioritate peste season ----------
+do $$
+declare v_q jsonb;
+begin
+  insert into rate_rules (org_id, property_id, unit_type_id, kind, name, start_date, end_date, price)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000aa-0000-0000-0000-000000000001','override','Eveniment','2029-02-11','2029-02-11', 300);
+  -- 10=200(season), 11=300(override), 12=200(season) => 700
+  v_q := app.compute_price('300000aa-0000-0000-0000-000000000001', '2029-02-10', '2029-02-13');
+  if (v_q->>'total')::numeric = 700
+     and (v_q->'nights'->1->>'kind') = 'override'
+     and (v_q->'nights'->1->>'rate')::numeric = 300 then
+    raise notice 'TEST 36 PASS: override 300 bate sezonul 200 pe ziua respectivă';
+  else raise exception 'TEST 36 FAIL: %', v_q; end if;
+end $$;
+
+-- ---------- TEST 37: la suprapunere în același kind câștigă cea mai RECENTĂ modificare ----------
+do $$
+declare v_q jsonb; v_low uuid;
+begin
+  insert into rate_rules (org_id, property_id, unit_type_id, kind, name, start_date, end_date, price)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000aa-0000-0000-0000-000000000001','season','Low','2029-04-01','2029-04-30', 180)
+  returning id into v_low;
+  -- a doua regulă, inserată mai târziu => updated_at mai recent => câștigă
+  insert into rate_rules (org_id, property_id, unit_type_id, kind, name, start_date, end_date, price)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000aa-0000-0000-0000-000000000001','season','High','2029-04-10','2029-04-20', 250);
+  v_q := app.compute_price('300000aa-0000-0000-0000-000000000001', '2029-04-15', '2029-04-16');
+  if (v_q->>'total')::numeric <> 250 then raise exception 'TEST 37a FAIL: %', v_q; end if;
+  raise notice 'TEST 37a PASS: cea mai recentă regulă (250) câștigă suprapunerea';
+
+  -- modific regula veche => devine cea mai recentă => câștigă acum
+  update rate_rules set price = 199 where id = v_low;
+  v_q := app.compute_price('300000aa-0000-0000-0000-000000000001', '2029-04-15', '2029-04-16');
+  if (v_q->>'total')::numeric = 199 then
+    raise notice 'TEST 37b PASS: după modificare, regula re-modificată (199) devine cea aplicată';
+  else raise exception 'TEST 37b FAIL: %', v_q; end if;
+end $$;
+
+-- ---------- TEST 38: weekend pricing (percent / amount / peste sezon) ----------
+do $$
+declare
+  v_q jsonb; v_fri date; v_wed date;
+begin
+  -- prima vineri (dow=5) și prima miercuri (dow=3) din 2029-06-01
+  v_fri := date '2029-06-01' + ((5 - extract(dow from date '2029-06-01')::int + 7) % 7);
+  v_wed := date '2029-06-01' + ((3 - extract(dow from date '2029-06-01')::int + 7) % 7);
+
+  -- 38a: percent +20% pe vineri/sâmbătă (default weekend_days {5,6})
+  update unit_types set weekend_adjustment_type = 'percent', weekend_adjustment_value = 20
+   where id = '300000aa-0000-0000-0000-000000000001';
+  v_q := app.compute_price('300000aa-0000-0000-0000-000000000001', v_fri, v_fri + 1);
+  if (v_q->>'total')::numeric = 120 and (v_q->'nights'->0->>'weekend')::boolean then
+    raise notice 'TEST 38a PASS: vineri 100×1.2 = 120';
+  else raise exception 'TEST 38a FAIL: %', v_q; end if;
+  -- miercuri = neschimbat
+  v_q := app.compute_price('300000aa-0000-0000-0000-000000000001', v_wed, v_wed + 1);
+  if (v_q->>'total')::numeric = 100 then raise notice 'TEST 38b PASS: miercuri neschimbat 100';
+  else raise exception 'TEST 38b FAIL: %', v_q; end if;
+
+  -- 38c: amount +50 pe weekend
+  update unit_types set weekend_adjustment_type = 'amount', weekend_adjustment_value = 50
+   where id = '300000aa-0000-0000-0000-000000000001';
+  v_q := app.compute_price('300000aa-0000-0000-0000-000000000001', v_fri, v_fri + 1);
+  if (v_q->>'total')::numeric = 150 then raise notice 'TEST 38c PASS: vineri 100+50 = 150';
+  else raise exception 'TEST 38c FAIL: %', v_q; end if;
+
+  -- 38d: weekend = prioritate minimă → NU se aplică peste sezon (sezonul rămâne 200)
+  insert into rate_rules (org_id, property_id, unit_type_id, kind, name, start_date, end_date, price)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000aa-0000-0000-0000-000000000001','season','S', v_fri, v_fri, 200);
+  update unit_types set weekend_adjustment_type = 'percent', weekend_adjustment_value = 20
+   where id = '300000aa-0000-0000-0000-000000000001';
+  v_q := app.compute_price('300000aa-0000-0000-0000-000000000001', v_fri, v_fri + 1);
+  if (v_q->>'total')::numeric = 200 and not (v_q->'nights'->0->>'weekend')::boolean then
+    raise notice 'TEST 38d PASS: weekend nu se aplică peste sezon (rămâne 200)';
+  else raise exception 'TEST 38d FAIL: %', v_q; end if;
+
+  -- reset config weekend ca să nu afecteze testele următoare
+  update unit_types set weekend_adjustment_type = 'none', weekend_adjustment_value = 0
+   where id = '300000aa-0000-0000-0000-000000000001';
+  delete from rate_rules where unit_type_id = '300000aa-0000-0000-0000-000000000001'
+    and start_date = v_fri and end_date = v_fri;
+end $$;
+
+-- ---------- TEST 39: snapshot la creare = imuabil ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare
+  v_b uuid; v_total numeric; v_bd jsonb; v_total_after numeric;
+begin
+  -- pe interval cu sezon activ (TEST 35: feb 200/noapte), 2 nopți => 400
+  v_b := public.create_booking(
+    '300000aa-0000-0000-0000-000000000001'::uuid, '2029-02-20', '2029-02-22',
+    '50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+  select total_amount, price_breakdown into v_total, v_bd from bookings where id = v_b;
+  if v_total = 400 and jsonb_array_length(v_bd->'nights') = 2
+     and (v_bd->'nights'->0->>'kind') = 'season' then
+    raise notice 'TEST 39a PASS: snapshot total=400 + breakdown pe 2 nopți (sezon)';
+  else raise exception 'TEST 39a FAIL: total=% bd=%', v_total, v_bd; end if;
+
+  -- modificăm base_price-ul tipului => rezervarea NU se schimbă (snapshot imuabil)
+  update unit_types set base_price = 999 where id = '300000aa-0000-0000-0000-000000000001';
+  select total_amount into v_total_after from bookings where id = v_b;
+  if v_total_after = 400 then
+    raise notice 'TEST 39b PASS: snapshot imuabil după schimbarea base_price';
+  else raise exception 'TEST 39b FAIL: total recalculat la %', v_total_after; end if;
+  update unit_types set base_price = 100 where id = '300000aa-0000-0000-0000-000000000001';
+end $$;
+reset role;
+
+-- ---------- TEST 40: public_get_availability — filtru ocupare + preț din engine ----------
+do $$
+declare v_pricing int; v_dubla int; v_ppn numeric;
+begin
+  -- adults=3: tipul Pricing (max 4) apare; Dubla standard (max 2) NU
+  select count(*) filter (where name = 'Pricing'),
+         count(*) filter (where name = 'Dubla standard')
+    into v_pricing, v_dubla
+  from public.public_get_availability('hotel-test','2029-08-01','2029-08-04', 3, 0);
+  if v_pricing = 1 and v_dubla = 0 then
+    raise notice 'TEST 40a PASS: ocupare 3 adulți filtrează tipurile cu max < 3';
+  else raise exception 'TEST 40a FAIL: pricing=% dubla=%', v_pricing, v_dubla; end if;
+
+  -- preț/noapte vine din engine (base 100, fără reguli pe august)
+  select price_per_night into v_ppn
+  from public.public_get_availability('hotel-test','2029-08-01','2029-08-04', 2, 0)
+  where name = 'Pricing';
+  if v_ppn = 100 then raise notice 'TEST 40b PASS: price_per_night din engine = 100';
+  else raise exception 'TEST 40b FAIL: ppn=%', v_ppn; end if;
+end $$;
+
+-- ---------- TEST 41: public_create_booking respinge ocuparea peste limită ----------
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+begin
+  begin
+    perform public_create_booking('hotel-test','300000aa-0000-0000-0000-000000000001',
+      '2029-09-01','2029-09-03','Over Booker','over@test.ro','0700000000', 5, 0, null);
+    raise exception 'TEST 41 FAIL: 5 adulți peste max 4 acceptat public';
+  exception when others then
+    if sqlerrm like '%OCCUPANCY_EXCEEDED%' then raise notice 'TEST 41 PASS: public OCCUPANCY_EXCEEDED';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 42: RLS pe rate_rules ----------
+-- 42a: anon nu are select pe rate_rules
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+declare v int;
+begin
+  begin
+    select count(*) into v from rate_rules;
+    raise exception 'TEST 42a FAIL: anon a citit rate_rules!';
+  exception when insufficient_privilege then
+    raise notice 'TEST 42a PASS: anon fără select pe rate_rules';
+  end;
+end $$;
+reset role;
+-- 42b: userul org B nu vede / nu scrie rate_rules org A
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v int;
+begin
+  select count(*) into v from rate_rules;
+  if v <> 0 then raise exception 'TEST 42b FAIL: org B vede % reguli org A', v; end if;
+  raise notice 'TEST 42b PASS: org B vede 0 rate_rules';
+  begin
+    insert into rate_rules (org_id, property_id, unit_type_id, kind, name, start_date, end_date, price)
+    values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+            '300000aa-0000-0000-0000-000000000001','season','Intrus','2029-12-01','2029-12-10', 1);
+    raise exception 'TEST 42c FAIL: org B a inserat o regulă în org A!';
+  exception when insufficient_privilege then
+    raise notice 'TEST 42c PASS: insert rate_rules cross-org respins (RLS)';
+  when others then
+    if sqlstate = '42501' then raise notice 'TEST 42c PASS: insert rate_rules cross-org respins (RLS)';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 43: quote_price — acces, cross-org, anon ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_q jsonb;
+begin
+  v_q := public.quote_price('300000aa-0000-0000-0000-000000000001', '2029-01-05', '2029-01-08');
+  if (v_q->>'total')::numeric = 300 then raise notice 'TEST 43a PASS: quote autorizat = 300';
+  else raise exception 'TEST 43a FAIL: %', v_q; end if;
+end $$;
+-- 43b: cross-org => FORBIDDEN
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v_q jsonb;
+begin
+  begin
+    v_q := public.quote_price('300000aa-0000-0000-0000-000000000001', '2029-01-05', '2029-01-08');
+    raise exception 'TEST 43b FAIL: quote cross-org permis';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 43b PASS: quote cross-org => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+-- 43c: anon fără execute
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+declare v_q jsonb;
+begin
+  begin
+    v_q := public.quote_price('300000aa-0000-0000-0000-000000000001', '2029-01-05', '2029-01-08');
+    raise exception 'TEST 43c FAIL: anon a executat quote_price';
+  exception when insufficient_privilege then
+    raise notice 'TEST 43c PASS: anon fără execute pe quote_price';
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 44: get_rate_calendar — tarif per tip × zi ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_rows int; v_base_rate numeric; v_base_kind text;
+begin
+  -- fereastră fără reguli pe tipul Pricing => base 100, kind 'base', 3 nopți
+  select count(*) into v_rows
+  from public.get_rate_calendar('20000000-0000-0000-0000-000000000001', '2029-10-01', '2029-10-04')
+  where unit_type_id = '300000aa-0000-0000-0000-000000000001';
+  if v_rows <> 3 then raise exception 'TEST 44a FAIL: % rânduri (astept 3)', v_rows; end if;
+
+  select rate, kind into v_base_rate, v_base_kind
+  from public.get_rate_calendar('20000000-0000-0000-0000-000000000001', '2029-10-01', '2029-10-04')
+  where unit_type_id = '300000aa-0000-0000-0000-000000000001' limit 1;
+  if v_base_rate = 100 and v_base_kind = 'base' then
+    raise notice 'TEST 44a PASS: calendar tarife = 100/base pe interval fără reguli';
+  else raise exception 'TEST 44a FAIL: rate=% kind=%', v_base_rate, v_base_kind; end if;
+end $$;
+-- 44b: cross-org => FORBIDDEN
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v int;
+begin
+  begin
+    select count(*) into v from public.get_rate_calendar(
+      '20000000-0000-0000-0000-000000000001', '2029-10-01', '2029-10-04');
+    raise exception 'TEST 44b FAIL: get_rate_calendar cross-org permis';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 44b PASS: get_rate_calendar cross-org => FORBIDDEN';
+    else raise; end if;
+  end;
 end $$;
 reset role;
 

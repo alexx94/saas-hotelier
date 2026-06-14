@@ -17,7 +17,8 @@ export type AvailabilityItem = {
   unit_type_id: string
   name: string
   description: Record<string, string> | null
-  capacity: number
+  max_adults: number
+  max_children: number
   price_per_night: number
   total_price: number
   currency: string
@@ -37,12 +38,16 @@ export async function fetchPublicProperty(slug: string): Promise<PublicProperty>
 export async function fetchAvailability(
   slug: string,
   checkIn: string,
-  checkOut: string
+  checkOut: string,
+  adults = 1,
+  children = 0
 ): Promise<AvailabilityItem[]> {
   const { data, error } = await supabase.rpc("public_get_availability", {
     p_slug: slug,
     p_check_in: checkIn,
     p_check_out: checkOut,
+    p_adults: adults,
+    p_children: children,
   })
   if (error) throw error
   return (data ?? []) as AvailabilityItem[]
@@ -56,7 +61,8 @@ export type PublicBookingInput = {
   fullName: string
   email: string
   phone?: string
-  guestsCount: number
+  adults: number
+  children: number
   notes?: string
 }
 
@@ -71,7 +77,8 @@ export async function createPublicBooking(
     p_full_name: input.fullName,
     p_email: input.email,
     p_phone: input.phone,
-    p_guests_count: input.guestsCount,
+    p_adults: input.adults,
+    p_children: input.children,
     p_notes: input.notes,
   })
   if (error) throw error

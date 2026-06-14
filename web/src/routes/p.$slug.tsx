@@ -10,6 +10,7 @@ import {
   createPublicBooking, fetchAvailability, fetchPublicProperty,
   type AvailabilityItem,
 } from "@/features/public-booking/api"
+import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
 import { t } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import {
@@ -30,11 +31,12 @@ function toISO(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+const MAX_OCCUPANCY_UNBOUNDED = 25
+
 const guestSchema = z.object({
   full_name: z.string().min(2),
   email: z.string().email(),
   phone: z.string().optional(),
-  guests_count: z.coerce.number().int().min(1),
 })
 type GuestFormInput = z.input<typeof guestSchema>
 type GuestFormValues = z.output<typeof guestSchema>
@@ -46,8 +48,15 @@ function PublicBookingPage() {
 
   const [checkIn, setCheckIn] = useState(today)
   const [checkOut, setCheckOut] = useState(tomorrow)
-  const [searched, setSearched] = useState<{ in: string; out: string } | null>(null)
+  const [adults, setAdults] = useState(1)
+  const [children, setChildren] = useState(0)
+  const [searched, setSearched] = useState<
+    { in: string; out: string; adults: number; children: number } | null
+  >(null)
   const [selected, setSelected] = useState<AvailabilityItem | null>(null)
+  // ocuparea rezervării (poate fi ajustată în dialog, în limitele tipului ales)
+  const [bookAdults, setBookAdults] = useState(1)
+  const [bookChildren, setBookChildren] = useState(0)
   const [confirmation, setConfirmation] = useState<string | null>(null)
 
   const { data: property, isLoading, isError } = useQuery({
@@ -58,7 +67,7 @@ function PublicBookingPage() {
 
   const { data: availability, isFetching } = useQuery({
     queryKey: ["public-availability", slug, searched],
-    queryFn: () => fetchAvailability(slug, searched!.in, searched!.out),
+    queryFn: () => fetchAvailability(slug, searched!.in, searched!.out, searched!.adults, searched!.children),
     enabled: !!searched,
   })
 
@@ -66,8 +75,14 @@ function PublicBookingPage() {
 
   const form = useForm<GuestFormInput, unknown, GuestFormValues>({
     resolver: zodResolver(guestSchema),
-    defaultValues: { guests_count: 1 },
   })
+
+  function openBooking(item: AvailabilityItem) {
+    // pornește de la ocuparea căutată, restrânsă la limitele tipului
+    setBookAdults(Math.min(Math.max(1, searched?.adults ?? 1), item.max_adults))
+    setBookChildren(Math.min(searched?.children ?? 0, item.max_children))
+    setSelected(item)
+  }
 
   if (isLoading) {
     return (
@@ -108,11 +123,12 @@ function PublicBookingPage() {
         fullName: values.full_name,
         email: values.email,
         phone: values.phone,
-        guestsCount: values.guests_count,
+        adults: bookAdults,
+        children: bookChildren,
       })
       setSelected(null)
       setConfirmation(result.booking_id)
-      form.reset({ guests_count: 1 })
+      form.reset()
     } catch (e) {
       const message = e instanceof Error ? e.message : ""
       toast.error(
@@ -169,10 +185,18 @@ function PublicBookingPage() {
                 onChange={(e) => setCheckOut(e.target.value)}
               />
             </div>
+            <OccupancyStepper
+              label={t("occupancy.adults")} value={adults} onChange={setAdults}
+              min={1} max={MAX_OCCUPANCY_UNBOUNDED}
+            />
+            <OccupancyStepper
+              label={t("occupancy.children")} value={children} onChange={setChildren}
+              min={0} max={MAX_OCCUPANCY_UNBOUNDED}
+            />
             <Button
               onClick={() => {
                 setConfirmation(null)
-                setSearched({ in: checkIn, out: checkOut })
+                setSearched({ in: checkIn, out: checkOut, adults, children })
               }}
               disabled={!checkIn || !checkOut || checkOut <= checkIn}
             >
@@ -210,7 +234,8 @@ function PublicBookingPage() {
                     <div className="space-y-1 text-sm text-muted-foreground">
                       <p className="flex items-center gap-1">
                         <Users className="h-4 w-4" />
-                        max. {item.capacity} pers. · {item.available_units}{" "}
+                        max. {item.max_adults} {t("occupancy.adults").toLowerCase()} ·{" "}
+                        {item.max_children} {t("occupancy.children").toLowerCase()} · {item.available_units}{" "}
                         {t("public.available_rooms")}
                       </p>
                       <p>
@@ -221,7 +246,7 @@ function PublicBookingPage() {
                         {t("public.total_for_stay")}
                       </p>
                     </div>
-                    <Button onClick={() => setSelected(item)}>
+                    <Button onClick={() => openBooking(item)}>
                       {t("public.book_now")}
                     </Button>
                   </CardContent>
@@ -255,13 +280,18 @@ function PublicBookingPage() {
                 <Input id="b-phone" {...form.register("phone")} />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="b-count">{t("bookings.guests_count")}</Label>
-              <Input
-                id="b-count" type="number" min={1} max={selected?.capacity}
-                {...form.register("guests_count")}
-              />
-            </div>
+            {selected && (
+              <div className="grid grid-cols-2 gap-4">
+                <OccupancyStepper
+                  label={t("occupancy.adults")} value={bookAdults} onChange={setBookAdults}
+                  min={1} max={selected.max_adults}
+                />
+                <OccupancyStepper
+                  label={t("occupancy.children")} value={bookChildren} onChange={setBookChildren}
+                  min={0} max={selected.max_children}
+                />
+              </div>
+            )}
             {selected && (
               <p className="text-sm text-muted-foreground">
                 {t("bookings.total")}:{" "}

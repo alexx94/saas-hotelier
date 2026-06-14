@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { ChevronLeft, ChevronRight, Plus, Users, X } from "lucide-react"
+import { CalendarClock, ChevronLeft, ChevronRight, Plus, User, X } from "lucide-react"
 import {
   PropertySelect, usePropertySelection,
 } from "@/features/properties/property-select"
@@ -20,6 +20,10 @@ import { BLOCK_REASONS } from "@/features/unit-types/api"
 import { UnitActionsMenu } from "@/features/unit-types/unit-actions-menu"
 import { BlockDialog } from "@/features/unit-types/block-dialog"
 import { useRemoveBlock } from "@/features/unit-types/hooks"
+import { OverrideDialog } from "@/features/pricing/override-dialog"
+import { dayLabel } from "@/features/pricing/weekend-pricing"
+import { useRateCalendar } from "@/features/pricing/hooks"
+import type { RateCalendarEntry } from "@/features/pricing/api"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { toast } from "sonner"
 import { t } from "@/lib/i18n"
@@ -34,6 +38,13 @@ export const Route = createFileRoute("/_app/app/calendar")({
 
 function toISO(d: Date): string {
   return d.toISOString().slice(0, 10)
+}
+
+// culoarea tarifului din celulă, după sursă (base/season/override)
+const RATE_KIND_CLASS: Record<string, string> = {
+  base: "text-muted-foreground/70",
+  season: "text-sky-600 dark:text-sky-400 font-medium",
+  override: "text-amber-600 dark:text-amber-400 font-semibold",
 }
 
 // ─── tooltips (rezervare / blocaj) ───────────────────────────────────────────
@@ -269,6 +280,18 @@ function CalendarLegend() {
         />
         {t("calendar.legend.unavailable")}
       </span>
+      {/* tarife pe celule: sezon (albastru) · preferențial/override (chihlimbar) */}
+      <span className="flex items-center gap-1.5">
+        {t("pricing.rates_legend")}:
+        <span className="flex items-center gap-1">
+          <span className="h-2.5 w-2.5 rounded-sm bg-sky-500/70" />
+          {t("pricing.kind.season")}
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="h-2.5 w-2.5 rounded-sm bg-amber-500/80" />
+          {t("pricing.kind.override")}
+        </span>
+      </span>
     </div>
   )
 }
@@ -282,6 +305,7 @@ function CalendarPage() {
     return new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1))
   })
   const [open, setOpen] = useState(false)
+  const [overrideOpen, setOverrideOpen] = useState(false)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const [blockTarget, setBlockTarget] = useState<
     { kind: "single"; unitId: string; unitName: string } | null
@@ -299,6 +323,14 @@ function CalendarPage() {
   const { data: units, isLoading: loadingUnits } = useUnits(property?.id)
   const { data: bookings } = useBookingsInRange(property?.id, monthStart, monthEnd)
   const { data: blocks } = useBlocksInRange(property?.id, monthStart, monthEnd)
+  const { data: rates } = useRateCalendar(property?.id, monthStart, monthEnd)
+
+  // tarif rezolvat per (tip, zi) → pictat în celulele goale. Cheie: `tip|YYYY-MM-DD`.
+  const rateByTypeDay = useMemo(() => {
+    const map = new Map<string, RateCalendarEntry>()
+    for (const r of rates ?? []) map.set(`${r.unit_type_id}|${r.day}`, r)
+    return map
+  }, [rates])
 
   // grupare unică pe cameră — evită un filter peste toate rezervările per rând
   const bookingsByUnit = useMemo(() => {
@@ -350,13 +382,22 @@ function CalendarPage() {
         {/* Rând 1: titlu + buton adaugă */}
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold md:text-2xl">{t("nav.calendar")}</h1>
-          <Button onClick={() => setOpen(true)} disabled={!property} size="sm" className="md:hidden">
-            <Plus className="h-4 w-4" />
-          </Button>
-          <Button onClick={() => setOpen(true)} disabled={!property} className="hidden md:flex">
-            <Plus className="h-4 w-4" />
-            {t("bookings.add")}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline" size="sm" disabled={!property}
+              onClick={() => setOverrideOpen(true)}
+            >
+              <CalendarClock className="h-4 w-4" />
+              <span className="hidden sm:inline">{t("pricing.override_action")}</span>
+            </Button>
+            <Button onClick={() => setOpen(true)} disabled={!property} size="sm" className="md:hidden">
+              <Plus className="h-4 w-4" />
+            </Button>
+            <Button onClick={() => setOpen(true)} disabled={!property} className="hidden md:flex">
+              <Plus className="h-4 w-4" />
+              {t("bookings.add")}
+            </Button>
+          </div>
         </div>
         {/* Rând 2: selector proprietate + navigare lună */}
         <div className="flex items-center gap-2">
@@ -412,15 +453,21 @@ function CalendarPage() {
             <div className="sticky left-0 z-10 border-b border-r bg-card p-2 font-medium" />
             {Array.from({ length: daysInMonth }, (_, i) => {
               const day = `${monthStart.slice(0, 8)}${String(i + 1).padStart(2, "0")}`
+              const dow = new Date(`${day}T00:00:00Z`).getUTCDay()
+              const isWeekend = dow === 0 || dow === 6
               return (
                 <div
                   key={i}
                   className={cn(
-                    "border-b p-1 text-center text-xs text-muted-foreground",
+                    "border-b px-0.5 py-1 text-center text-muted-foreground",
+                    isWeekend && "bg-muted/40",
                     day === today && "bg-accent font-semibold text-foreground"
                   )}
                 >
-                  {i + 1}
+                  <div className={cn("text-[9px] uppercase leading-none", isWeekend && "text-foreground/70")}>
+                    {dayLabel(dow)}
+                  </div>
+                  <div className="text-xs leading-tight">{i + 1}</div>
                 </div>
               )
             })}
@@ -431,6 +478,17 @@ function CalendarPage() {
               const unitBlocks = blocksByUnit.get(unit.id) ?? []
               const unitStatus = (unit.status ?? "active") as UnitStatus
               const isOperational = unitStatus === "active"
+
+              // zilele „ocupate" (rezervare sau blocaj) — acolo nu pictăm tarif.
+              // Nopțile ocupate = [check_in, check_out) / [start, end).
+              const occupiedDays = new Set<number>()
+              const markRange = (from: string, toEx: string) => {
+                const s = from < monthStart ? 1 : Number(from.slice(8, 10))
+                const e = toEx >= monthEnd ? daysInMonth : Number(toEx.slice(8, 10)) - 1
+                for (let d = s; d <= e; d++) occupiedDays.add(d)
+              }
+              for (const b of unitBookings) markRange(b.check_in, b.check_out)
+              for (const rb of unitBlocks) markRange(rb.start_date, rb.end_date)
               return (
                 <div key={unit.id} className="group col-span-full grid grid-cols-subgrid border-b last:border-b-0">
                   {/* click pe cameră = meniu de gestionare (status + blocaje) */}
@@ -454,8 +512,13 @@ function CalendarPage() {
                         <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-muted-foreground leading-tight truncate">
                           <span className="truncate">{unit.unit_types.name}</span>
                           <span className="mx-0.5 shrink-0">·</span>
-                          <Users className="h-2.5 w-2.5 shrink-0" />
-                          <span className="shrink-0">{unit.unit_types.capacity}</span>
+                          {/* iconițele bottom-aligned (items-end): adult mai mare, copil mai mic, pe aceeași linie */}
+                          <span className="flex shrink-0 items-end gap-0.5">
+                            <User className="h-3 w-3 shrink-0" />
+                            <span className="shrink-0 leading-none">{unit.unit_types.max_adults}</span>
+                            <User className="ml-0.5 h-2.5 w-2.5 shrink-0" />
+                            <span className="shrink-0 leading-none">{unit.unit_types.max_children}</span>
+                          </span>
                         </p>
                       )}
                       {/* statusul permanent explică celulele hașurate — fără blocuri artificiale */}
@@ -482,9 +545,28 @@ function CalendarPage() {
                       ...(!isOperational ? { backgroundImage: UNAVAILABLE_STRIPES } : undefined),
                     }}
                   >
-                    {Array.from({ length: daysInMonth }, (_, i) => (
-                      <div key={i} className="min-h-12 border-r last:border-r-0" />
-                    ))}
+                    {Array.from({ length: daysInMonth }, (_, i) => {
+                      const dayNum = i + 1
+                      const dayIso = `${monthStart.slice(0, 8)}${String(dayNum).padStart(2, "0")}`
+                      const rate = unit.unit_type_id
+                        ? rateByTypeDay.get(`${unit.unit_type_id}|${dayIso}`)
+                        : undefined
+                      const showRate = isOperational && !occupiedDays.has(dayNum) && rate
+                      return (
+                        <div key={i} className="relative min-h-12 border-r last:border-r-0">
+                          {showRate && (
+                            <span
+                              className={cn(
+                                "pointer-events-none absolute inset-x-0 bottom-0.5 text-center text-[9px] leading-none tabular-nums",
+                                RATE_KIND_CLASS[rate.kind] ?? RATE_KIND_CLASS.base
+                              )}
+                            >
+                              {Math.round(rate.rate)}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
                     {/* hover = strat propriu sub barele de rezervări/blocaje (z-4/5):
                         umbrește subtil rândul fără să afecteze hașura sau culorile */}
                     <div
@@ -582,6 +664,17 @@ function CalendarPage() {
           propertyId={property.id}
           target={blockTarget}
           onClose={() => setBlockTarget(null)}
+        />
+      )}
+
+      {/* tarife preferențiale (override) — pe perioadă, toate camerele unui tip */}
+      {property && (
+        <OverrideDialog
+          propertyId={property.id}
+          orgId={property.org_id}
+          currency={currency}
+          open={overrideOpen}
+          onClose={() => setOverrideOpen(false)}
         />
       )}
     </div>

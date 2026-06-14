@@ -5,6 +5,46 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 4.5 — Pricing Engine & Occupancy Model (13 iun 2026)
+
+> **Rafinări ulterioare** (migrațiile `…150000`, `…160000`, `…170000`): **weekend = prioritate minimă** — suprataxa se aplică doar pe prețul de bază, nu peste sezon/override (standard industrie: un tarif explicit e prețul dorit ca atare); iconițe adult/copil (aceeași iconiță, adult mai mare); zilele lunii din calendar afișează și ziua săptămânii (Lu/Ma/…), weekendul subliniat; scos prioritatea numerică (recență, vezi mai jos); **eliminat `base_capacity`** (ocuparea = doar adulți/copii — mai simplu, fără rol funcțional); ocuparea în formulare = steppere +/- (plafon 25, inclusiv în dialogurile de rezervare); dialog prețuri per tip = **doar sezoane** („Adaugă tarif sezon"), override-urile se adaugă din **calendar** și apar ca tarif pictat pe celulele goale (sezon albastru / preferențial chihlimbar), iconițe adult/copil (`User`/`Baby`) în calendar + lista de tipuri; liste de tarife paginate „Afișează mai mult" (15/pagină); validare „fără date trecute" la tarife/override (doar UI: `min=azi` + guard `end ≥ azi`, fără trigger/constraint — eficient și inofensiv server-side). Teste DB până la TEST 44, toate PASS.
+
+
+### Obiectiv
+
+Preț **dinamic** per noapte (sezoane, override-uri pe interval, suprataxă weekend) cu **snapshot imuabil la creare**, și model de capacitate pe **adulți/copii** expus ca steppere în toate ferestrele de rezervare/căutare. Cerință de scalabilitate: structura DB trebuie să fie corectă de la început.
+
+### Decizii
+
+- **Occupancy pricing EXCLUS** (cerut explicit): prețul nu depinde de nr. persoane. `base_capacity/max_adults/max_children` sunt doar constrângeri; schema rămâne pregătită pentru ocupare în viitor.
+- **Un singur tabel `rate_rules`** (`kind` season/override) — override bate season; la suprapunere în același kind câștigă **cea mai recent modificată** regulă (`updated_at` cu `clock_timestamp()`, fără prioritate numerică). Sezoanele se gestionează per tip (UI); override-urile („tarif preferențial") se adaugă din **calendar** și se aplică automat tuturor camerelor tipului. Migrația `20260613150000` + RPC `get_rate_calendar` (tarif/celulă în calendar).
+- **Weekend configurabil per unit_type** (`weekend_days int2[]`, default Vi+Sâ; tip none/percent/amount + valoare).
+
+### Soluția (migrația `20260613140000_pricing_engine_and_occupancy.sql`)
+
+- **Model capacitate**: `unit_types.capacity` → `base_capacity` + `max_adults` + `max_children` (backfill din `capacity` cu audit oprit). `bookings.adults`/`children`; `guests_count` devine **GENERATED** (`adults + children`) — compatibil cu audit + UI.
+- **`rate_rules`** — sezoane + override-uri pe interval inclusiv `[start,end]`, cu RLS (select `can_access_property`, CUD owner/manager, **fără anon**) + index `(unit_type_id, start_date, end_date)`.
+- **Config weekend** pe `unit_types` (`weekend_adjustment_type/value`, `weekend_days`).
+- **Motorul `app.compute_price`** (DEFINER, stable) — sursă unică de adevăr: per noapte rezolvă `override > season > base_price` (priority desc, created_at desc), apoi aplică weekend **pe rata rezolvată**; întoarce `{currency, nights[], subtotal, total, avg_nightly, night_count}`. Folosit identic de `quote_price`, `create_booking`, `public_create_booking`, `public_get_availability`.
+- **Snapshot imuabil**: la creare se scriu `total_amount`, `unit_price` (media/noapte) și `price_breakdown` jsonb; modificarea ulterioară a `base_price`/regulilor **nu** schimbă rezervarea.
+- **RPC**: nou `quote_price` (estimare UI, autorizat); `create_booking` cu `p_adults/p_children` (drop `p_guests_count`/`p_total` — preț server-side); `public_create_booking` + `p_adults/p_children`; `public_get_availability` + `p_adults/p_children` (filtru ocupare) și preț din engine; validare `OCCUPANCY_EXCEEDED` (înlocuiește `CAPACITY_EXCEEDED`). `audit_unit_type` auditază noile câmpuri de capacitate.
+
+### Frontend
+
+- Feature nou `features/pricing/`: `api.ts`/`hooks.ts`, `rate-rules-dialog.tsx` (sezoane per tip), `override-dialog.tsx` (tarife preferențiale din calendar), `occupancy-stepper.tsx` (+/- adulți min 1 / copii min 0), `price-breakdown.tsx` (detaliu per noapte, reutilizat), `weekend-days-toggle.tsx` + `weekend-pricing.ts`.
+- Form tip cameră (`properties/$propertyId.tsx`): 3 câmpuri capacitate + secțiune „Preț weekend" + buton „Prețuri" (RateRulesDialog). Câmpuri partajate create/editare în `UnitTypeFields`.
+- Dialog rezervare admin: steppere adulți/copii (max = tipul ales, altfel 10) + estimare din `quote_price` cu `PriceBreakdown` (înlocuiește `nopți × base_price`).
+- Pagina publică `p.$slug.tsx`: steppere în căutare (trimise în availability) + în dialogul de rezervare (max = tipul ales). Pagina rezervării afișează ocuparea + snapshot-ul de preț.
+- Calendar: buton „Tarif preferențial" (OverrideDialog) + **tarif pictat pe celulele goale** (sezon albastru / override chihlimbar / base muted) via `get_rate_calendar`. Audit registry + `bookings/api.ts` (join `base_capacity`) actualizate. i18n: chei `unit_types.base_capacity/max_*`, `unit_types.weekend_*`, `pricing.*`, `occupancy.*`, `dow.*`.
+
+### Verificare
+
+- `supabase migration up` (fără `db reset`) → aplicat curat. `gen types` regenerat.
+- **Teste DB (până la TEST 44)** (vechi actualizate la noile semnături + noi 33–44: occupancy, fallback base, seasonal, override > season, recență la suprapunere, weekend percent/amount/peste sezon, snapshot imuabil, filtru ocupare public, RLS `rate_rules`, autorizare `quote_price`, `get_rate_calendar`) — toate PASS.
+- `npx tsc --noEmit` → 0 erori. Doc: [`docs/backend/rpc/pricing.md`](backend/rpc/pricing.md).
+
+---
+
 ## Sprint 4.1 — Plăți: rafinări UX (13 iun 2026)
 
 - **Supraîncasare vizibilă** (migrația de model neschimbată): cardul de plăți derivă `diff = total − amount_paid` **fără trunchiere la 0**. `diff < 0` → rând „Încasat în plus" + avertisment amber; rambursarea excedentului readuce restul la 0. Înainte „Rest de plată" arăta 0 și ascundea supraîncasarea.
