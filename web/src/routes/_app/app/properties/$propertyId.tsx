@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import {
-  ArchiveRestore, ArrowLeft, BedDouble, ChevronDown, ChevronRight,
+  ArchiveRestore, ArrowLeft, Ban, BedDouble, CalendarClock, ChevronDown, ChevronRight,
   ExternalLink, History, Pencil, Plus, Tag, Trash2, User,
 } from "lucide-react"
 import { useProperty, useUpdateProperty } from "@/features/properties/hooks"
@@ -17,6 +17,8 @@ import { UnitRows } from "@/features/unit-types/unit-rows"
 import { UnitTypeHistoryDialog } from "@/features/unit-types/unit-type-history-dialog"
 import { parseRoomNumbering } from "@/features/unit-types/room-numbering"
 import { RateRulesDialog } from "@/features/pricing/rate-rules-dialog"
+import { StayRulesDialog } from "@/features/reservation-rules/stay-rules-dialog"
+import { ClosuresDialog } from "@/features/reservation-rules/closures-dialog"
 import { WeekendDaysToggle } from "@/features/pricing/weekend-days-toggle"
 import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
 import { DEFAULT_WEEKEND_DAYS } from "@/features/pricing/weekend-pricing"
@@ -48,9 +50,14 @@ const capacityFields = {
   max_adults: z.coerce.number().int().min(1),
   max_children: z.coerce.number().int().min(0),
   base_price: z.coerce.number().min(0),
+  min_stay: z.coerce.number().int().min(1).max(30),
+  max_stay: z.coerce.number().int().min(1).max(30),
   weekend_adjustment_type: z.enum(["none", "percent", "amount"]),
   weekend_adjustment_value: z.coerce.number().min(0),
 }
+
+const stayOrder = (v: { min_stay: number; max_stay: number }) => v.max_stay >= v.min_stay
+const stayOrderError = { message: "stay_order", path: ["max_stay"] as const }
 
 const createSchema = z.object({
   name: z.string().min(2),
@@ -61,25 +68,26 @@ const createSchema = z.object({
   ),
   rooms_start: z.string().optional(),
   room_prefix: z.string().min(1),
-})
+}).refine(stayOrder, stayOrderError)
 type CreateValues = z.output<typeof createSchema>
 
 const editTypeSchema = z.object({
   name: z.string().min(2),
   ...capacityFields,
-})
+}).refine(stayOrder, stayOrderError)
 type EditTypeValues = z.output<typeof editTypeSchema>
 
 // ─── rând tip cameră ─────────────────────────────────────────────────────────
 
 function UnitTypeRow({
-  ut, propertyId, currency, onEdit, onRates,
+  ut, propertyId, currency, onEdit, onRates, onStayRules,
 }: {
   ut: UnitType
   propertyId: string
   currency: string
   onEdit: (ut: UnitType) => void
   onRates: (ut: UnitType) => void
+  onStayRules: (ut: UnitType) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -124,11 +132,12 @@ function UnitTypeRow({
           </button>
         </TableCell>
         <TableCell>
-          <span className="flex items-center gap-1.5 text-sm">
-            <span className="flex items-center gap-0.5" title={t("occupancy.adults")}>
+          {/* iconițe bottom-aligned (items-end) ca în calendar: adult mai mare, copil mai mic, pe aceeași linie de bază */}
+          <span className="flex items-end gap-1.5 text-sm leading-none">
+            <span className="flex items-end gap-0.5" title={t("occupancy.adults")}>
               <User className="h-4 w-4 text-muted-foreground" />{ut.max_adults}
             </span>
-            <span className="flex items-center gap-0.5" title={t("occupancy.children")}>
+            <span className="flex items-end gap-0.5" title={t("occupancy.children")}>
               <User className="h-3 w-3 text-muted-foreground" />{ut.max_children}
             </span>
           </span>
@@ -152,6 +161,9 @@ function UnitTypeRow({
             )}
             <Button variant="ghost" size="icon" className="h-8 w-8" title={t("pricing.manage")} onClick={() => onRates(ut)}>
               <Tag className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" title={t("stay_rules.manage")} onClick={() => onStayRules(ut)}>
+              <CalendarClock className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setHistoryOpen(true)}>
               <History className="h-4 w-4" />
@@ -201,6 +213,9 @@ function UnitTypeFields({
   // steppere +/- pentru ocupare maximă (adulți min 1 / copii min 0, plafon 25)
   const maxAdults = Number(form.watch("max_adults") ?? 1)
   const maxChildren = Number(form.watch("max_children") ?? 0)
+  // steppere +/- pentru durata sejurului (1..30)
+  const minStay = Number(form.watch("min_stay") ?? 1)
+  const maxStay = Number(form.watch("max_stay") ?? 30)
   return (
     <>
       <div className="grid grid-cols-2 gap-4">
@@ -216,6 +231,24 @@ function UnitTypeFields({
       <div className="space-y-2">
         <Label>{t("unit_types.base_price")} ({currency})</Label>
         <Input type="number" min={0} step="0.01" {...form.register("base_price")} />
+      </div>
+
+      {/* durată sejur (min/max stay global; suprascris pe perioade din „Reguli durată") */}
+      <div className="space-y-3 rounded-md border p-3">
+        <Label className="text-sm font-medium">{t("unit_types.stay_limits")}</Label>
+        <div className="grid grid-cols-2 gap-4">
+          <OccupancyStepper
+            label={t("unit_types.min_stay")} value={minStay}
+            onChange={(v) => form.setValue("min_stay", v)} min={1} max={30}
+          />
+          <OccupancyStepper
+            label={t("unit_types.max_stay")} value={maxStay}
+            onChange={(v) => form.setValue("max_stay", v)} min={1} max={30}
+          />
+        </div>
+        {form.formState.errors.max_stay && (
+          <p className="text-xs text-destructive">{t("unit_types.stay_order")}</p>
+        )}
       </div>
 
       {/* preț weekend */}
@@ -267,12 +300,15 @@ function PropertyDetailPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editingType, setEditingType] = useState<UnitType | null>(null)
   const [ratesType, setRatesType] = useState<UnitType | null>(null)
+  const [stayRulesType, setStayRulesType] = useState<UnitType | null>(null)
+  const [closuresOpen, setClosuresOpen] = useState(false)
   // weekend_days e gestionat ca state (toggle-uri), nu prin RHF
   const [createDays, setCreateDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
   const [editDays, setEditDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
 
   const createDefaults: z.input<typeof createSchema> = {
     name: "", max_adults: 2, max_children: 0, base_price: 0,
+    min_stay: 1, max_stay: 30,
     weekend_adjustment_type: "none", weekend_adjustment_value: 0,
     rooms_spec: "1", rooms_start: "", room_prefix: "Camera ",
   }
@@ -305,6 +341,8 @@ function PropertyDetailPage() {
           max_adults: values.max_adults,
           max_children: values.max_children,
           base_price: values.base_price,
+          min_stay: values.min_stay,
+          max_stay: values.max_stay,
           weekend_adjustment_type: values.weekend_adjustment_type,
           weekend_adjustment_value: values.weekend_adjustment_value,
           weekend_days: createDays,
@@ -332,6 +370,8 @@ function PropertyDetailPage() {
           max_adults: values.max_adults,
           max_children: values.max_children,
           base_price: values.base_price,
+          min_stay: values.min_stay,
+          max_stay: values.max_stay,
           weekend_adjustment_type: values.weekend_adjustment_type,
           weekend_adjustment_value: values.weekend_adjustment_value,
           weekend_days: editDays,
@@ -349,6 +389,8 @@ function PropertyDetailPage() {
       max_adults: String(ut.max_adults) as unknown as number,
       max_children: String(ut.max_children) as unknown as number,
       base_price: String(ut.base_price) as unknown as number,
+      min_stay: String(ut.min_stay) as unknown as number,
+      max_stay: String(ut.max_stay) as unknown as number,
       weekend_adjustment_type: ut.weekend_adjustment_type as "none" | "percent" | "amount",
       weekend_adjustment_value: String(ut.weekend_adjustment_value) as unknown as number,
     })
@@ -369,32 +411,37 @@ function PropertyDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" asChild>
+      {/* header — pe mobil se stivuiește (titlu sus, acțiuni dedesubt, cu wrap) */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <Button variant="ghost" size="icon" className="shrink-0" asChild>
             <Link to="/app/properties"><ArrowLeft className="h-4 w-4" /></Link>
           </Button>
-          <div>
-            <h1 className="text-2xl font-semibold">{property.name}</h1>
-            <p className="text-sm text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-semibold sm:text-2xl">{property.name}</h1>
+            <p className="truncate text-sm text-muted-foreground">
               {property.city ? `${property.city} · ` : ""}{property.currency}
             </p>
           </div>
-          <Badge variant={property.is_published ? "default" : "secondary"}>
+          <Badge variant={property.is_published ? "default" : "secondary"} className="shrink-0">
             {property.is_published ? t("properties.published") : t("properties.unpublished")}
           </Badge>
         </div>
-        <div className="flex items-center gap-2">
+        {/* acțiuni: wrap pe mobil (nu mai forțează un singur rând), aliniate la dreapta pe desktop */}
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {property.is_published && (
-            <Button variant="outline" asChild>
+            <Button variant="outline" size="sm" className="sm:h-9" asChild>
               <Link to="/p/$slug" params={{ slug: property.slug }} target="_blank" rel="noreferrer">
                 <ExternalLink className="h-4 w-4" />
                 {t("properties.public_page")}
               </Link>
             </Button>
           )}
-          <Button variant="outline" onClick={togglePublish}>
+          <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setClosuresOpen(true)}>
+            <Ban className="h-4 w-4" />
+            {t("closures.manage")}
+          </Button>
+          <Button variant="outline" size="sm" className="sm:h-9" onClick={togglePublish}>
             {property.is_published ? t("properties.unpublish") : t("properties.publish")}
           </Button>
         </div>
@@ -437,6 +484,7 @@ function PropertyDetailPage() {
                   currency={property.currency}
                   onEdit={openEdit}
                   onRates={setRatesType}
+                  onStayRules={setStayRulesType}
                 />
               ))}
             </TableBody>
@@ -512,6 +560,24 @@ function PropertyDetailPage() {
         propertyId={property.id}
         currency={property.currency}
         onClose={() => setRatesType(null)}
+      />
+
+      {/* dialog reguli de durată sejur (per tip) */}
+      <StayRulesDialog
+        unitTypeId={stayRulesType?.id ?? null}
+        unitTypeName={stayRulesType?.name}
+        orgId={property.org_id}
+        propertyId={property.id}
+        onClose={() => setStayRulesType(null)}
+      />
+
+      {/* dialog stop-sell / închideri (toată proprietatea sau un tip) */}
+      <ClosuresDialog
+        open={closuresOpen}
+        orgId={property.org_id}
+        propertyId={property.id}
+        unitTypes={unitTypes ?? []}
+        onClose={() => setClosuresOpen(false)}
       />
     </div>
   )

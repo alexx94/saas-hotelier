@@ -200,6 +200,11 @@ create index on bookings using gist (unit_id, stay); -- creat implicit de EXCLUD
 ### Extensii (parțial implementate)
 - `payments(booking_id, amount, currency, provider, status)` — ✅ implementat (Sprint 4).
 - `rate_rules(unit_type_id, kind, daterange, price)` — ✅ implementat (Sprint 4.5): `base_price` e fallback; preț per **tip** (nu per cameră), via `app.compute_price`; la suprapunere câștigă cea mai recent modificată regulă.
+- **Reguli de rezervare** — ✅ implementat (Sprint 4.6, migrația `20260614120000`): strat modular de restricții, separat de preț și de `room_blocks`.
+  - `unit_types.min_stay`/`max_stay` (1..30, `max_stay >= min_stay`) = durată sejur globală per tip.
+  - `stay_rules(unit_type_id, daterange, min_stay?, max_stay?)` = suprascrieri pe perioade; rezolvate pe **data de check-in** (`app.resolve_stay`), recență `updated_at` ca `rate_rules`.
+  - `closures(property_id, unit_type_id?, daterange, reason)` = **stop-sell / closed dates** cu scope (`unit_type_id` NULL = toată proprietatea). Distinct de `room_blocks`: oprește vânzarea unui produs, **nu** blochează camere fizice. Fără EXCLUDE (suprapunere benignă). `app.is_closed` verifică ambele scope-uri.
+  - Enforcement în `app.create_booking_internal` (admin + public): `STAY_TOO_SHORT`, `STAY_TOO_LONG`, `DATES_CLOSED`. RPC `get_stay_constraints` pentru UI; `public_get_availability` filtrează închiderile + durata. Vezi `docs/backend/rpc/reservation-rules.md`.
 - Channel manager: `source` primește valori noi; tabel `channel_connections` + `external_refs(booking_id, channel, external_id)` — viitor.
 
 ## 2. RLS — strategie

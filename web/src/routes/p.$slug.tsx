@@ -132,9 +132,15 @@ function PublicBookingPage() {
     } catch (e) {
       const message = e instanceof Error ? e.message : ""
       toast.error(
-        message.includes("UNIT_NOT_AVAILABLE")
-          ? t("public.no_availability")
-          : t("common.error")
+        message.includes("STAY_TOO_SHORT")
+          ? t("bookings.stay_too_short")
+          : message.includes("STAY_TOO_LONG")
+            ? t("bookings.stay_too_long")
+            : message.includes("DATES_CLOSED")
+              ? t("bookings.dates_closed")
+              : message.includes("UNIT_NOT_AVAILABLE")
+                ? t("public.no_availability")
+                : t("common.error")
       )
     }
   }
@@ -238,6 +244,9 @@ function PublicBookingPage() {
                         {item.max_children} {t("occupancy.children").toLowerCase()} · {item.available_units}{" "}
                         {t("public.available_rooms")}
                       </p>
+                      {item.min_stay > 1 && (
+                        <p>{t("public.min_nights")} {item.min_stay} {t("bookings.nights")}</p>
+                      )}
                       <p>
                         {nights} nopți ·{" "}
                         <strong className="text-foreground">
@@ -291,6 +300,12 @@ function PublicBookingPage() {
                   min={0} max={selected.max_children}
                 />
               </div>
+            )}
+            {selected && selected.min_stay > 1 && (
+              <p className="text-sm text-muted-foreground">
+                {t("public.min_nights")}{" "}
+                <span className="font-semibold text-primary">{selected.min_stay} {t("bookings.nights")}</span>
+              </p>
             )}
             {selected && (
               <p className="text-sm text-muted-foreground">

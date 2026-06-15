@@ -1512,4 +1512,357 @@ begin
 end $$;
 reset role;
 
+-- ============================================================
+-- Sprint 4.6 — Reservation Rules Engine (min/max stay, stay_rules, closures)
+-- ============================================================
+-- tip dedicat: min_stay 3 / max_stay 5, max 4 adulți / 2 copii, o cameră, izolat
+insert into unit_types (id, org_id, property_id, name, max_adults, max_children,
+                        base_price, min_stay, max_stay)
+values ('300000bb-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001', 'StayRules', 4, 2, 100, 3, 5);
+insert into units (id, org_id, property_id, unit_type_id, name)
+values ('400000bb-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001', '300000bb-0000-0000-0000-000000000001', 'Stay 1');
+
+-- ---------- TEST 45: min stay global (admin + public) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_b uuid;
+begin
+  -- 45a: 2 nopți sub min_stay 3 => STAY_TOO_SHORT
+  begin
+    perform public.create_booking('300000bb-0000-0000-0000-000000000001'::uuid,
+      '2031-05-10','2031-05-12','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+    raise exception 'TEST 45a FAIL: 2 nopți sub min_stay acceptat';
+  exception when others then
+    if sqlerrm like '%STAY_TOO_SHORT%' then raise notice 'TEST 45a PASS: 2 nopți < min 3 => STAY_TOO_SHORT';
+    else raise; end if;
+  end;
+
+  -- 45b: exact 3 nopți => OK
+  v_b := public.create_booking('300000bb-0000-0000-0000-000000000001'::uuid,
+    '2031-05-01','2031-05-04','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+  if v_b is not null then raise notice 'TEST 45b PASS: 3 nopți = min_stay => OK';
+  else raise exception 'TEST 45b FAIL: rezervarea nu s-a creat'; end if;
+end $$;
+reset role;
+
+-- 45c: min stay aplicat și pe fluxul public
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+begin
+  begin
+    perform public_create_booking('hotel-test','300000bb-0000-0000-0000-000000000001',
+      '2031-05-20','2031-05-22','Short Stay','short@test.ro','0700000001', 2, 0, null);
+    raise exception 'TEST 45c FAIL: public a acceptat 2 nopți sub min_stay';
+  exception when others then
+    if sqlerrm like '%STAY_TOO_SHORT%' then raise notice 'TEST 45c PASS: public STAY_TOO_SHORT';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 46: max stay global ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+begin
+  -- 6 nopți peste max_stay 5 => STAY_TOO_LONG
+  begin
+    perform public.create_booking('300000bb-0000-0000-0000-000000000001'::uuid,
+      '2031-06-01','2031-06-07','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+    raise exception 'TEST 46 FAIL: 6 nopți peste max_stay acceptat';
+  exception when others then
+    if sqlerrm like '%STAY_TOO_LONG%' then raise notice 'TEST 46 PASS: 6 nopți > max 5 => STAY_TOO_LONG';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 47: stay_rules pe perioadă (cheiat pe data de check-in) ----------
+do $$
+begin
+  -- regulă: min_stay 5 pe martie 2031 (suprascrie globalul min 3)
+  insert into stay_rules (org_id, property_id, unit_type_id, name, start_date, end_date, min_stay)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000bb-0000-0000-0000-000000000001','Min 5 martie','2031-03-01','2031-03-31', 5);
+end $$;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_b uuid;
+begin
+  -- 47a: check-in în interval, 4 nopți < 5 (regula) => STAY_TOO_SHORT
+  begin
+    perform public.create_booking('300000bb-0000-0000-0000-000000000001'::uuid,
+      '2031-03-10','2031-03-14','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+    raise exception 'TEST 47a FAIL: 4 nopți sub regula de perioadă acceptat';
+  exception when others then
+    if sqlerrm like '%STAY_TOO_SHORT%' then raise notice 'TEST 47a PASS: regula de perioadă (min 5) aplicată pe check-in';
+    else raise; end if;
+  end;
+
+  -- 47b: check-in în afara intervalului, 4 nopți => revine la globalul tipului (min 3) => OK
+  v_b := public.create_booking('300000bb-0000-0000-0000-000000000001'::uuid,
+    '2031-04-10','2031-04-14','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+  if v_b is not null then raise notice 'TEST 47b PASS: în afara regulii, revine la min global (3) => OK';
+  else raise exception 'TEST 47b FAIL: rezervarea nu s-a creat'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 48: get_stay_constraints (global vs regulă; cross-org; anon) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v jsonb;
+begin
+  -- 48a: în afara regulii => global 3/5
+  v := public.get_stay_constraints('300000bb-0000-0000-0000-000000000001', '2031-04-10');
+  if (v->>'min_stay')::int = 3 and (v->>'max_stay')::int = 5 then
+    raise notice 'TEST 48a PASS: constrângeri globale 3/5';
+  else raise exception 'TEST 48a FAIL: %', v; end if;
+
+  -- 48b: în interval (regula min 5) => 5/5
+  v := public.get_stay_constraints('300000bb-0000-0000-0000-000000000001', '2031-03-10');
+  if (v->>'min_stay')::int = 5 and (v->>'max_stay')::int = 5 then
+    raise notice 'TEST 48b PASS: regula de perioadă rezolvată (5/5)';
+  else raise exception 'TEST 48b FAIL: %', v; end if;
+end $$;
+-- 48c: cross-org => FORBIDDEN
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v jsonb;
+begin
+  begin
+    v := public.get_stay_constraints('300000bb-0000-0000-0000-000000000001', '2031-04-10');
+    raise exception 'TEST 48c FAIL: get_stay_constraints cross-org permis';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 48c PASS: get_stay_constraints cross-org => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+-- 48d: anon fără execute
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+declare v jsonb;
+begin
+  begin
+    v := public.get_stay_constraints('300000bb-0000-0000-0000-000000000001', '2031-04-10');
+    raise exception 'TEST 48d FAIL: anon a executat get_stay_constraints';
+  exception when insufficient_privilege then
+    raise notice 'TEST 48d PASS: anon fără execute pe get_stay_constraints';
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 49: closures property-scope (stop-sell pe toată proprietatea) ----------
+do $$
+begin
+  insert into closures (org_id, property_id, unit_type_id, start_date, end_date, reason)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          null, '2031-07-01','2031-07-31', 'seasonal');
+end $$;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+begin
+  -- 49a: rezervare în interval (orice tip) => DATES_CLOSED
+  begin
+    perform public.create_booking('300000bb-0000-0000-0000-000000000001'::uuid,
+      '2031-07-10','2031-07-13','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+    raise exception 'TEST 49a FAIL: rezervare în interval închis acceptată';
+  exception when others then
+    if sqlerrm like '%DATES_CLOSED%' then raise notice 'TEST 49a PASS: property-scope closure => DATES_CLOSED';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+-- 49b: public_get_availability => 0 rezultate în interval; rezultate în afară
+do $$
+declare v_in int; v_out int;
+begin
+  select count(*) into v_in from public.public_get_availability(
+    'hotel-test','2031-07-10','2031-07-13', 1, 0);
+  select count(*) into v_out from public.public_get_availability(
+    'hotel-test','2031-08-10','2031-08-13', 1, 0);
+  if v_in = 0 and v_out > 0 then
+    raise notice 'TEST 49b PASS: availability 0 în interval închis, > 0 în afară';
+  else raise exception 'TEST 49b FAIL: in=% out=%', v_in, v_out; end if;
+end $$;
+-- curățăm închiderea property-scope ca să nu afecteze testul de type-scope
+do $$ begin
+  delete from closures where property_id = '20000000-0000-0000-0000-000000000001'
+    and unit_type_id is null and start_date = '2031-07-01';
+end $$;
+
+-- ---------- TEST 50: closures type-scope (doar un tip închis) ----------
+do $$
+begin
+  insert into closures (org_id, property_id, unit_type_id, start_date, end_date, reason)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000bb-0000-0000-0000-000000000001', '2031-09-01','2031-09-30', 'event');
+end $$;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_b uuid;
+begin
+  -- 50a: tipul închis => DATES_CLOSED
+  begin
+    perform public.create_booking('300000bb-0000-0000-0000-000000000001'::uuid,
+      '2031-09-10','2031-09-13','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+    raise exception 'TEST 50a FAIL: tip închis acceptat';
+  exception when others then
+    if sqlerrm like '%DATES_CLOSED%' then raise notice 'TEST 50a PASS: type-scope closure => DATES_CLOSED';
+    else raise; end if;
+  end;
+
+  -- 50b: alt tip (Pricing) în același interval => OK (nu e închis)
+  v_b := public.create_booking('300000aa-0000-0000-0000-000000000001'::uuid,
+    '2031-09-10','2031-09-12','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+  if v_b is not null then raise notice 'TEST 50b PASS: alt tip rămâne deschis în același interval';
+  else raise exception 'TEST 50b FAIL: alt tip respins'; end if;
+end $$;
+reset role;
+do $$ begin
+  delete from closures where unit_type_id = '300000bb-0000-0000-0000-000000000001';
+end $$;
+
+-- ---------- TEST 51: RLS pe stay_rules + closures ----------
+-- 51a: anon fără select pe stay_rules / closures
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+declare v int;
+begin
+  begin
+    select count(*) into v from stay_rules;
+    raise exception 'TEST 51a FAIL: anon a citit stay_rules!';
+  exception when insufficient_privilege then
+    begin
+      select count(*) into v from closures;
+      raise exception 'TEST 51a FAIL: anon a citit closures!';
+    exception when insufficient_privilege then
+      raise notice 'TEST 51a PASS: anon fără select pe stay_rules + closures';
+    end;
+  end;
+end $$;
+reset role;
+-- 51b: userul org B nu vede / nu scrie regulile org A
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v_s int; v_c int;
+begin
+  select count(*) into v_s from stay_rules;
+  select count(*) into v_c from closures;
+  if v_s <> 0 or v_c <> 0 then
+    raise exception 'TEST 51b FAIL: org B vede stay_rules=% closures=% org A', v_s, v_c;
+  end if;
+  raise notice 'TEST 51b PASS: org B vede 0 stay_rules + 0 closures';
+  begin
+    insert into stay_rules (org_id, property_id, unit_type_id, name, start_date, end_date, min_stay)
+    values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+            '300000bb-0000-0000-0000-000000000001','Intrus','2031-12-01','2031-12-10', 2);
+    raise exception 'TEST 51c FAIL: org B a inserat un stay_rule în org A!';
+  exception when insufficient_privilege then
+    raise notice 'TEST 51c PASS: insert stay_rules cross-org respins (RLS)';
+  when others then
+    if sqlstate = '42501' then raise notice 'TEST 51c PASS: insert stay_rules cross-org respins (RLS)';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 52: regresie occupancy (neschimbată de noile reguli) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+begin
+  -- 5 adulți peste max 4 pe tipul StayRules => OCCUPANCY_EXCEEDED (chiar cu durată validă)
+  begin
+    perform public.create_booking('300000bb-0000-0000-0000-000000000001'::uuid,
+      '2031-10-01','2031-10-04','50000000-0000-0000-0000-000000000001'::uuid, null, 5, 0);
+    raise exception 'TEST 52 FAIL: 5 adulți peste max 4 acceptat';
+  exception when others then
+    if sqlerrm like '%OCCUPANCY_EXCEEDED%' then raise notice 'TEST 52 PASS: occupancy neschimbat (OCCUPANCY_EXCEEDED)';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 53: stay_rules — recență la suprapunere (cea mai recentă câștigă) ----------
+do $$
+declare v_stay record; v_old uuid;
+begin
+  -- tip izolat pentru recență (global min 1 / max 30)
+  insert into unit_types (id, org_id, property_id, name, max_adults, max_children, base_price)
+  values ('300000cc-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',
+          '20000000-0000-0000-0000-000000000001','StayRecency', 2, 0, 100);
+
+  -- două reguli care se suprapun pe 2032-01-15
+  insert into stay_rules (org_id, property_id, unit_type_id, name, start_date, end_date, min_stay)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000cc-0000-0000-0000-000000000001','Veche','2032-01-01','2032-01-31', 2)
+  returning id into v_old;
+  insert into stay_rules (org_id, property_id, unit_type_id, name, start_date, end_date, min_stay)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000cc-0000-0000-0000-000000000001','Noua','2032-01-10','2032-01-20', 7);
+
+  -- 53a: cea mai recent inserată (min 7) câștigă
+  select * into v_stay from app.resolve_stay('300000cc-0000-0000-0000-000000000001', '2032-01-15');
+  if v_stay.min_stay = 7 then raise notice 'TEST 53a PASS: cea mai recentă regulă (min 7) câștigă';
+  else raise exception 'TEST 53a FAIL: min_stay=%', v_stay.min_stay; end if;
+
+  -- 53b: modific regula veche => devine cea mai recentă => câștigă acum (min 2)
+  update stay_rules set min_stay = 2 where id = v_old;
+  select * into v_stay from app.resolve_stay('300000cc-0000-0000-0000-000000000001', '2032-01-15');
+  if v_stay.min_stay = 2 then raise notice 'TEST 53b PASS: după re-modificare, regula veche (min 2) devine cea aplicată';
+  else raise exception 'TEST 53b FAIL: min_stay=%', v_stay.min_stay; end if;
+end $$;
+
+-- ---------- TEST 54: audit unit_types — durată sejur + config weekend ----------
+do $$
+declare v_type uuid; v_ev record;
+begin
+  insert into unit_types (org_id, property_id, name, max_adults, max_children, base_price, min_stay, max_stay)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          'Audit 4.6', 2, 0, 100, 2, 10)
+  returning id into v_type;
+
+  -- 54a: created include min/max stay + config weekend
+  if not exists (select 1 from unit_type_events
+                 where unit_type_id = v_type and event_type = 'created'
+                   and (new_data->>'min_stay')::int = 2 and (new_data->>'max_stay')::int = 10
+                   and new_data ? 'weekend_adjustment_type' and new_data ? 'weekend_days') then
+    raise exception 'TEST 54a FAIL: created fără min/max stay sau config weekend';
+  end if;
+  raise notice 'TEST 54a PASS: created include durată sejur + weekend';
+
+  -- 54b: schimbare min_stay => updated cu diff pe min_stay
+  update unit_types set min_stay = 3 where id = v_type;
+  select * into v_ev from unit_type_events
+   where unit_type_id = v_type and event_type = 'updated' order by created_at desc limit 1;
+  if (v_ev.old_data->>'min_stay')::int = 2 and (v_ev.new_data->>'min_stay')::int = 3 then
+    raise notice 'TEST 54b PASS: updated cu diff pe min_stay (2 → 3)';
+  else raise exception 'TEST 54b FAIL: old=% new=%', v_ev.old_data, v_ev.new_data; end if;
+
+  -- 54c: schimbare config weekend => updated cu diff pe weekend (înainte: nu se auditau)
+  -- (cele două update-uri din acest bloc împart created_at = now(); verificăm prin EXISTS,
+  --  nu „ultimul eveniment", ca să nu depindem de o ordonare ambiguă)
+  update unit_types set weekend_adjustment_type = 'percent', weekend_adjustment_value = 15,
+                        weekend_days = '{6,0}' where id = v_type;
+  if exists (select 1 from unit_type_events
+             where unit_type_id = v_type and event_type = 'updated'
+               and new_data ? 'weekend_adjustment_type'
+               and (new_data->>'weekend_adjustment_value')::numeric = 15
+               and new_data ? 'weekend_days') then
+    raise notice 'TEST 54c PASS: config weekend auditat (type/value/days)';
+  else raise exception 'TEST 54c FAIL: lipsește evenimentul cu config weekend'; end if;
+end $$;
+
 rollback;

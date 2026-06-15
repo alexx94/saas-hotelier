@@ -5,6 +5,42 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 4.6 — Reservation Rules Engine (14 iun 2026)
+
+> **Rafinări UX** (după feedback): închiderile (stop-sell) se văd acum în **calendar** ca bare hașurate roșiatice cu „Închis" (click → fereastră cu scope/motiv/note + eliminare; legendă actualizată) și în **formularul de rezervare** ca avertisment + buton dezactivat înainte de salvare (nu doar eroare la submit); pe **public** nota „min. N nopți" apare și la selectarea camerei. Câmpurile min/max stay în formularul de tip sunt **steppere +/-**. Lista de închideri are notele sub **acordeon** subtil (chevron, doar dacă există notă) și e paginată „Afișează mai mult" (offset, ca restul listelor). Hint-ul „Sejur minim" e evidențiat colorat. Steppele +/- și în dialogul de reguli de durată (cu stare „Moștenit" = null). **Audit tip cameră completat** (migrația `20260614130000`): durata sejurului (min/max stay) și **config-ul de weekend** (type/value/days) intră acum în istoricul tipului, pentru consistență cu `base_price` — `weekend_days` se randează ca listă de zile (Lu, Ma…). Teste DB până la **TEST 54** (122 PASS), inclusiv recența `stay_rules` și auditul weekend/durată. În istoric, config-ul weekend e afișat sugestiv (etichete dedicate: „Ajustare preț weekend" → Fără/Procent/Sumă fixă, „Valoare ajustare weekend", „Zile de weekend" randate ca Vi, Sâ…). Pagina proprietății: iconițele de capacitate (adult/copil) aliniate la aceeași linie de bază (ca în calendar) și **header mobile-responsive** (titlu/badge sus, acțiunile — pagină publică / stop-sell / publicare — se stivuiesc și fac wrap pe ecrane mici, nu mai forțează un singur rând). Auditul pentru `closures`/`stay_rules`/`rate_rules` rămâne neimplementat intenționat — notat ca **TODO** în `docs/backend/rpc/reservation-rules.md` și `pricing.md`.
+
+### Obiectiv
+
+Strat **modular de restricții de rezervare**, separat de preț și de blocajele fizice: durata sejurului (min/max stay, global + pe perioade), occupancy (deja existent) și oprirea vânzărilor (stop-sell / closed dates). Aplicat consecvent în motorul de creare (sursa de adevăr), în formularul admin și pe pagina publică.
+
+### Decizii
+
+- **`closures` ≠ `room_blocks`**: blocajul scoate o cameră fizică din uz; **stop-sell** oprește vânzarea unui produs (un tip sau toată proprietatea) pe o perioadă, fără a atinge camerele. Un singur tabel `closures` cu **scope** (`unit_type_id` NULL = toată proprietatea) acoperă atât „closed dates" per tip cât și „stop sell" global — exact cum fac PMS-urile mari. Fără EXCLUDE (suprapunerea închiderilor e benignă).
+- **min/max stay**: globale pe `unit_types` (1..30, `CHECK max_stay >= min_stay` — durată fixă permisă, ex. min=max=3) + tabel dedicat `stay_rules` pentru suprascrieri pe perioade. Durata e cheiată pe **data de check-in** (standard hotelier), nu per noapte — deci tabel separat de `rate_rules` (care rezolvă per noapte). Recență la suprapunere (`updated_at` clock_timestamp), ca `rate_rules`.
+- **Occupancy** (`max_adults`/`max_children`) era deja implementat (`OCCUPANCY_EXCEEDED`) — neschimbat.
+
+### Soluția (migrația `20260614120000_reservation_rules.sql`)
+
+- `unit_types.min_stay`/`max_stay` (grant SELECT anon) + auditate în `app.audit_unit_type`.
+- Tabele `stay_rules` (per tip, min/max nullable = moștenește global) și `closures` (scope + `period` daterange), ambele cu RLS (select `can_access_property`, CUD owner/manager, **fără anon**).
+- Funcții de rezolvare DEFINER: `app.resolve_stay(type, check_in)` (regula pe perioadă peste global) și `app.is_closed(property, type, in, out)`.
+- **Enforcement în `app.create_booking_internal`** (deci admin + public): `DATES_CLOSED`, `STAY_TOO_SHORT`, `STAY_TOO_LONG`. Semnătura RPC neschimbată.
+- RPC nou `get_stay_constraints` (UI: limitează check-out-ul). `public_get_availability` rescris: `+ min_stay/max_stay` în rezultat, **filtrează** tipurile închise și pe cele ce nu satisfac durata.
+
+### Frontend
+
+- Feature nou `features/reservation-rules/`: `api.ts`/`hooks.ts`, `stay-rules-dialog.tsx` (reguli durată per tip), `closures-dialog.tsx` (stop-sell la nivel de proprietate, selector scope proprietate/tip).
+- `properties/$propertyId.tsx`: câmpuri min/max stay în formularul tip (`UnitTypeFields` + refine max≥min), buton „Reguli durată" pe rândul tipului, buton „Stop sell / Închideri" în header.
+- `booking-form-dialog.tsx`: `useStayConstraints` → limitează check-out-ul (min/max) + filtrează shortcut-urile de nopți + hint „Sejur minim: N nopți"; mapare erori `STAY_TOO_SHORT/LONG`, `DATES_CLOSED`.
+- `p.$slug.tsx` + `public-booking/api.ts`: `min_stay`/`max_stay` în availability + badge „min. N nopți"; mapare erori noi. Audit registry tipuri extins cu min/max stay.
+- i18n: chei `stay_rules.*`, `closures.*`, `unit_types.min_stay/max_stay/stay_limits/stay_order`, `bookings.min_stay_hint/stay_too_*/dates_closed`, `public.min_nights`.
+
+### Verificare
+
+Teste DB **TEST 45–52** (toate PASS, suită completă 117 PASS): min/max stay global (admin + public), `stay_rules` pe perioadă (rezolvare pe check-in + fallback global), `get_stay_constraints` (global vs regulă, cross-org `FORBIDDEN`, anon fără execute), closures property-scope (`DATES_CLOSED` + 0 în availability) și type-scope (doar un tip închis), RLS pe `stay_rules`/`closures`, regresie occupancy. `tsc --noEmit` curat.
+
+---
+
 ## Sprint 4.5 — Pricing Engine & Occupancy Model (13 iun 2026)
 
 > **Rafinări ulterioare** (migrațiile `…150000`, `…160000`, `…170000`): **weekend = prioritate minimă** — suprataxa se aplică doar pe prețul de bază, nu peste sezon/override (standard industrie: un tarif explicit e prețul dorit ca atare); iconițe adult/copil (aceeași iconiță, adult mai mare); zilele lunii din calendar afișează și ziua săptămânii (Lu/Ma/…), weekendul subliniat; scos prioritatea numerică (recență, vezi mai jos); **eliminat `base_capacity`** (ocuparea = doar adulți/copii — mai simplu, fără rol funcțional); ocuparea în formulare = steppere +/- (plafon 25, inclusiv în dialogurile de rezervare); dialog prețuri per tip = **doar sezoane** („Adaugă tarif sezon"), override-urile se adaugă din **calendar** și apar ca tarif pictat pe celulele goale (sezon albastru / preferențial chihlimbar), iconițe adult/copil (`User`/`Baby`) în calendar + lista de tipuri; liste de tarife paginate „Afișează mai mult" (15/pagină); validare „fără date trecute" la tarife/override (doar UI: `min=azi` + guard `end ≥ azi`, fără trigger/constraint — eficient și inofensiv server-side). Teste DB până la TEST 44, toate PASS.

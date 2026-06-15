@@ -101,6 +101,12 @@ vin din `compute_price` (avg_nightly / total). Returnează `max_adults, max_chil
 
 ---
 
+**TODO — istoric reguli de preț**: `rate_rules` (sezoane + override-uri) **nu au audit/istoric**
+momentan. Config-ul de weekend și `base_price` de pe `unit_types` *sunt* auditate (în istoricul tipului),
+dar modificările pe `rate_rules` (sezoane/override) nu. PMS-urile mari includ de regulă un log al
+modificărilor de tarife. **TODO** (prioritate mică): audit pe `rate_rules` cu același tipar `*_events`,
+dacă se dorește accountability „cine/când a schimbat un tarif".
+
 **Imuabilitate**: după creare, modificarea `base_price`/regulilor NU schimbă rezervarea
 (test TEST 39 în `db_tests.sql`). Testele 33–44 acoperă occupancy, fallback base, seasonal,
 override > season, recență (cea mai recentă modificare câștigă), weekend (percent/amount, doar pe base — nu peste sezon),

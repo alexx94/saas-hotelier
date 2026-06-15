@@ -205,6 +205,73 @@ export type Database = {
           },
         ]
       }
+      closures: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          end_date: string
+          id: string
+          notes: string | null
+          org_id: string
+          period: unknown
+          property_id: string
+          reason: string
+          start_date: string
+          unit_type_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          end_date: string
+          id?: string
+          notes?: string | null
+          org_id: string
+          period?: unknown
+          property_id: string
+          reason?: string
+          start_date: string
+          unit_type_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          end_date?: string
+          id?: string
+          notes?: string | null
+          org_id?: string
+          period?: unknown
+          property_id?: string
+          reason?: string
+          start_date?: string
+          unit_type_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "closures_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closures_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closures_unit_type_id_fkey"
+            columns: ["unit_type_id"]
+            isOneToOne: false
+            referencedRelation: "unit_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       guests: {
         Row: {
           created_at: string
@@ -601,6 +668,70 @@ export type Database = {
           },
         ]
       }
+      stay_rules: {
+        Row: {
+          created_at: string
+          end_date: string
+          id: string
+          max_stay: number | null
+          min_stay: number | null
+          name: string
+          org_id: string
+          property_id: string
+          start_date: string
+          unit_type_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          end_date: string
+          id?: string
+          max_stay?: number | null
+          min_stay?: number | null
+          name: string
+          org_id: string
+          property_id: string
+          start_date: string
+          unit_type_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          end_date?: string
+          id?: string
+          max_stay?: number | null
+          min_stay?: number | null
+          name?: string
+          org_id?: string
+          property_id?: string
+          start_date?: string
+          unit_type_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stay_rules_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stay_rules_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stay_rules_unit_type_id_fkey"
+            columns: ["unit_type_id"]
+            isOneToOne: false
+            referencedRelation: "unit_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       unit_events: {
         Row: {
           actor_email: string | null
@@ -712,6 +843,8 @@ export type Database = {
           is_active: boolean
           max_adults: number
           max_children: number
+          max_stay: number
+          min_stay: number
           name: string
           org_id: string
           property_id: string
@@ -728,6 +861,8 @@ export type Database = {
           is_active?: boolean
           max_adults?: number
           max_children?: number
+          max_stay?: number
+          min_stay?: number
           name: string
           org_id: string
           property_id: string
@@ -744,6 +879,8 @@ export type Database = {
           is_active?: boolean
           max_adults?: number
           max_children?: number
+          max_stay?: number
+          min_stay?: number
           name?: string
           org_id?: string
           property_id?: string
@@ -931,6 +1068,10 @@ export type Database = {
           revenue_year: number
         }[]
       }
+      get_stay_constraints: {
+        Args: { p_check_in: string; p_unit_type_id: string }
+        Returns: Json
+      }
       link_booking_guest: {
         Args: { p_booking_id: string; p_guest_id: string }
         Returns: undefined
@@ -964,6 +1105,8 @@ export type Database = {
           description: Json
           max_adults: number
           max_children: number
+          max_stay: number
+          min_stay: number
           name: string
           price_per_night: number
           total_price: number

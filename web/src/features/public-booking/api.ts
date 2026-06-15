@@ -19,6 +19,8 @@ export type AvailabilityItem = {
   description: Record<string, string> | null
   max_adults: number
   max_children: number
+  min_stay: number
+  max_stay: number
   price_per_night: number
   total_price: number
   currency: string

@@ -3,13 +3,14 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
-import { Bot, User } from "lucide-react"
+import { Ban, Bot, User } from "lucide-react"
 import { useCurrentOrg } from "@/features/organizations/context"
 import { GuestCombobox } from "@/features/guests/guest-combobox"
 import { useUnitTypes } from "@/features/unit-types/hooks"
 import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
 import { PriceBreakdown } from "@/features/pricing/price-breakdown"
 import { useQuotePrice } from "@/features/pricing/hooks"
+import { useStayConstraints, useClosuresInRange } from "@/features/reservation-rules/hooks"
 import { useAvailableUnits, useCreateBooking } from "./hooks"
 import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -104,6 +105,21 @@ export function BookingFormDialog({
     datesValid ? unitTypeId : undefined, checkIn ?? "", checkOut ?? ""
   )
 
+  // constrângeri de durată (min/max stay) rezolvate pe data de check-in
+  const { data: stay } = useStayConstraints(unitTypeId || undefined, checkIn ?? "")
+  const minStay = stay?.min_stay ?? 1
+  const maxStay = stay?.max_stay ?? 30
+  // shortcut-uri de nopți limitate la intervalul permis
+  const nightShortcuts = NIGHT_SHORTCUTS.filter((n) => n >= minStay && n <= maxStay)
+
+  // stop-sell: tipul ales e închis pe interval? (property-scope sau type-scope)
+  const { data: closures } = useClosuresInRange(
+    datesValid ? propertyId : undefined, checkIn ?? "", checkOut ?? ""
+  )
+  const isClosed =
+    !!unitTypeId &&
+    (closures ?? []).some((c) => c.unit_type_id === null || c.unit_type_id === unitTypeId)
+
   // alocare manuală fără nicio cameră liberă pe interval → nu are sens submit-ul
   const noFreeUnits =
     roomMode === "manual" && !!datesValid && !loadingUnits &&
@@ -160,7 +176,10 @@ export function BookingFormDialog({
       resetForm()
     } catch (e) {
       const message = errorMessage(e)
-      if (message.includes("UNIT_NOT_AVAILABLE")) toast.error(t("bookings.not_available"))
+      if (message.includes("STAY_TOO_SHORT")) toast.error(t("bookings.stay_too_short"))
+      else if (message.includes("STAY_TOO_LONG")) toast.error(t("bookings.stay_too_long"))
+      else if (message.includes("DATES_CLOSED")) toast.error(t("bookings.dates_closed"))
+      else if (message.includes("UNIT_NOT_AVAILABLE")) toast.error(t("bookings.not_available"))
       else if (message.includes("UNIT_BLOCKED")) toast.error(t("bookings.unit_blocked"))
       else toast.error(t("common.error"))
     }
@@ -190,6 +209,12 @@ export function BookingFormDialog({
                 ))}
               </SelectContent>
             </Select>
+            {unitTypeId && minStay > 1 && (
+              <p className="text-xs text-muted-foreground">
+                {t("bookings.min_stay_hint")}{" "}
+                <span className="font-semibold text-primary">{minStay} {t("bookings.nights")}</span>
+              </p>
+            )}
           </div>
 
           {/* Date */}
@@ -208,7 +233,8 @@ export function BookingFormDialog({
                 type="date"
                 {...form.register("check_out")}
                 disabled={!checkIn}
-                min={checkIn ? addDays(checkIn, 1) : undefined}
+                min={checkIn ? addDays(checkIn, minStay) : undefined}
+                max={checkIn ? addDays(checkIn, maxStay) : undefined}
                 onChange={(e) => { form.setValue("check_out", e.target.value, { shouldValidate: true }); setSelectedUnitId(null) }}
               />
               {checkIn && (
@@ -216,7 +242,7 @@ export function BookingFormDialog({
                   <span className="text-xs text-muted-foreground mr-1">
                     {t("bookings.checkout_from")} {formatDateShort(checkIn)}:
                   </span>
-                  {NIGHT_SHORTCUTS.map((n) => (
+                  {nightShortcuts.map((n) => (
                     <button
                       key={n}
                       type="button"
@@ -348,12 +374,18 @@ export function BookingFormDialog({
             </div>
           )}
 
+          {isClosed && datesValid && (
+            <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <Ban className="h-4 w-4 shrink-0" />
+              {t("bookings.dates_closed")}
+            </div>
+          )}
           {noFreeUnits && (
             <p className="text-sm text-destructive">{t("bookings.not_available")}</p>
           )}
           <Button
             type="submit" className="w-full"
-            disabled={form.formState.isSubmitting || noFreeUnits}
+            disabled={form.formState.isSubmitting || noFreeUnits || isClosed}
           >
             {t("common.save")}
           </Button>

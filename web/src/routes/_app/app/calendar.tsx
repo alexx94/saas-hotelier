@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { CalendarClock, ChevronLeft, ChevronRight, Plus, User, X } from "lucide-react"
+import { Ban, CalendarClock, ChevronLeft, ChevronRight, Plus, User, X } from "lucide-react"
 import {
   PropertySelect, usePropertySelection,
 } from "@/features/properties/property-select"
@@ -24,6 +24,8 @@ import { OverrideDialog } from "@/features/pricing/override-dialog"
 import { dayLabel } from "@/features/pricing/weekend-pricing"
 import { useRateCalendar } from "@/features/pricing/hooks"
 import type { RateCalendarEntry } from "@/features/pricing/api"
+import { useClosuresInRange, useDeleteClosure } from "@/features/reservation-rules/hooks"
+import type { Closure } from "@/features/reservation-rules/api"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { toast } from "sonner"
 import { t } from "@/lib/i18n"
@@ -52,6 +54,13 @@ const RATE_KIND_CLASS: Record<string, string> = {
 type TooltipState =
   | { kind: "booking"; booking: Booking; x: number; y: number }
   | { kind: "block"; block: RoomBlock; x: number; y: number }
+  | { kind: "closure"; closure: Closure; x: number; y: number }
+
+// stop-sell pe celule: hașură roșiatică (distinctă de blocaje), text „Închis"
+const CLOSURE_CLASS = "border-destructive/50 bg-destructive/10 text-destructive"
+function closureReasonLabel(reason: string) {
+  return t(`closures.reason.${reason}` as Parameters<typeof t>[0])
+}
 
 // poziționare comună: lângă click, fără să iasă din viewport
 function tooltipPos(x: number, y: number, width: number, estimatedH: number) {
@@ -249,6 +258,95 @@ function BlockTooltip({
   )
 }
 
+// fereastră la click pe o închidere (stop-sell): scope, interval, motiv, note + eliminare
+function ClosureTooltip({
+  tooltip,
+  scopeLabel,
+  onClose,
+}: {
+  tooltip: Extract<TooltipState, { kind: "closure" }>
+  scopeLabel: string
+  onClose: () => void
+}) {
+  const { closure: c } = tooltip
+  const deleteClosure = useDeleteClosure()
+  const [confirmRemove, setConfirmRemove] = useState(false)
+
+  const TOOLTIP_W = 272
+  const { left, top } = tooltipPos(tooltip.x, tooltip.y, TOOLTIP_W, 200)
+
+  async function onRemove() {
+    try {
+      await deleteClosure.mutateAsync(c.id)
+      toast.success(t("closures.deleted"))
+      onClose()
+    } catch {
+      toast.error(t("common.error"))
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        style={{ position: "fixed", top, left, width: TOOLTIP_W, zIndex: 41 }}
+        className="rounded-lg border bg-popover shadow-xl text-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 border-b p-3 pb-2">
+          <p className="flex items-center gap-1.5 font-semibold">
+            <Ban className="h-3.5 w-3.5 text-destructive" />
+            {t("closures.title")}
+          </p>
+          <button onClick={onClose} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="space-y-1.5 p-3 text-xs">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("closures.scope")}</span>
+            <span className="font-medium">{scopeLabel}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("closures.reason")}</span>
+            <span className="font-medium">{closureReasonLabel(c.reason)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("blocks.start")}</span>
+            <span className="font-medium">{c.start_date}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("blocks.end")}</span>
+            <span className="font-medium">{c.end_date}</span>
+          </div>
+          {c.notes && (
+            <p className="border-t pt-1.5 mt-1 text-muted-foreground italic leading-snug">
+              {c.notes}
+            </p>
+          )}
+          <Button
+            variant="outline" size="sm"
+            className="mt-1.5 w-full text-destructive"
+            disabled={deleteClosure.isPending}
+            onClick={() => setConfirmRemove(true)}
+          >
+            {t("closures.remove")}
+          </Button>
+        </div>
+      </div>
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title={t("common.confirm_action")}
+        description={t("closures.delete_confirm")}
+        confirmLabel={t("common.delete")}
+        destructive
+        onConfirm={onRemove}
+      />
+    </>
+  )
+}
+
 // ─── legendă culori (minimalistă) ─────────────────────────────────────────────
 
 const LEGEND_BOOKING_STATUSES: BookingStatus[] = [
@@ -279,6 +377,13 @@ function CalendarLegend() {
           style={{ backgroundImage: UNAVAILABLE_STRIPES }}
         />
         {t("calendar.legend.unavailable")}
+      </span>
+      <span className="flex items-center gap-1">
+        <span
+          className={cn("h-2.5 w-2.5 rounded-sm border", CLOSURE_CLASS)}
+          style={{ backgroundImage: UNAVAILABLE_STRIPES }}
+        />
+        {t("closures.closed_label")}
       </span>
       {/* tarife pe celule: sezon (albastru) · preferențial/override (chihlimbar) */}
       <span className="flex items-center gap-1.5">
@@ -323,7 +428,25 @@ function CalendarPage() {
   const { data: units, isLoading: loadingUnits } = useUnits(property?.id)
   const { data: bookings } = useBookingsInRange(property?.id, monthStart, monthEnd)
   const { data: blocks } = useBlocksInRange(property?.id, monthStart, monthEnd)
+  const { data: closures } = useClosuresInRange(property?.id, monthStart, monthEnd)
   const { data: rates } = useRateCalendar(property?.id, monthStart, monthEnd)
+
+  // închiderile property-scope (unit_type_id null) se aplică tuturor camerelor;
+  // cele type-scope doar camerelor tipului respectiv.
+  const propertyClosures = useMemo(
+    () => (closures ?? []).filter((c) => c.unit_type_id === null),
+    [closures]
+  )
+  const closuresByType = useMemo(() => {
+    const map = new Map<string, Closure[]>()
+    for (const c of closures ?? []) {
+      if (!c.unit_type_id) continue
+      const list = map.get(c.unit_type_id)
+      if (list) list.push(c)
+      else map.set(c.unit_type_id, [c])
+    }
+    return map
+  }, [closures])
 
   // tarif rezolvat per (tip, zi) → pictat în celulele goale. Cheie: `tip|YYYY-MM-DD`.
   const rateByTypeDay = useMemo(() => {
@@ -476,6 +599,11 @@ function CalendarPage() {
             {units.map((unit) => {
               const unitBookings = bookingsByUnit.get(unit.id) ?? []
               const unitBlocks = blocksByUnit.get(unit.id) ?? []
+              // închideri aplicabile camerei = property-scope + cele ale tipului ei
+              const unitClosures = [
+                ...propertyClosures,
+                ...(unit.unit_type_id ? closuresByType.get(unit.unit_type_id) ?? [] : []),
+              ]
               const unitStatus = (unit.status ?? "active") as UnitStatus
               const isOperational = unitStatus === "active"
 
@@ -489,6 +617,7 @@ function CalendarPage() {
               }
               for (const b of unitBookings) markRange(b.check_in, b.check_out)
               for (const rb of unitBlocks) markRange(rb.start_date, rb.end_date)
+              for (const c of unitClosures) markRange(c.start_date, c.end_date)
               return (
                 <div key={unit.id} className="group col-span-full grid grid-cols-subgrid border-b last:border-b-0">
                   {/* click pe cameră = meniu de gestionare (status + blocaje) */}
@@ -573,6 +702,35 @@ function CalendarPage() {
                       aria-hidden
                       className="pointer-events-none absolute inset-0 z-[3] bg-foreground/5 opacity-0 transition-opacity group-hover:opacity-100"
                     />
+                    {/* închideri (stop-sell) — hașură roșiatică cu „Închis", sub blocaje/rezervări */}
+                    {unitClosures.map((c) => {
+                      const startDay =
+                        c.start_date < monthStart ? 1 : Number(c.start_date.slice(8, 10))
+                      const endDay =
+                        c.end_date >= monthEnd ? daysInMonth + 1 : Number(c.end_date.slice(8, 10))
+                      return (
+                        <div
+                          key={c.id}
+                          title={t("closures.closed_label")}
+                          className={cn(
+                            "absolute inset-y-1.5 z-[2] flex cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed px-2 text-[10px] font-semibold uppercase tracking-wide transition-opacity hover:opacity-80",
+                            CLOSURE_CLASS
+                          )}
+                          style={{
+                            left: `calc(${((startDay - 1) / daysInMonth) * 100}% + 2px)`,
+                            width: `calc(${((endDay - startDay) / daysInMonth) * 100}% - 4px)`,
+                            backgroundImage: UNAVAILABLE_STRIPES,
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                            setTooltip({ kind: "closure", closure: c, x: rect.left, y: rect.bottom })
+                          }}
+                        >
+                          <span className="truncate">{t("closures.closed_label")}</span>
+                        </div>
+                      )
+                    })}
                     {/* blocaje de disponibilitate — evenimente cu interval, desenate efectiv */}
                     {unitBlocks.map((rb) => {
                       const startDay =
@@ -654,6 +812,18 @@ function CalendarPage() {
         <BlockTooltip
           tooltip={tooltip}
           unitName={units?.find((u) => u.id === tooltip.block.unit_id)?.name}
+          onClose={() => setTooltip(null)}
+        />
+      )}
+      {tooltip?.kind === "closure" && (
+        <ClosureTooltip
+          tooltip={tooltip}
+          scopeLabel={
+            tooltip.closure.unit_type_id
+              ? units?.find((u) => u.unit_type_id === tooltip.closure.unit_type_id)?.unit_types?.name
+                ?? t("closures.scope_type")
+              : t("closures.scope_property")
+          }
           onClose={() => setTooltip(null)}
         />
       )}
