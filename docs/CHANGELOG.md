@@ -5,6 +5,44 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 4.7 — Stay Restrictions (15 iun 2026)
+
+> **Rafinări UX calendar** (după feedback): pauza de pregătire a fost redenumită din „Gap de curățenie" în **„Pauză de pregătire între rezervări (nopți)"** cu descriere explicită (în formularul de tip cameră) și e auditată în istoricul tipului (`turnover_days_hist`). În **calendar**: nopțile de turnover apar ca **bară hașurată subtilă cu iconiță 🧹** după fiecare plecare (nu se mai pictează tarif pe ele, ca să se vadă „de ce nu merge"); restricțiile de sosire/plecare apar ca **marcaje de colț** (triunghi ambră stânga-sus = fără sosiri / violet dreapta-sus = fără plecări, cu tooltip), nu bare pline — plus intrări noi în **legendă**. Tokens vizuale centralizate în `features/reservation-rules/restriction-display.ts`; restricțiile se rezolvă o singură dată pe lună (`resolveArrivalRestrictions`, O(reguli × zile), lookup pe `Map`). Fereastra „Restricții sosire/plecare" se deschide acum cu **ambele opțiuni (CTA/CTD) debifate**.
+
+### Obiectiv
+
+Strat de restricții de **sosire / plecare** (CTA/CTD), **gap de curățenie** (turnover) și **Manager Override** de recepție — apropiind comportamentul de PMS-urile mari (Cloudbeds/Mews/Booking.com). Separat de durata sejurului și de stop-sell (Sprint 4.6) și de blocajele fizice (Sprint 3).
+
+### Decizii (ajustări față de schița inițială)
+
+- **Un singur tabel `arrival_rules`** unifică restricțiile pe **zi a săptămânii** (`weekdays=[5,6]` → „fără sosiri Vi/Sâ") și **pe dată fixă** (`weekdays=NULL`, `start=end` → „CTA pe 20 dec"), cu flag-urile `no_arrival` (CTA) / `no_departure` (CTD). Exact cum modelează channel manager-ele — mai puternic și mai puțin cod decât două tabele separate. Scope `unit_type_id` NULL = toată proprietatea (ca `closures`).
+- **Ierarhia** Property > Room Type = **uniunea** restricțiilor (cea mai restrictivă). „Rate Plan" încă nu există → scope mai specific viitor. „Override-ul explicit" din schiță e implementat ca **Manager Override la nivel de booking** (workflow real de recepție), nu ca relax per-regulă.
+- **Min Gap = `unit_types.turnover_days`** (0..7): constrângere **fizică** (extinde intervalul de conflict cu `gap` nopți pe ambele capete, simetric) → scade automat disponibilitatea peste tot (admin + public). **Nu** se poate override.
+- **Manager Override** (`p_override`, doar owner/manager): bypass-ează stratul *soft* (sosire/plecare, CTA/CTD, closures, min/max stay); fizicul rămâne mereu validat (double-booking, blocaje, ocupare, gap). **Public = mereu HARD**.
+- **Business date**: `check_in`/`check_out` sunt date locale ale proprietății → DOW neambiguu, evaluat direct. **„Se ignoră la modificările care nu vizează datele"**: enforcement doar la creare + la schimbarea datelor în `update_booking_dates`. **Grup = per cameră**: modelul creează o rezervare per unitate → validare per sub-rezervare.
+- **Toate motivele simultan**: `get_booking_restrictions` întoarce un array de coduri (`NO_ARRIVAL` + `STAY_TOO_SHORT` etc.), afișate împreună în UI.
+
+### Soluția (migrația `20260615120000_stay_restrictions.sql`)
+
+- `unit_types.turnover_days` (0..7) + auditat în `app.audit_unit_type` (păstrând câmpurile weekend din migrația 29).
+- Tabel `arrival_rules` (scope, `weekdays int[]`, `no_arrival`/`no_departure`, RLS select `can_access_property` / CUD owner/manager, **fără anon**).
+- `app.check_arrival_departure(...)` DEFINER → `text[]` cu toate motivele.
+- `create_booking_internal` + `create_booking` + `update_booking_dates` recreate cu `p_override`; gap aplicat în alocare, `get_available_units` și `public_get_availability` (care **exclude** și tipurile cu sosirea/plecarea închisă).
+- RPC nou `get_booking_restrictions` (preview UI, toate motivele *soft*).
+
+### Frontend
+
+- `features/reservation-rules/`: `arrival-rules-dialog.tsx` (selector scope, interval, zile DOW, CTA/CTD), `api.ts`/`hooks.ts` (`ArrivalRule`, CRUD, `getBookingRestrictions`/`useBookingRestrictions`).
+- Formular tip cameră: stepper **gap de curățenie** (turnover); header proprietate: buton „Restricții sosire/plecare".
+- `booking-form-dialog.tsx` + `edit-dates-dialog.tsx`: panou cu **toate** motivele de restricție + comutator **Manager Override** (doar owner/manager, via `currentOrg.role`); mesaje i18n noi (`bookings.no_arrival`/`no_departure`/`override*`).
+
+### Note
+
+- **Segfault JIT (anon-revocat)**: în build-ul local Postgres, apelul unui RPC DEFINER revocat sub rolul `anon` cu JIT poate da signal 11; calea e inaccesibilă în producție. Testul de privilegiu anon folosește `has_function_privilege` (aserție), nu apelează funcția. Documentat în `docs/backend/rpc/stay-restrictions.md`.
+- Teste DB **TEST 55–61** (toate PASS): sosire/plecare DOW, CTA/CTD pe dată, Manager Override (owner vs staff `OVERRIDE_FORBIDDEN`), `get_booking_restrictions` + privilegii + izolare cross-tenant, flux public HARD + filtru availability, gap de curățenie. Doc: [`docs/backend/rpc/stay-restrictions.md`](backend/rpc/stay-restrictions.md).
+
+---
+
 ## Sprint 4.6 — Reservation Rules Engine (14 iun 2026)
 
 > **Rafinări UX** (după feedback): închiderile (stop-sell) se văd acum în **calendar** ca bare hașurate roșiatice cu „Închis" (click → fereastră cu scope/motiv/note + eliminare; legendă actualizată) și în **formularul de rezervare** ca avertisment + buton dezactivat înainte de salvare (nu doar eroare la submit); pe **public** nota „min. N nopți" apare și la selectarea camerei. Câmpurile min/max stay în formularul de tip sunt **steppere +/-**. Lista de închideri are notele sub **acordeon** subtil (chevron, doar dacă există notă) și e paginată „Afișează mai mult" (offset, ca restul listelor). Hint-ul „Sejur minim" e evidențiat colorat. Steppele +/- și în dialogul de reguli de durată (cu stare „Moștenit" = null). **Audit tip cameră completat** (migrația `20260614130000`): durata sejurului (min/max stay) și **config-ul de weekend** (type/value/days) intră acum în istoricul tipului, pentru consistență cu `base_price` — `weekend_days` se randează ca listă de zile (Lu, Ma…). Teste DB până la **TEST 54** (122 PASS), inclusiv recența `stay_rules` și auditul weekend/durată. În istoric, config-ul weekend e afișat sugestiv (etichete dedicate: „Ajustare preț weekend" → Fără/Procent/Sumă fixă, „Valoare ajustare weekend", „Zile de weekend" randate ca Vi, Sâ…). Pagina proprietății: iconițele de capacitate (adult/copil) aliniate la aceeași linie de bază (ca în calendar) și **header mobile-responsive** (titlu/badge sus, acțiunile — pagină publică / stop-sell / publicare — se stivuiesc și fac wrap pe ecrane mici, nu mai forțează un singur rând). Auditul pentru `closures`/`stay_rules`/`rate_rules` rămâne neimplementat intenționat — notat ca **TODO** în `docs/backend/rpc/reservation-rules.md` și `pricing.md`.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { Ban, CalendarClock, ChevronLeft, ChevronRight, Plus, User, X } from "lucide-react"
+import { Ban, CalendarClock, ChevronLeft, ChevronRight, Plus, Sparkles, User, X } from "lucide-react"
 import {
   PropertySelect, usePropertySelection,
 } from "@/features/properties/property-select"
@@ -24,8 +24,15 @@ import { OverrideDialog } from "@/features/pricing/override-dialog"
 import { dayLabel } from "@/features/pricing/weekend-pricing"
 import { useRateCalendar } from "@/features/pricing/hooks"
 import type { RateCalendarEntry } from "@/features/pricing/api"
-import { useClosuresInRange, useDeleteClosure } from "@/features/reservation-rules/hooks"
+import {
+  useArrivalRulesInRange, useClosuresInRange, useDeleteClosure,
+} from "@/features/reservation-rules/hooks"
 import type { Closure } from "@/features/reservation-rules/api"
+import {
+  NO_ARRIVAL_COLOR, NO_DEPARTURE_COLOR, TURNOVER_STRIPES,
+  resolveArrivalRestrictions, restrictionFor,
+} from "@/features/reservation-rules/restriction-display"
+import { addDays } from "@/features/bookings/date-utils"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { toast } from "sonner"
 import { t } from "@/lib/i18n"
@@ -42,6 +49,10 @@ function toISO(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+// plafonul pauzei de pregătire (unit_types.turnover_days CHECK 0..7) — cât de mult
+// înapoi în timp poate „intra" turnover-ul unei rezervări în luna afișată
+const MAX_TURNOVER_DAYS = 7
+
 // culoarea tarifului din celulă, după sursă (base/season/override)
 const RATE_KIND_CLASS: Record<string, string> = {
   base: "text-muted-foreground/70",
@@ -55,6 +66,7 @@ type TooltipState =
   | { kind: "booking"; booking: Booking; x: number; y: number }
   | { kind: "block"; block: RoomBlock; x: number; y: number }
   | { kind: "closure"; closure: Closure; x: number; y: number }
+  | { kind: "turnover"; from: string; toEx: string; unitName: string; x: number; y: number }
 
 // stop-sell pe celule: hașură roșiatică (distinctă de blocaje), text „Închis"
 const CLOSURE_CLASS = "border-destructive/50 bg-destructive/10 text-destructive"
@@ -347,6 +359,56 @@ function ClosureTooltip({
   )
 }
 
+// fereastră la click pe pauza de pregătire (turnover) — informativă (nu se șterge:
+// derivă din rezervare + setarea turnover_days a tipului)
+function TurnoverTooltip({
+  tooltip,
+  onClose,
+}: {
+  tooltip: Extract<TooltipState, { kind: "turnover" }>
+  onClose: () => void
+}) {
+  const TOOLTIP_W = 264
+  const { left, top } = tooltipPos(tooltip.x, tooltip.y, TOOLTIP_W, 180)
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        style={{ position: "fixed", top, left, width: TOOLTIP_W, zIndex: 41 }}
+        className="rounded-lg border bg-popover shadow-xl text-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 border-b p-3 pb-2">
+          <p className="flex items-center gap-1.5 font-semibold">
+            <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+            {t("calendar.turnover_label")}
+          </p>
+          <button onClick={onClose} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="space-y-1.5 p-3 text-xs">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("bookings.unit")}</span>
+            <span className="font-medium">{tooltip.unitName}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("blocks.start")}</span>
+            <span className="font-medium">{tooltip.from}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("calendar.turnover_available_from")}</span>
+            <span className="font-medium">{tooltip.toEx}</span>
+          </div>
+          <p className="border-t pt-1.5 mt-1 text-muted-foreground italic leading-snug">
+            {t("calendar.turnover_desc")}
+          </p>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── legendă culori (minimalistă) ─────────────────────────────────────────────
 
 const LEGEND_BOOKING_STATUSES: BookingStatus[] = [
@@ -384,6 +446,29 @@ function CalendarLegend() {
           style={{ backgroundImage: UNAVAILABLE_STRIPES }}
         />
         {t("closures.closed_label")}
+      </span>
+      {/* pauză de pregătire (turnover) — hașură subtilă */}
+      <span className="flex items-center gap-1">
+        <span
+          className="h-2.5 w-2.5 rounded-sm border border-muted-foreground/40"
+          style={{ backgroundImage: TURNOVER_STRIPES }}
+        />
+        {t("calendar.legend.turnover")}
+      </span>
+      {/* restricții de sosire/plecare — marcaje de colț (triunghiuri) */}
+      <span className="flex items-center gap-1">
+        <span
+          className="h-0 w-0 border-t-[10px] border-r-[10px] border-r-transparent"
+          style={{ borderTopColor: NO_ARRIVAL_COLOR }}
+        />
+        {t("calendar.legend.no_arrival")}
+      </span>
+      <span className="flex items-center gap-1">
+        <span
+          className="h-0 w-0 border-t-[10px] border-l-[10px] border-l-transparent"
+          style={{ borderTopColor: NO_DEPARTURE_COLOR }}
+        />
+        {t("calendar.legend.no_departure")}
       </span>
       {/* tarife pe celule: sezon (albastru) · preferențial/override (chihlimbar) */}
       <span className="flex items-center gap-1.5">
@@ -425,11 +510,25 @@ function CalendarPage() {
     month.getUTCFullYear(), month.getUTCMonth() + 1, 0
   ).getDate()
 
+  // aducem și rezervările care s-au terminat cu până la MAX_TURNOVER_DAYS înainte de
+  // lună: pauza lor de pregătire (turnover) poate intra în luna afișată (ex. check-out
+  // pe 30 iun cu pauză 1 zi → 1 iul indisponibil). Barele/ocuparea folosesc totuși doar
+  // rezervările care ating efectiv luna (vezi filtrul de overlap mai jos).
+  const bookingsStart = useMemo(() => addDays(monthStart, -MAX_TURNOVER_DAYS), [monthStart])
+
   const { data: units, isLoading: loadingUnits } = useUnits(property?.id)
-  const { data: bookings } = useBookingsInRange(property?.id, monthStart, monthEnd)
+  const { data: bookings } = useBookingsInRange(property?.id, bookingsStart, monthEnd)
   const { data: blocks } = useBlocksInRange(property?.id, monthStart, monthEnd)
   const { data: closures } = useClosuresInRange(property?.id, monthStart, monthEnd)
+  const { data: arrivalRules } = useArrivalRulesInRange(property?.id, monthStart, monthEnd)
   const { data: rates } = useRateCalendar(property?.id, monthStart, monthEnd)
+
+  // restricții de sosire/plecare rezolvate pe zi (property-scope ∪ type-scope),
+  // pre-calculate o singură dată pe lună (O(reguli × zile), nu per celulă)
+  const arrivalMaps = useMemo(
+    () => resolveArrivalRestrictions(arrivalRules ?? [], monthStart, monthEnd),
+    [arrivalRules, monthStart, monthEnd]
+  )
 
   // închiderile property-scope (unit_type_id null) se aplică tuturor camerelor;
   // cele type-scope doar camerelor tipului respectiv.
@@ -597,7 +696,14 @@ function CalendarPage() {
 
             {/* rând per cameră */}
             {units.map((unit) => {
-              const unitBookings = bookingsByUnit.get(unit.id) ?? []
+              // setul complet include și rezervări terminate chiar înainte de lună
+              // (aduse prin padding-ul de fetch) — folosit DOAR pentru turnover.
+              const unitBookingsAll = bookingsByUnit.get(unit.id) ?? []
+              // bare + ocupare = doar rezervările care ating efectiv luna afișată,
+              // ca cele din luna trecută să nu deseneze bare/ocupare greșite.
+              const unitBookings = unitBookingsAll.filter(
+                (b) => b.check_out > monthStart && b.check_in < monthEnd
+              )
               const unitBlocks = blocksByUnit.get(unit.id) ?? []
               // închideri aplicabile camerei = property-scope + cele ale tipului ei
               const unitClosures = [
@@ -618,6 +724,19 @@ function CalendarPage() {
               for (const b of unitBookings) markRange(b.check_in, b.check_out)
               for (const rb of unitBlocks) markRange(rb.start_date, rb.end_date)
               for (const c of unitClosures) markRange(c.start_date, c.end_date)
+
+              // pauză de pregătire (turnover): `gap` nopți blocate fizic după fiecare
+              // plecare → segmente desenate + nopți marcate ca ocupate (fără tarif pictat)
+              const gap = unit.unit_types?.turnover_days ?? 0
+              const turnoverSegments =
+                gap > 0
+                  ? unitBookingsAll
+                      .map((b) => ({ id: b.id, from: b.check_out, toEx: addDays(b.check_out, gap) }))
+                      // păstrează doar segmentele care chiar intersectează luna afișată
+                      // (inclusiv spillover dintr-o plecare de la finalul lunii precedente)
+                      .filter((seg) => seg.from < monthEnd && seg.toEx > monthStart)
+                  : []
+              for (const seg of turnoverSegments) markRange(seg.from, seg.toEx)
               return (
                 <div key={unit.id} className="group col-span-full grid grid-cols-subgrid border-b last:border-b-0">
                   {/* click pe cameră = meniu de gestionare (status + blocaje) */}
@@ -681,8 +800,26 @@ function CalendarPage() {
                         ? rateByTypeDay.get(`${unit.unit_type_id}|${dayIso}`)
                         : undefined
                       const showRate = isOperational && !occupiedDays.has(dayNum) && rate
+                      // restricții de sosire/plecare: marcaje subtile în colțurile celulei
+                      const restr = isOperational
+                        ? restrictionFor(arrivalMaps, unit.unit_type_id, dayIso)
+                        : { noArrival: false, noDeparture: false }
                       return (
                         <div key={i} className="relative min-h-12 border-r last:border-r-0">
+                          {restr.noArrival && (
+                            <span
+                              title={t("calendar.no_arrival_title")}
+                              style={{ borderTopColor: NO_ARRIVAL_COLOR }}
+                              className="absolute left-0 top-0 z-[1] h-0 w-0 border-t-[7px] border-r-[7px] border-r-transparent"
+                            />
+                          )}
+                          {restr.noDeparture && (
+                            <span
+                              title={t("calendar.no_departure_title")}
+                              style={{ borderTopColor: NO_DEPARTURE_COLOR }}
+                              className="absolute right-0 top-0 z-[1] h-0 w-0 border-t-[7px] border-l-[7px] border-l-transparent"
+                            />
+                          )}
                           {showRate && (
                             <span
                               className={cn(
@@ -702,6 +839,34 @@ function CalendarPage() {
                       aria-hidden
                       className="pointer-events-none absolute inset-0 z-[3] bg-foreground/5 opacity-0 transition-opacity group-hover:opacity-100"
                     />
+                    {/* pauză de pregătire (turnover) — hașură subtilă pe nopțile de curățenie după plecare */}
+                    {turnoverSegments.map((seg) => {
+                      const startDay = seg.from < monthStart ? 1 : Number(seg.from.slice(8, 10))
+                      const endDay = seg.toEx >= monthEnd ? daysInMonth + 1 : Number(seg.toEx.slice(8, 10))
+                      if (endDay <= startDay) return null
+                      return (
+                        <div
+                          key={`turnover-${seg.id}`}
+                          title={t("calendar.turnover_title")}
+                          className="absolute inset-y-1.5 z-[2] flex cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-muted-foreground/40 text-muted-foreground/70 transition-opacity hover:opacity-80"
+                          style={{
+                            left: `calc(${((startDay - 1) / daysInMonth) * 100}% + 2px)`,
+                            width: `calc(${((endDay - startDay) / daysInMonth) * 100}% - 4px)`,
+                            backgroundImage: TURNOVER_STRIPES,
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                            setTooltip({
+                              kind: "turnover", from: seg.from, toEx: seg.toEx,
+                              unitName: unit.name, x: rect.left, y: rect.bottom,
+                            })
+                          }}
+                        >
+                          <Sparkles className="h-3 w-3 shrink-0" />
+                        </div>
+                      )
+                    })}
                     {/* închideri (stop-sell) — hașură roșiatică cu „Închis", sub blocaje/rezervări */}
                     {unitClosures.map((c) => {
                       const startDay =
@@ -814,6 +979,9 @@ function CalendarPage() {
           unitName={units?.find((u) => u.id === tooltip.block.unit_id)?.name}
           onClose={() => setTooltip(null)}
         />
+      )}
+      {tooltip?.kind === "turnover" && (
+        <TurnoverTooltip tooltip={tooltip} onClose={() => setTooltip(null)} />
       )}
       {tooltip?.kind === "closure" && (
         <ClosureTooltip

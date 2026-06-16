@@ -3,8 +3,9 @@ import {
 } from "@tanstack/react-query"
 import type { TablesInsert, TablesUpdate } from "@/lib/database.types"
 import {
-  createClosure, createStayRule, deleteClosure, deleteStayRule,
-  fetchClosures, fetchClosuresInRange, fetchStayRules, getStayConstraints, updateStayRule,
+  createArrivalRule, createClosure, createStayRule, deleteArrivalRule, deleteClosure, deleteStayRule,
+  fetchArrivalRules, fetchArrivalRulesInRange, fetchClosures, fetchClosuresInRange, fetchStayRules,
+  getBookingRestrictions, getStayConstraints, updateStayRule,
 } from "./api"
 
 export const reservationKeys = {
@@ -12,8 +13,13 @@ export const reservationKeys = {
   closures: (propertyId: string) => ["closures", propertyId] as const,
   closuresRange: (propertyId: string, from: string, to: string) =>
     ["closures-range", propertyId, from, to] as const,
+  arrivalRules: (propertyId: string) => ["arrival-rules", propertyId] as const,
+  arrivalRulesRange: (propertyId: string, from: string, to: string) =>
+    ["arrival-rules-range", propertyId, from, to] as const,
   stayConstraints: (unitTypeId: string, checkIn: string) =>
     ["stay-constraints", unitTypeId, checkIn] as const,
+  bookingRestrictions: (unitTypeId: string, checkIn: string, checkOut: string) =>
+    ["booking-restrictions", unitTypeId, checkIn, checkOut] as const,
 }
 
 // Liste paginate „Afișează mai mult" (rândul în plus din Page.hasMore decide pagina următoare)
@@ -51,7 +57,10 @@ function invalidateRules(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["stay-rules"] })
   qc.invalidateQueries({ queryKey: ["closures"] })
   qc.invalidateQueries({ queryKey: ["closures-range"] })
+  qc.invalidateQueries({ queryKey: ["arrival-rules"] })
+  qc.invalidateQueries({ queryKey: ["arrival-rules-range"] })
   qc.invalidateQueries({ queryKey: ["stay-constraints"] })
+  qc.invalidateQueries({ queryKey: ["booking-restrictions"] })
 }
 
 export function useCreateStayRule() {
@@ -101,5 +110,55 @@ export function useStayConstraints(unitTypeId: string | undefined, checkIn: stri
     queryKey: reservationKeys.stayConstraints(unitTypeId ?? "", checkIn),
     queryFn: () => getStayConstraints(unitTypeId!, checkIn),
     enabled: !!unitTypeId && !!checkIn,
+  })
+}
+
+// ─── arrival_rules (sosire/plecare) ──────────────────────────────────────────────
+
+export function useArrivalRules(propertyId: string | null) {
+  return useInfiniteQuery({
+    queryKey: reservationKeys.arrivalRules(propertyId ?? ""),
+    queryFn: ({ pageParam }) => fetchArrivalRules(propertyId!, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => (last.hasMore ? pages.length : undefined),
+    enabled: !!propertyId,
+  })
+}
+
+// Toate restricțiile care ating intervalul (calendar). Mărginit de interval, nepaginat.
+export function useArrivalRulesInRange(propertyId: string | undefined, from: string, to: string) {
+  return useQuery({
+    queryKey: reservationKeys.arrivalRulesRange(propertyId ?? "", from, to),
+    queryFn: () => fetchArrivalRulesInRange(propertyId!, from, to),
+    enabled: !!propertyId && !!from && !!to && to > from,
+  })
+}
+
+export function useCreateArrivalRule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: TablesInsert<"arrival_rules">) => createArrivalRule(input),
+    onSuccess: () => invalidateRules(qc),
+  })
+}
+
+export function useDeleteArrivalRule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => deleteArrivalRule(id),
+    onSuccess: () => invalidateRules(qc),
+  })
+}
+
+// Toate motivele „soft" pe un tip + interval (afișate simultan în formularul de rezervare).
+export function useBookingRestrictions(
+  unitTypeId: string | undefined,
+  checkIn: string,
+  checkOut: string
+) {
+  return useQuery({
+    queryKey: reservationKeys.bookingRestrictions(unitTypeId ?? "", checkIn, checkOut),
+    queryFn: () => getBookingRestrictions(unitTypeId!, checkIn, checkOut),
+    enabled: !!unitTypeId && !!checkIn && !!checkOut && checkOut > checkIn,
   })
 }

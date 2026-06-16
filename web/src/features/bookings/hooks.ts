@@ -152,8 +152,9 @@ export function useReassignBooking() {
 export function useUpdateBookingDates() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ bookingId, checkIn, checkOut }: { bookingId: string; checkIn: string; checkOut: string }) =>
-      updateBookingDates(bookingId, checkIn, checkOut),
+    mutationFn: ({ bookingId, checkIn, checkOut, override }:
+      { bookingId: string; checkIn: string; checkOut: string; override?: boolean }) =>
+      updateBookingDates(bookingId, checkIn, checkOut, override ?? false),
     onSuccess: () => invalidateBookingData(qc),
   })
 }

@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import {
-  ArchiveRestore, ArrowLeft, Ban, BedDouble, CalendarClock, ChevronDown, ChevronRight,
+  ArchiveRestore, ArrowLeft, Ban, BedDouble, CalendarClock, CalendarX2, ChevronDown, ChevronRight,
   ExternalLink, History, Pencil, Plus, Tag, Trash2, User,
 } from "lucide-react"
 import { useProperty, useUpdateProperty } from "@/features/properties/hooks"
@@ -19,6 +19,7 @@ import { parseRoomNumbering } from "@/features/unit-types/room-numbering"
 import { RateRulesDialog } from "@/features/pricing/rate-rules-dialog"
 import { StayRulesDialog } from "@/features/reservation-rules/stay-rules-dialog"
 import { ClosuresDialog } from "@/features/reservation-rules/closures-dialog"
+import { ArrivalRulesDialog } from "@/features/reservation-rules/arrival-rules-dialog"
 import { WeekendDaysToggle } from "@/features/pricing/weekend-days-toggle"
 import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
 import { DEFAULT_WEEKEND_DAYS } from "@/features/pricing/weekend-pricing"
@@ -52,6 +53,7 @@ const capacityFields = {
   base_price: z.coerce.number().min(0),
   min_stay: z.coerce.number().int().min(1).max(30),
   max_stay: z.coerce.number().int().min(1).max(30),
+  turnover_days: z.coerce.number().int().min(0).max(7),
   weekend_adjustment_type: z.enum(["none", "percent", "amount"]),
   weekend_adjustment_value: z.coerce.number().min(0),
 }
@@ -216,6 +218,8 @@ function UnitTypeFields({
   // steppere +/- pentru durata sejurului (1..30)
   const minStay = Number(form.watch("min_stay") ?? 1)
   const maxStay = Number(form.watch("max_stay") ?? 30)
+  // gap de curățenie (turnover) 0..7
+  const turnoverDays = Number(form.watch("turnover_days") ?? 0)
   return (
     <>
       <div className="grid grid-cols-2 gap-4">
@@ -249,6 +253,13 @@ function UnitTypeFields({
         {form.formState.errors.max_stay && (
           <p className="text-xs text-destructive">{t("unit_types.stay_order")}</p>
         )}
+        <div className="border-t pt-3">
+          <OccupancyStepper
+            label={t("unit_types.turnover")} value={turnoverDays}
+            onChange={(v) => form.setValue("turnover_days", v)} min={0} max={7}
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">{t("unit_types.turnover_hint")}</p>
+        </div>
       </div>
 
       {/* preț weekend */}
@@ -302,13 +313,14 @@ function PropertyDetailPage() {
   const [ratesType, setRatesType] = useState<UnitType | null>(null)
   const [stayRulesType, setStayRulesType] = useState<UnitType | null>(null)
   const [closuresOpen, setClosuresOpen] = useState(false)
+  const [arrivalRulesOpen, setArrivalRulesOpen] = useState(false)
   // weekend_days e gestionat ca state (toggle-uri), nu prin RHF
   const [createDays, setCreateDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
   const [editDays, setEditDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
 
   const createDefaults: z.input<typeof createSchema> = {
     name: "", max_adults: 2, max_children: 0, base_price: 0,
-    min_stay: 1, max_stay: 30,
+    min_stay: 1, max_stay: 30, turnover_days: 0,
     weekend_adjustment_type: "none", weekend_adjustment_value: 0,
     rooms_spec: "1", rooms_start: "", room_prefix: "Camera ",
   }
@@ -343,6 +355,7 @@ function PropertyDetailPage() {
           base_price: values.base_price,
           min_stay: values.min_stay,
           max_stay: values.max_stay,
+          turnover_days: values.turnover_days,
           weekend_adjustment_type: values.weekend_adjustment_type,
           weekend_adjustment_value: values.weekend_adjustment_value,
           weekend_days: createDays,
@@ -372,6 +385,7 @@ function PropertyDetailPage() {
           base_price: values.base_price,
           min_stay: values.min_stay,
           max_stay: values.max_stay,
+          turnover_days: values.turnover_days,
           weekend_adjustment_type: values.weekend_adjustment_type,
           weekend_adjustment_value: values.weekend_adjustment_value,
           weekend_days: editDays,
@@ -391,6 +405,7 @@ function PropertyDetailPage() {
       base_price: String(ut.base_price) as unknown as number,
       min_stay: String(ut.min_stay) as unknown as number,
       max_stay: String(ut.max_stay) as unknown as number,
+      turnover_days: String(ut.turnover_days) as unknown as number,
       weekend_adjustment_type: ut.weekend_adjustment_type as "none" | "percent" | "amount",
       weekend_adjustment_value: String(ut.weekend_adjustment_value) as unknown as number,
     })
@@ -437,6 +452,10 @@ function PropertyDetailPage() {
               </Link>
             </Button>
           )}
+          <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setArrivalRulesOpen(true)}>
+            <CalendarX2 className="h-4 w-4" />
+            {t("arrival_rules.manage")}
+          </Button>
           <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setClosuresOpen(true)}>
             <Ban className="h-4 w-4" />
             {t("closures.manage")}
@@ -578,6 +597,15 @@ function PropertyDetailPage() {
         propertyId={property.id}
         unitTypes={unitTypes ?? []}
         onClose={() => setClosuresOpen(false)}
+      />
+
+      {/* dialog restricții de sosire/plecare (CTA/CTD pe zi sau dată) */}
+      <ArrivalRulesDialog
+        open={arrivalRulesOpen}
+        orgId={property.org_id}
+        propertyId={property.id}
+        unitTypes={unitTypes ?? []}
+        onClose={() => setArrivalRulesOpen(false)}
       />
     </div>
   )

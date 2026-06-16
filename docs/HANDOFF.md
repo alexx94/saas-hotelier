@@ -4,7 +4,7 @@
 
 ---
 
-## Starea curentă a proiectului (14 iun 2026 — Sprint 4.6 complet)
+## Starea curentă a proiectului (15 iun 2026 — Sprint 4.7 complet)
 
 Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 **https://github.com/alexx94/saas-hotelier**
@@ -66,10 +66,13 @@ web/src/
       occupancy-stepper.tsx ← stepper +/- adulți/copii (reutilizabil)
       price-breakdown.tsx   ← detaliu preț per noapte (reutilizabil)
       weekend-days-toggle.tsx / weekend-pricing.ts ← config + helper zile weekend
-    reservation-rules/  ← reguli de rezervare (Sprint 4.6)
-      api.ts / hooks.ts ← stay_rules + closures CRUD + get_stay_constraints
+    reservation-rules/  ← reguli de rezervare (Sprint 4.6 + 4.7)
+      api.ts / hooks.ts ← stay_rules + closures + arrival_rules CRUD,
+                          get_stay_constraints + get_booking_restrictions
       stay-rules-dialog.tsx ← reguli durată sejur per tip (min/max stay pe perioade)
       closures-dialog.tsx   ← stop-sell / închideri (toată proprietatea sau un tip)
+      arrival-rules-dialog.tsx ← restricții sosire/plecare CTA/CTD (Sprint 4.7)
+      restriction-display.ts ← tokens calendar + resolver restricții pe zi (Sprint 4.7)
     organizations/
       api.ts
       hooks.ts
@@ -263,6 +266,7 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 - ✅ Oaspeți: search, creare inline cu anti-duplicare pe email/telefon
 - ✅ **Sprint 2 — Guest Experience**: profil oaspete (`/app/guests/{id}`: editare, ștergere blocată dacă are rezervări, istoric paginat, statistici server-side total/viitoare/anulate via `get_guest_stats`), pagina rezervării (`/app/bookings/{id}`) cu snapshot vs profil + re-asociere profil (`link_booking_guest`), offset pagination pe toate listele (rezervări 20, oaspeți 20, istoric profil 15)
 - ✅ **Sprint 4.5 — Pricing Engine & Occupancy**: capacitate = `max_adults`/`max_children` (înlocuiesc `capacity`; `base_capacity` eliminat — fără rol); ocupare adulți/copii ca steppere +/- peste tot (admin, public, formular tip cameră; adulți min 1, copii min 0; max = tipul ales sau 25); motor de preț **dinamic** `app.compute_price` — **sezoane** (per tip) + **override-uri** („tarif preferențial", din calendar, toate camerele tipului); override > sezon, iar la suprapunere în același kind câștigă cea mai recent modificată regulă (fără prioritate numerică); suprataxă weekend configurabilă; **snapshot imuabil** la creare (`total_amount` + `price_breakdown` jsonb). Calendarul pictează tariful pe celulele goale (`get_rate_calendar`). RPC noi: `quote_price`, `get_rate_calendar`. Validare „fără date trecute" doar în UI. occupancy pricing exclus intenționat. Feature `pricing/` (RateRulesDialog seasons, OverrideDialog, OccupancyStepper, PriceBreakdown). Doc: [`docs/backend/rpc/pricing.md`](backend/rpc/pricing.md)
+- ✅ **Sprint 4.7 — Stay Restrictions**: restricții de **sosire/plecare** (`arrival_rules`) unificate — pe zi a săptămânii (`weekdays`, ex. „fără sosiri Vi/Sâ") SAU pe dată fixă (`weekdays` NULL = CTA/CTD pe interval), cu `no_arrival` (CTA) / `no_departure` (CTD) și scope proprietate/tip (uniunea = cea mai restrictivă). **Gap de curățenie** `unit_types.turnover_days` (0..7) = constrângere fizică (extinde conflictul cu `gap` nopți pe ambele capete) → scade disponibilitatea peste tot. **Manager Override** (`p_override`, doar owner/manager) bypass-ează stratul soft (sosire/plecare, CTA/CTD, closures, min/max stay); fizicul (double-booking, blocaje, ocupare, gap) rămâne mereu; public = HARD. Enforcement în `create_booking_internal` + `update_booking_dates` (doar pe schimbarea datelor). RPC `get_booking_restrictions` (toate motivele simultan), `app.check_arrival_departure`. UI: dialog „Restricții sosire/plecare" pe proprietate (CTA/CTD debifate la deschidere) + stepper „Pauză de pregătire" în formularul de tip + panou cu toate motivele și comutator Manager Override în formularul de creare/editare date. **Calendar**: turnover = bară hașurată 🧹 după plecare; restricții sosire/plecare = marcaje de colț (ambră/violet) + legendă (tokens centralizați în `restriction-display.ts`, resolver O(reguli×zile)/lună). Teste DB TEST 55–61. Doc: [`docs/backend/rpc/stay-restrictions.md`](backend/rpc/stay-restrictions.md)
 - ✅ **Sprint 4.6 — Reservation Rules Engine**: strat modular de restricții, separat de preț și de `room_blocks`. **min/max stay** global per tip (`unit_types.min_stay/max_stay`, 1..30, max≥min) + **`stay_rules`** pe perioade (suprascriu globalul, cheiat pe data de check-in, recență ca `rate_rules`). **`closures`** = stop-sell / closed dates cu **scope** (`unit_type_id` NULL = toată proprietatea; setat = un tip) — **distinct de `room_blocks`**: oprește vânzarea unui produs, nu blochează camere fizice. Enforcement în `app.create_booking_internal` (admin + public): `STAY_TOO_SHORT/LONG`, `DATES_CLOSED`. RPC `get_stay_constraints` (limitează check-out-ul în formular); `public_get_availability` filtrează închiderile + durata și întoarce min/max stay. UI: dialog „Reguli durată" per tip + buton „Stop sell / Închideri" la nivel de proprietate (`features/reservation-rules/`); formularul de rezervare limitează check-out-ul + afișează „Sejur minim". Occupancy (`max_adults/max_children`) era deja implementat. Teste DB TEST 45–52. Doc: [`docs/backend/rpc/reservation-rules.md`](backend/rpc/reservation-rules.md)
 - ✅ **Sprint 4 — Pricing & Revenue**: snapshot preț/noapte pe rezervare (`bookings.unit_price`); **payments ledger** (`payments` — kind payment/refund, status pending/completed/failed, provider+provider_ref pregătite pentru Stripe & e-factură); stare plată = agregat cached (`payment_status` unpaid/partial/paid/refunded + `amount_paid`) întreținut de trigger din ledger; RPC `record_payment` + `get_revenue_summary` (venit azi/lună/an, server-side, în tz proprietății); feature frontend `payments/` (card plăți pe rezervare, dialog încasare/rambursare, carduri venit pe dashboard, coloană stare în listă); helper `lib/money.ts`. Doc: [`docs/backend/rpc/payments.md`](backend/rpc/payments.md)
 - ✅ User menu (popover) + dialog setări cu hash routing (`#settings/account`)

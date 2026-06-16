@@ -18,6 +18,7 @@ export type Booking = Tables<"bookings"> & {
 export type Unit = Tables<"units"> & {
   unit_types: {
     name: string; max_adults: number; max_children: number; base_price: number
+    turnover_days: number
   } | null
 }
 
@@ -73,7 +74,7 @@ export async function fetchBookingsInRange(
 export async function fetchUnits(propertyId: string): Promise<Unit[]> {
   const { data, error } = await supabase
     .from("units")
-    .select("*, unit_types(name, max_adults, max_children, base_price)")
+    .select("*, unit_types(name, max_adults, max_children, base_price, turnover_days)")
     .eq("property_id", propertyId)
     .neq("status", "archived")
   if (error) throw error
@@ -169,6 +170,8 @@ export type CreateBookingInput = {
   status?: "pending" | "confirmed"
   // prețul (total + breakdown) e calculat și snapshot-uit server-side, din engine
   notes?: string
+  // Manager Override: forțează peste restricțiile soft (doar owner/manager — validat server-side)
+  override?: boolean
 }
 
 export async function createBooking(input: CreateBookingInput): Promise<string> {
@@ -182,6 +185,7 @@ export async function createBooking(input: CreateBookingInput): Promise<string> 
     p_children: input.children ?? 0,
     p_status: input.status ?? "confirmed",
     p_notes: input.notes ?? undefined,
+    p_override: input.override ?? false,
   })
   if (error) throw error
   return data
@@ -195,12 +199,14 @@ export async function updateBookingStatus(id: string, status: BookingStatus): Pr
 export async function updateBookingDates(
   bookingId: string,
   checkIn: string,
-  checkOut: string
+  checkOut: string,
+  override = false
 ): Promise<void> {
   const { error } = await supabase.rpc("update_booking_dates", {
     p_booking_id: bookingId,
     p_check_in: checkIn,
     p_check_out: checkOut,
+    p_override: override,
   })
   if (error) throw new Error(error.message)
 }

@@ -25,6 +25,7 @@ const TYPE_FIELDS: EventFieldRegistry = {
   base_price: { label: "unit_types.base_price", format: (v) => Number(v).toFixed(2) },
   min_stay: { label: "unit_types.min_stay" },
   max_stay: { label: "unit_types.max_stay" },
+  turnover_days: { label: "unit_types.turnover_days_hist" },
   weekend_adjustment_type: {
     label: "unit_types.weekend_type_hist",
     format: (v) => t(WEEKEND_TYPE_LABEL[String(v)] ?? "unit_types.weekend_none"),

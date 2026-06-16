@@ -491,6 +491,53 @@ export const ro = {
   "bookings.dates_closed": "Rezervările sunt oprite pe intervalul ales.",
   "public.min_nights": "min.",
 
+  // ─── Sprint 4.7 — Stay Restrictions ───────────────────────────────────────
+  // pauză de pregătire/curățenie (turnover) per tip
+  "unit_types.turnover": "Pauză de pregătire între rezervări (nopți)",
+  "unit_types.turnover_hint":
+    "După fiecare plecare, camera rămâne blocată atâtea nopți pentru curățenie/pregătire înainte de o nouă sosire. 0 = fără pauză. Aceste nopți nu pot fi rezervate.",
+  "unit_types.turnover_days_hist": "Pauză de pregătire (nopți)",
+  // marcaje calendar (restricții + pauză pregătire)
+  "calendar.legend.no_arrival": "Fără sosiri",
+  "calendar.legend.no_departure": "Fără plecări",
+  "calendar.legend.turnover": "Pauză pregătire",
+  "calendar.turnover_title": "Pauză de pregătire (curățenie) — camera nu poate fi rezervată",
+  "calendar.turnover_label": "Pauză de pregătire",
+  "calendar.turnover_available_from": "Disponibilă din",
+  "calendar.turnover_desc":
+    "Camera se curăță/pregătește după plecarea oaspetelui și nu poate fi rezervată în aceste nopți. Configurează durata din „Pauză de pregătire” pe tipul de cameră.",
+  "calendar.no_arrival_title": "Sosire interzisă în această zi",
+  "calendar.no_departure_title": "Plecare interzisă în această zi",
+  // reguli de sosire / plecare (arrival_rules)
+  "arrival_rules.manage": "Restricții sosire/plecare",
+  "arrival_rules.title": "Restricții de sosire și plecare",
+  "arrival_rules.subtitle":
+    "Interzic sosirea (CTA) sau plecarea (CTD) pe anumite zile ale săptămânii sau date fixe. Se aplică regula cea mai restrictivă (proprietate + tip); recepția poate forța excepții cu Manager Override.",
+  "arrival_rules.add": "Adaugă restricție",
+  "arrival_rules.name": "Denumire",
+  "arrival_rules.scope": "Se aplică la",
+  "arrival_rules.scope_property": "Toată proprietatea",
+  "arrival_rules.start": "De la",
+  "arrival_rules.end": "Până la (inclusiv)",
+  "arrival_rules.weekdays": "Zile vizate",
+  "arrival_rules.weekdays_hint": "Lasă gol pentru a aplica restricția în fiecare zi din interval (ex. CTA/CTD pe dată fixă).",
+  "arrival_rules.no_arrival": "Fără sosiri (CTA)",
+  "arrival_rules.no_departure": "Fără plecări (CTD)",
+  "arrival_rules.need_one": "Bifează cel puțin „fără sosiri” sau „fără plecări”.",
+  "arrival_rules.empty": "Nicio restricție de sosire/plecare.",
+  "arrival_rules.created": "Restricție creată.",
+  "arrival_rules.deleted": "Restricție eliminată.",
+  "arrival_rules.delete_confirm": "Elimini această restricție de sosire/plecare?",
+  "arrival_rules.invalid_dates": "Data de sfârșit trebuie să fie >= data de început.",
+  "arrival_rules.everyday": "în fiecare zi",
+  // mesaje + override la creare/modificare rezervare
+  "bookings.no_arrival": "Sosirea nu este permisă pe data de check-in aleasă.",
+  "bookings.no_departure": "Plecarea nu este permisă pe data de check-out aleasă.",
+  "bookings.restrictions_title": "Restricții pe aceste date",
+  "bookings.override": "Manager Override",
+  "bookings.override_hint": "Forțează rezervarea peste restricțiile de mai sus (doar manager/owner).",
+  "bookings.override_forbidden": "Doar un manager sau owner poate forța aceste restricții.",
+
   // zile săptămână (DOW Postgres: 0=Duminică … 6=Sâmbătă)
   "dow.0": "Du", "dow.1": "Lu", "dow.2": "Ma", "dow.3": "Mi",
   "dow.4": "Jo", "dow.5": "Vi", "dow.6": "Sâ",

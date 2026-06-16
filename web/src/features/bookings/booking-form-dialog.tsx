@@ -3,16 +3,17 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
-import { Ban, Bot, User } from "lucide-react"
+import { Ban, Bot, ShieldAlert, User } from "lucide-react"
 import { useCurrentOrg } from "@/features/organizations/context"
 import { GuestCombobox } from "@/features/guests/guest-combobox"
 import { useUnitTypes } from "@/features/unit-types/hooks"
 import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
 import { PriceBreakdown } from "@/features/pricing/price-breakdown"
 import { useQuotePrice } from "@/features/pricing/hooks"
-import { useStayConstraints, useClosuresInRange } from "@/features/reservation-rules/hooks"
+import { useStayConstraints, useBookingRestrictions } from "@/features/reservation-rules/hooks"
+import type { RestrictionReason } from "@/features/reservation-rules/api"
 import { useAvailableUnits, useCreateBooking } from "./hooks"
-import { t } from "@/lib/i18n"
+import { t, type TranslationKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { errorMessage } from "@/lib/errors"
 import { Badge } from "@/components/ui/badge"
@@ -34,6 +35,15 @@ import { addDays, formatDateShort } from "./date-utils"
 const NIGHT_SHORTCUTS = [1, 2, 3, 5, 7]
 // limită de bun simț pentru ocupare când nu e ales încă un tip de cameră
 const MAX_OCCUPANCY_UNBOUNDED = 25
+
+// motivele „soft" întoarse de get_booking_restrictions → cheie i18n
+const RESTRICTION_LABEL: Record<RestrictionReason, TranslationKey> = {
+  DATES_CLOSED: "bookings.dates_closed",
+  STAY_TOO_SHORT: "bookings.stay_too_short",
+  STAY_TOO_LONG: "bookings.stay_too_long",
+  NO_ARRIVAL: "bookings.no_arrival",
+  NO_DEPARTURE: "bookings.no_departure",
+}
 
 // ─── schema ───────────────────────────────────────────────────────────────────
 
@@ -78,6 +88,9 @@ export function BookingFormDialog({
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
   const [adults, setAdults] = useState(1)
   const [children, setChildren] = useState(0)
+  const [override, setOverride] = useState(false)
+
+  const canOverride = ["owner", "manager"].includes(currentOrg.role)
 
   const form = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
@@ -112,13 +125,13 @@ export function BookingFormDialog({
   // shortcut-uri de nopți limitate la intervalul permis
   const nightShortcuts = NIGHT_SHORTCUTS.filter((n) => n >= minStay && n <= maxStay)
 
-  // stop-sell: tipul ales e închis pe interval? (property-scope sau type-scope)
-  const { data: closures } = useClosuresInRange(
-    datesValid ? propertyId : undefined, checkIn ?? "", checkOut ?? ""
+  // toate restricțiile „soft" pe tip + interval (închideri, durată, sosire/plecare) —
+  // afișate simultan; un manager le poate forța cu override
+  const { data: restrictions } = useBookingRestrictions(
+    datesValid ? unitTypeId : undefined, checkIn ?? "", checkOut ?? ""
   )
-  const isClosed =
-    !!unitTypeId &&
-    (closures ?? []).some((c) => c.unit_type_id === null || c.unit_type_id === unitTypeId)
+  const reasons = (unitTypeId ? restrictions : undefined) ?? []
+  const blockedByRules = reasons.length > 0 && !(override && canOverride)
 
   // alocare manuală fără nicio cameră liberă pe interval → nu are sens submit-ul
   const noFreeUnits =
@@ -143,6 +156,7 @@ export function BookingFormDialog({
     setSelectedUnitId(null)
     setAdults(1)
     setChildren(0)
+    setOverride(false)
   }
 
   function handleGuestChange(id: string) {
@@ -170,15 +184,19 @@ export function BookingFormDialog({
         children,
         status: values.status,
         notes: values.notes,
+        override: override && canOverride,
       })
       toast.success(t("bookings.created"))
       onOpenChange(false)
       resetForm()
     } catch (e) {
       const message = errorMessage(e)
-      if (message.includes("STAY_TOO_SHORT")) toast.error(t("bookings.stay_too_short"))
+      if (message.includes("OVERRIDE_FORBIDDEN")) toast.error(t("bookings.override_forbidden"))
+      else if (message.includes("STAY_TOO_SHORT")) toast.error(t("bookings.stay_too_short"))
       else if (message.includes("STAY_TOO_LONG")) toast.error(t("bookings.stay_too_long"))
       else if (message.includes("DATES_CLOSED")) toast.error(t("bookings.dates_closed"))
+      else if (message.includes("NO_ARRIVAL")) toast.error(t("bookings.no_arrival"))
+      else if (message.includes("NO_DEPARTURE")) toast.error(t("bookings.no_departure"))
       else if (message.includes("UNIT_NOT_AVAILABLE")) toast.error(t("bookings.not_available"))
       else if (message.includes("UNIT_BLOCKED")) toast.error(t("bookings.unit_blocked"))
       else toast.error(t("common.error"))
@@ -374,10 +392,37 @@ export function BookingFormDialog({
             </div>
           )}
 
-          {isClosed && datesValid && (
-            <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <Ban className="h-4 w-4 shrink-0" />
-              {t("bookings.dates_closed")}
+          {/* toate motivele de restricție, afișate simultan (CTA + durată etc.) */}
+          {datesValid && reasons.length > 0 && (
+            <div className="space-y-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
+              <div className="flex items-center gap-2 font-medium text-destructive">
+                <Ban className="h-4 w-4 shrink-0" />
+                {t("bookings.restrictions_title")}
+              </div>
+              <ul className="ml-6 list-disc space-y-0.5 text-destructive">
+                {reasons.map((r) => (
+                  <li key={r}>{t(RESTRICTION_LABEL[r])}</li>
+                ))}
+              </ul>
+              {canOverride && (
+                <button
+                  type="button"
+                  onClick={() => setOverride((v) => !v)}
+                  className={cn(
+                    "mt-1 flex w-full items-center gap-2 rounded border px-3 py-1.5 text-left text-xs transition-colors",
+                    override
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-destructive/40 text-muted-foreground hover:bg-background"
+                  )}
+                >
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    <span className="font-semibold">{t("bookings.override")}</span>
+                    {" — "}{t("bookings.override_hint")}
+                  </span>
+                  <span className="ml-auto font-semibold">{override ? "ON" : "OFF"}</span>
+                </button>
+              )}
             </div>
           )}
           {noFreeUnits && (
@@ -385,7 +430,7 @@ export function BookingFormDialog({
           )}
           <Button
             type="submit" className="w-full"
-            disabled={form.formState.isSubmitting || noFreeUnits || isClosed}
+            disabled={form.formState.isSubmitting || noFreeUnits || blockedByRules}
           >
             {t("common.save")}
           </Button>

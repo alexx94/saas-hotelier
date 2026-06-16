@@ -1865,4 +1865,285 @@ begin
   else raise exception 'TEST 54c FAIL: lipsește evenimentul cu config weekend'; end if;
 end $$;
 
+-- ============================================================
+-- Sprint 4.7 — Stay Restrictions (arrival/departure, CTA/CTD, gap, override)
+-- ============================================================
+-- tip dedicat pe proprietatea publicată 'hotel-test', 2 camere, turnover 0 inițial
+insert into unit_types (id, org_id, property_id, name, max_adults, max_children,
+                        base_price, turnover_days)
+values ('300000ee-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001', 'Arrivals', 2, 1, 100, 0);
+insert into units (id, org_id, property_id, unit_type_id, name) values
+  ('400000ee-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001', '300000ee-0000-0000-0000-000000000001', 'Arr 1'),
+  ('400000ee-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001', '300000ee-0000-0000-0000-000000000001', 'Arr 2');
+-- membru 'staff' (fără drept de override) în org A
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000000e', 'staff-a@test.ro');
+insert into organization_members (org_id, user_id, role) values
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000e', 'staff');
+
+-- reguli de sosire/plecare (insert direct = superuser, bypass RLS pentru fixture)
+do $$
+begin
+  -- R1: fără sosiri în ziua DOW a lui 2034-09-15, în septembrie 2034 (DOW restriction)
+  insert into arrival_rules (org_id, property_id, unit_type_id, name, start_date, end_date, weekdays, no_arrival)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000ee-0000-0000-0000-000000000001','Fără sosiri DOW','2034-09-01','2034-09-30',
+          array[extract(dow from date '2034-09-15')::int], true);
+  -- R2: fără plecări în ziua DOW a lui 2034-10-20, în octombrie 2034
+  insert into arrival_rules (org_id, property_id, unit_type_id, name, start_date, end_date, weekdays, no_departure)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000ee-0000-0000-0000-000000000001','Fără plecări DOW','2034-10-01','2034-10-31',
+          array[extract(dow from date '2034-10-20')::int], true);
+  -- R3: CTA pe dată fixă 2034-12-20 (weekdays null = toată perioada)
+  insert into arrival_rules (org_id, property_id, unit_type_id, name, start_date, end_date, no_arrival)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000ee-0000-0000-0000-000000000001','CTA 20 dec','2034-12-20','2034-12-20', true);
+  -- R4: CTD pe dată fixă 2034-12-31
+  insert into arrival_rules (org_id, property_id, unit_type_id, name, start_date, end_date, no_departure)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000ee-0000-0000-0000-000000000001','CTD 31 dec','2034-12-31','2034-12-31', true);
+end $$;
+
+-- ---------- TEST 55: restricție de sosire pe zi a săptămânii (DOW) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_b uuid;
+begin
+  -- 55a: sosire în ziua interzisă => NO_ARRIVAL
+  begin
+    perform public.create_booking('300000ee-0000-0000-0000-000000000001'::uuid,
+      '2034-09-15','2034-09-17','50000000-0000-0000-0000-000000000001'::uuid);
+    raise exception 'TEST 55a FAIL: sosire în zi interzisă acceptată';
+  exception when others then
+    if sqlerrm like '%NO_ARRIVAL%' then raise notice 'TEST 55a PASS: sosire DOW interzisă => NO_ARRIVAL';
+    else raise; end if;
+  end;
+  -- 55b: sosire în zi permisă (ziua următoare, alt DOW) => OK
+  v_b := public.create_booking('300000ee-0000-0000-0000-000000000001'::uuid,
+    '2034-09-16','2034-09-18','50000000-0000-0000-0000-000000000001'::uuid);
+  if v_b is not null then raise notice 'TEST 55b PASS: sosire în zi permisă => OK';
+  else raise exception 'TEST 55b FAIL: rezervarea nu s-a creat'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 56: restricție de plecare pe zi a săptămânii (DOW) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+begin
+  -- plecare în ziua DOW interzisă => NO_DEPARTURE
+  begin
+    perform public.create_booking('300000ee-0000-0000-0000-000000000001'::uuid,
+      '2034-10-18','2034-10-20','50000000-0000-0000-0000-000000000001'::uuid);
+    raise exception 'TEST 56 FAIL: plecare în zi interzisă acceptată';
+  exception when others then
+    if sqlerrm like '%NO_DEPARTURE%' then raise notice 'TEST 56 PASS: plecare DOW interzisă => NO_DEPARTURE';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 57: CTA / CTD pe dată fixă (weekdays null) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_b uuid;
+begin
+  -- 57a: CTA 20 dec => NO_ARRIVAL
+  begin
+    perform public.create_booking('300000ee-0000-0000-0000-000000000001'::uuid,
+      '2034-12-20','2034-12-22','50000000-0000-0000-0000-000000000001'::uuid);
+    raise exception 'TEST 57a FAIL: sosire pe CTA acceptată';
+  exception when others then
+    if sqlerrm like '%NO_ARRIVAL%' then raise notice 'TEST 57a PASS: CTA pe dată fixă => NO_ARRIVAL';
+    else raise; end if;
+  end;
+  -- 57b: sosire pe 21 dec (în afara CTA) => OK
+  v_b := public.create_booking('300000ee-0000-0000-0000-000000000001'::uuid,
+    '2034-12-21','2034-12-23','50000000-0000-0000-0000-000000000001'::uuid);
+  if v_b is not null then raise notice 'TEST 57b PASS: sosire în afara CTA => OK';
+  else raise exception 'TEST 57b FAIL: rezervarea nu s-a creat'; end if;
+  -- 57c: CTD 31 dec => NO_DEPARTURE
+  begin
+    perform public.create_booking('300000ee-0000-0000-0000-000000000001'::uuid,
+      '2034-12-28','2034-12-31','50000000-0000-0000-0000-000000000001'::uuid);
+    raise exception 'TEST 57c FAIL: plecare pe CTD acceptată';
+  exception when others then
+    if sqlerrm like '%NO_DEPARTURE%' then raise notice 'TEST 57c PASS: CTD pe dată fixă => NO_DEPARTURE';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 58: Manager Override (owner bypass; staff interzis) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_b uuid;
+begin
+  -- 58a: owner cu override forțează sosirea pe CTA
+  v_b := public.create_booking(
+    p_unit_type_id => '300000ee-0000-0000-0000-000000000001'::uuid,
+    p_check_in => '2034-12-20', p_check_out => '2034-12-22',
+    p_guest_id => '50000000-0000-0000-0000-000000000001'::uuid,
+    p_override => true);
+  if v_b is not null then raise notice 'TEST 58a PASS: Manager Override creează rezervarea peste CTA';
+  else raise exception 'TEST 58a FAIL: override nu a creat rezervarea'; end if;
+end $$;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000e","role":"authenticated"}';
+do $$
+begin
+  -- 58b: staff NU poate folosi override => OVERRIDE_FORBIDDEN
+  begin
+    perform public.create_booking(
+      p_unit_type_id => '300000ee-0000-0000-0000-000000000001'::uuid,
+      p_check_in => '2034-12-20', p_check_out => '2034-12-22',
+      p_guest_id => '50000000-0000-0000-0000-000000000001'::uuid,
+      p_override => true);
+    raise exception 'TEST 58b FAIL: staff a putut folosi override';
+  exception when others then
+    if sqlerrm like '%OVERRIDE_FORBIDDEN%' then raise notice 'TEST 58b PASS: staff fără override => OVERRIDE_FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 59: get_booking_restrictions (toate motivele) + anon ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v jsonb;
+begin
+  -- 59a: pe CTA => reasons conține NO_ARRIVAL
+  v := public.get_booking_restrictions('300000ee-0000-0000-0000-000000000001', '2034-12-20', '2034-12-22');
+  if v->'reasons' @> '["NO_ARRIVAL"]'::jsonb then
+    raise notice 'TEST 59a PASS: get_booking_restrictions raportează NO_ARRIVAL';
+  else raise exception 'TEST 59a FAIL: %', v; end if;
+  -- 59b: dată curată => reasons gol
+  v := public.get_booking_restrictions('300000ee-0000-0000-0000-000000000001', '2034-11-05', '2034-11-07');
+  if v->'reasons' = '[]'::jsonb then
+    raise notice 'TEST 59b PASS: dată fără restricții => reasons gol';
+  else raise exception 'TEST 59b FAIL: %', v; end if;
+end $$;
+reset role;
+
+-- 59c: anon nu are execute pe get_booking_restrictions (aserție pe privilegiu —
+--      NU apelăm funcția: în acest build Postgres, un apel revocat sub rolul anon
+--      poate declanșa un segfault JIT; calea e oricum inaccesibilă în producție)
+do $$
+begin
+  if has_function_privilege('anon',
+       'public.get_booking_restrictions(uuid,date,date)', 'execute') then
+    raise exception 'TEST 59c FAIL: anon are execute pe get_booking_restrictions';
+  end if;
+  raise notice 'TEST 59c PASS: anon fără execute pe get_booking_restrictions';
+end $$;
+
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+declare v int;
+begin
+  -- 59d: anon nu poate citi arrival_rules (RLS, fără grant anon)
+  begin
+    select count(*) into v from public.arrival_rules;
+    raise exception 'TEST 59d FAIL: anon a citit arrival_rules';
+  exception when insufficient_privilege then
+    raise notice 'TEST 59d PASS: anon fără select pe arrival_rules';
+  end;
+end $$;
+reset role;
+
+-- 59e: izolare cross-tenant (owner org B nu vede regulile org A)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+begin
+  if not exists (select 1 from public.arrival_rules
+                 where property_id = '20000000-0000-0000-0000-000000000001') then
+    raise notice 'TEST 59e PASS: org B nu vede arrival_rules org A';
+  else raise exception 'TEST 59e FAIL: leak cross-tenant arrival_rules'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 60: flux public — restricția e HARD + filtru availability ----------
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+declare v_cnt int;
+begin
+  -- 60a: public nu poate sosi pe CTA (fără override pe flux public)
+  begin
+    perform public_create_booking('hotel-test','300000ee-0000-0000-0000-000000000001',
+      '2034-12-20','2034-12-22','Public CTA','publiccta@test.ro','0700000099', 1, 0, null);
+    raise exception 'TEST 60a FAIL: public a sosit pe CTA';
+  exception when others then
+    if sqlerrm like '%NO_ARRIVAL%' then raise notice 'TEST 60a PASS: public CTA => NO_ARRIVAL';
+    else raise; end if;
+  end;
+  -- 60b: availability exclude tipul cu sosirea închisă pe acea dată
+  select count(*) into v_cnt from public.public_get_availability('hotel-test','2034-12-20','2034-12-22')
+   where unit_type_id = '300000ee-0000-0000-0000-000000000001';
+  if v_cnt = 0 then raise notice 'TEST 60b PASS: tip cu CTA exclus din availability';
+  else raise exception 'TEST 60b FAIL: tip cu CTA prezent în availability'; end if;
+  -- 60c: pe dată curată, tipul apare în availability
+  select count(*) into v_cnt from public.public_get_availability('hotel-test','2034-11-05','2034-11-07')
+   where unit_type_id = '300000ee-0000-0000-0000-000000000001';
+  if v_cnt = 1 then raise notice 'TEST 60c PASS: tip disponibil pe dată curată';
+  else raise exception 'TEST 60c FAIL: tipul lipsește din availability pe dată curată'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 61: gap de curățenie (turnover_days) — fizic, per unitate ----------
+update unit_types set turnover_days = 2 where id = '300000ee-0000-0000-0000-000000000001';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_a uuid; v_b uuid;
+begin
+  -- A pe Arr 1: 10–13 iulie 2034
+  v_a := public.create_booking('300000ee-0000-0000-0000-000000000001'::uuid,
+    '2034-07-10','2034-07-13','50000000-0000-0000-0000-000000000001'::uuid,
+    '400000ee-0000-0000-0000-000000000001'::uuid);
+  -- 61a: B pe Arr 1 cu gap 1 (< turnover 2) => UNIT_NOT_AVAILABLE
+  begin
+    perform public.create_booking('300000ee-0000-0000-0000-000000000001'::uuid,
+      '2034-07-14','2034-07-16','50000000-0000-0000-0000-000000000001'::uuid,
+      '400000ee-0000-0000-0000-000000000001'::uuid);
+    raise exception 'TEST 61a FAIL: gap insuficient acceptat';
+  exception when others then
+    if sqlerrm like '%UNIT_NOT_AVAILABLE%' then raise notice 'TEST 61a PASS: gap 1 < turnover 2 => UNIT_NOT_AVAILABLE';
+    else raise; end if;
+  end;
+  -- 61b: B pe Arr 1 cu gap exact 2 => OK
+  v_b := public.create_booking('300000ee-0000-0000-0000-000000000001'::uuid,
+    '2034-07-15','2034-07-17','50000000-0000-0000-0000-000000000001'::uuid,
+    '400000ee-0000-0000-0000-000000000001'::uuid);
+  if v_b is not null then raise notice 'TEST 61b PASS: gap 2 = turnover => OK';
+  else raise exception 'TEST 61b FAIL: rezervarea cu gap suficient nu s-a creat'; end if;
+end $$;
+reset role;
+
+-- 61c: get_available_units reflectă gap-ul (Arr 1 ocupată pentru date adiacente)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_free boolean;
+begin
+  select is_free into v_free from public.get_available_units(
+    '300000ee-0000-0000-0000-000000000001','2034-07-14','2034-07-16')
+   where unit_id = '400000ee-0000-0000-0000-000000000001';
+  if v_free = false then raise notice 'TEST 61c PASS: get_available_units marchează gap-ul ca ocupat';
+  else raise exception 'TEST 61c FAIL: gap-ul nu se reflectă în get_available_units'; end if;
+end $$;
+reset role;
+update unit_types set turnover_days = 0 where id = '300000ee-0000-0000-0000-000000000001';
+
 rollback;

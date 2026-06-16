@@ -11,8 +11,16 @@ export type Closure = Tables<"closures">
 export type ClosureReason = "seasonal" | "event" | "maintenance" | "other"
 export const CLOSURE_REASONS: ClosureReason[] = ["seasonal", "event", "maintenance", "other"]
 
+// Restricții de sosire/plecare (CTA/CTD pe zi a săptămânii sau dată fixă), cu scope:
+// unit_type_id null = toată proprietatea. weekdays null/gol = orice zi din interval.
+export type ArrivalRule = Tables<"arrival_rules">
+
 // Min/max stay efective pentru un tip la o dată de check-in (din get_stay_constraints).
 export type StayConstraints = { min_stay: number; max_stay: number }
+
+// Coduri de restricție „soft" întoarse de get_booking_restrictions (afișate simultan).
+export type RestrictionReason =
+  | "DATES_CLOSED" | "STAY_TOO_SHORT" | "STAY_TOO_LONG" | "NO_ARRIVAL" | "NO_DEPARTURE"
 
 // Listele cresc în timp → paginate cu „Afișează mai mult" (ca rate_rules).
 export const RULES_PAGE_SIZE = 15
@@ -89,7 +97,64 @@ export async function deleteClosure(id: string): Promise<void> {
   if (error) throw error
 }
 
+// ─── arrival_rules ───────────────────────────────────────────────────────────────
+
+export async function fetchArrivalRules(propertyId: string, page: number): Promise<Page<ArrivalRule>> {
+  const [from, to] = pageRange(page, RULES_PAGE_SIZE)
+  const { data, error } = await supabase
+    .from("arrival_rules")
+    .select("*")
+    .eq("property_id", propertyId)
+    .order("start_date", { ascending: true })
+    .order("id", { ascending: true })
+    .range(from, to)
+  if (error) throw error
+  return toPage(data, RULES_PAGE_SIZE)
+}
+
+// Toate restricțiile care ating un interval (pentru calendar — mărginit de interval,
+// nepaginat, ca fetchClosuresInRange).
+export async function fetchArrivalRulesInRange(
+  propertyId: string,
+  from: string,
+  to: string
+): Promise<ArrivalRule[]> {
+  const { data, error } = await supabase
+    .from("arrival_rules")
+    .select("*")
+    .eq("property_id", propertyId)
+    .lte("start_date", to)
+    .gte("end_date", from)
+  if (error) throw error
+  return data
+}
+
+export async function createArrivalRule(input: TablesInsert<"arrival_rules">): Promise<void> {
+  const { error } = await supabase.from("arrival_rules").insert(input)
+  if (error) throw error
+}
+
+export async function deleteArrivalRule(id: string): Promise<void> {
+  const { error } = await supabase.from("arrival_rules").delete().eq("id", id)
+  if (error) throw error
+}
+
 // ─── constrângeri efective (UI booking form) ─────────────────────────────────────
+
+// Toate motivele „soft" pentru un tip + interval (afișate simultan în formular).
+export async function getBookingRestrictions(
+  unitTypeId: string,
+  checkIn: string,
+  checkOut: string
+): Promise<RestrictionReason[]> {
+  const { data, error } = await supabase.rpc("get_booking_restrictions", {
+    p_unit_type_id: unitTypeId,
+    p_check_in: checkIn,
+    p_check_out: checkOut,
+  })
+  if (error) throw error
+  return ((data as { reasons?: RestrictionReason[] } | null)?.reasons ?? [])
+}
 
 export async function getStayConstraints(
   unitTypeId: string,

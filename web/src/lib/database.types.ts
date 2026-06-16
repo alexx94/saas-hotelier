@@ -34,6 +34,73 @@ export type Database = {
   }
   public: {
     Tables: {
+      arrival_rules: {
+        Row: {
+          created_at: string
+          end_date: string
+          id: string
+          name: string
+          no_arrival: boolean
+          no_departure: boolean
+          org_id: string
+          property_id: string
+          start_date: string
+          unit_type_id: string | null
+          updated_at: string
+          weekdays: number[] | null
+        }
+        Insert: {
+          created_at?: string
+          end_date: string
+          id?: string
+          name: string
+          no_arrival?: boolean
+          no_departure?: boolean
+          org_id: string
+          property_id: string
+          start_date: string
+          unit_type_id?: string | null
+          updated_at?: string
+          weekdays?: number[] | null
+        }
+        Update: {
+          created_at?: string
+          end_date?: string
+          id?: string
+          name?: string
+          no_arrival?: boolean
+          no_departure?: boolean
+          org_id?: string
+          property_id?: string
+          start_date?: string
+          unit_type_id?: string | null
+          updated_at?: string
+          weekdays?: number[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "arrival_rules_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "arrival_rules_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "arrival_rules_unit_type_id_fkey"
+            columns: ["unit_type_id"]
+            isOneToOne: false
+            referencedRelation: "unit_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       booking_events: {
         Row: {
           actor_id: string | null
@@ -849,6 +916,7 @@ export type Database = {
           org_id: string
           property_id: string
           sort_order: number
+          turnover_days: number
           weekend_adjustment_type: string
           weekend_adjustment_value: number
           weekend_days: number[]
@@ -867,6 +935,7 @@ export type Database = {
           org_id: string
           property_id: string
           sort_order?: number
+          turnover_days?: number
           weekend_adjustment_type?: string
           weekend_adjustment_value?: number
           weekend_days?: number[]
@@ -885,6 +954,7 @@ export type Database = {
           org_id?: string
           property_id?: string
           sort_order?: number
+          turnover_days?: number
           weekend_adjustment_type?: string
           weekend_adjustment_value?: number
           weekend_days?: number[]
@@ -1000,6 +1070,7 @@ export type Database = {
           p_children?: number
           p_guest_id?: string
           p_notes?: string
+          p_override?: boolean
           p_status?: string
           p_unit_id?: string
           p_unit_type_id: string
@@ -1041,6 +1112,14 @@ export type Database = {
           status: string
           unit_id: string
         }[]
+      }
+      get_booking_restrictions: {
+        Args: {
+          p_check_in: string
+          p_check_out: string
+          p_unit_type_id: string
+        }
+        Returns: Json
       }
       get_guest_stats: {
         Args: { p_guest_id: string }
@@ -1139,7 +1218,12 @@ export type Database = {
       }
       remove_block: { Args: { p_block_id: string }; Returns: undefined }
       update_booking_dates: {
-        Args: { p_booking_id: string; p_check_in: string; p_check_out: string }
+        Args: {
+          p_booking_id: string
+          p_check_in: string
+          p_check_out: string
+          p_override?: boolean
+        }
         Returns: undefined
       }
     }
