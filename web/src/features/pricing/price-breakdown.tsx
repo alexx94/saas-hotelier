@@ -12,7 +12,9 @@ function nightLabel(kind: string): string {
 // Detaliul de preț per-noapte (override/sezon/base + marcaj weekend) + totalul.
 // Reutilizat la estimarea rezervării și pe pagina rezervării (snapshot).
 export function PriceBreakdown({ quote }: { quote: PriceQuote }) {
-  const { currency, nights, total } = quote
+  const { currency, nights, total, subtotal, promotion } = quote
+  const discount = quote.discount ?? 0
+  const hasDiscount = !!promotion?.applied && discount > 0
   return (
     <div className="rounded-md border text-sm">
       <ul className="divide-y">
@@ -31,8 +33,25 @@ export function PriceBreakdown({ quote }: { quote: PriceQuote }) {
           </li>
         ))}
       </ul>
+      {hasDiscount && (
+        <>
+          <div className="flex items-center justify-between border-t px-3 py-1.5 text-muted-foreground">
+            <span>{t("pricing.subtotal")} · {nights.length} {t("bookings.nights")}</span>
+            <span className="tabular-nums">{formatMoney(subtotal, currency)}</span>
+          </div>
+          <div className="flex items-center justify-between px-3 py-1.5 text-emerald-600 dark:text-emerald-400">
+            <span className="flex items-center gap-2">
+              {t("pricing.discount")}
+              {promotion?.code
+                ? <Badge variant="outline" className="text-[10px]">{promotion.code}</Badge>
+                : promotion?.name && <Badge variant="outline" className="text-[10px]">{promotion.name}</Badge>}
+            </span>
+            <span className="tabular-nums">−{formatMoney(discount, currency)}</span>
+          </div>
+        </>
+      )}
       <div className="flex items-center justify-between border-t px-3 py-2 font-medium">
-        <span>{t("pricing.nights_total")} · {nights.length} {t("bookings.nights")}</span>
+        <span>{hasDiscount ? t("pricing.nights_total") : `${t("pricing.nights_total")} · ${nights.length} ${t("bookings.nights")}`}</span>
         <span className="tabular-nums">{formatMoney(total, currency)}</span>
       </div>
     </div>

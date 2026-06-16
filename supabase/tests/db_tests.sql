@@ -1367,13 +1367,14 @@ reset role;
 do $$
 declare v_pricing int; v_dubla int; v_ppn numeric;
 begin
-  -- adults=3: tipul Pricing (max 4) apare; Dubla standard (max 2) NU
-  select count(*) filter (where name = 'Pricing'),
-         count(*) filter (where name = 'Dubla standard')
+  -- adults=3: tipul Pricing (max 4) e rezervabil (reason NULL); Dubla standard (max 2)
+  -- apare dar marcat reason=OCCUPANCY (lista arată toate camerele, cu motivul)
+  select count(*) filter (where name = 'Pricing' and reason is null),
+         count(*) filter (where name = 'Dubla standard' and reason = 'OCCUPANCY')
     into v_pricing, v_dubla
   from public.public_get_availability('hotel-test','2029-08-01','2029-08-04', 3, 0);
-  if v_pricing = 1 and v_dubla = 0 then
-    raise notice 'TEST 40a PASS: ocupare 3 adulți filtrează tipurile cu max < 3';
+  if v_pricing = 1 and v_dubla = 1 then
+    raise notice 'TEST 40a PASS: ocupare 3 adulți → Pricing rezervabil, Dubla cu reason=OCCUPANCY';
   else raise exception 'TEST 40a FAIL: pricing=% dubla=%', v_pricing, v_dubla; end if;
 
   -- preț/noapte vine din engine (base 100, fără reguli pe august)
@@ -1681,17 +1682,18 @@ begin
   end;
 end $$;
 reset role;
--- 49b: public_get_availability => 0 rezultate în interval; rezultate în afară
+-- 49b: în interval închis NIMIC nu e rezervabil (toate reason=CLOSED); în afară DA
 do $$
 declare v_in int; v_out int;
 begin
-  select count(*) into v_in from public.public_get_availability(
-    'hotel-test','2031-07-10','2031-07-13', 1, 0);
-  select count(*) into v_out from public.public_get_availability(
-    'hotel-test','2031-08-10','2031-08-13', 1, 0);
+  -- niciun tip rezervabil în interval (reason NULL = 0); toate marcate CLOSED
+  select count(*) filter (where reason is null) into v_in
+  from public.public_get_availability('hotel-test','2031-07-10','2031-07-13', 1, 0);
+  select count(*) filter (where reason is null) into v_out
+  from public.public_get_availability('hotel-test','2031-08-10','2031-08-13', 1, 0);
   if v_in = 0 and v_out > 0 then
-    raise notice 'TEST 49b PASS: availability 0 în interval închis, > 0 în afară';
-  else raise exception 'TEST 49b FAIL: in=% out=%', v_in, v_out; end if;
+    raise notice 'TEST 49b PASS: nimic rezervabil în interval închis, rezervabil în afară';
+  else raise exception 'TEST 49b FAIL: rezervabile in=% out=%', v_in, v_out; end if;
 end $$;
 -- curățăm închiderea property-scope ca să nu afecteze testul de type-scope
 do $$ begin
@@ -2088,16 +2090,17 @@ begin
     if sqlerrm like '%NO_ARRIVAL%' then raise notice 'TEST 60a PASS: public CTA => NO_ARRIVAL';
     else raise; end if;
   end;
-  -- 60b: availability exclude tipul cu sosirea închisă pe acea dată
+  -- 60b: availability ÎNTOARCE tipul cu sosirea închisă, dar marcat reason=NO_ARRIVAL
+  --       (nu mai filtrează — afișează toate camerele cu motivul, à la Booking.com)
   select count(*) into v_cnt from public.public_get_availability('hotel-test','2034-12-20','2034-12-22')
-   where unit_type_id = '300000ee-0000-0000-0000-000000000001';
-  if v_cnt = 0 then raise notice 'TEST 60b PASS: tip cu CTA exclus din availability';
-  else raise exception 'TEST 60b FAIL: tip cu CTA prezent în availability'; end if;
-  -- 60c: pe dată curată, tipul apare în availability
+   where unit_type_id = '300000ee-0000-0000-0000-000000000001' and reason = 'NO_ARRIVAL';
+  if v_cnt = 1 then raise notice 'TEST 60b PASS: tip cu CTA prezent cu reason=NO_ARRIVAL';
+  else raise exception 'TEST 60b FAIL: tipul cu CTA n-are reason=NO_ARRIVAL'; end if;
+  -- 60c: pe dată curată, tipul e rezervabil (reason NULL)
   select count(*) into v_cnt from public.public_get_availability('hotel-test','2034-11-05','2034-11-07')
-   where unit_type_id = '300000ee-0000-0000-0000-000000000001';
-  if v_cnt = 1 then raise notice 'TEST 60c PASS: tip disponibil pe dată curată';
-  else raise exception 'TEST 60c FAIL: tipul lipsește din availability pe dată curată'; end if;
+   where unit_type_id = '300000ee-0000-0000-0000-000000000001' and reason is null;
+  if v_cnt = 1 then raise notice 'TEST 60c PASS: tip rezervabil pe dată curată (reason NULL)';
+  else raise exception 'TEST 60c FAIL: tipul nu e rezervabil pe dată curată'; end if;
 end $$;
 reset role;
 
@@ -2145,5 +2148,394 @@ begin
 end $$;
 reset role;
 update unit_types set turnover_days = 0 where id = '300000ee-0000-0000-0000-000000000001';
+
+-- ============================================================
+-- Sprint 4.8 — Promotions & Commercial Rules
+-- ============================================================
+-- tip dedicat (base 100, 2 camere) pe proprietatea publicată 'hotel-test'
+insert into unit_types (id, org_id, property_id, name, max_adults, max_children, base_price)
+values ('300000ff-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001', 'Promo', 2, 1, 100);
+insert into units (id, org_id, property_id, unit_type_id, name) values
+  ('400000ff-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001', '300000ff-0000-0000-0000-000000000001', 'Promo 1'),
+  ('400000ff-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001', '300000ff-0000-0000-0000-000000000001', 'Promo 2');
+
+-- promoții (insert direct = superuser, bypass RLS pentru fixture)
+do $$
+declare v_p1 uuid; v_p2 uuid; v_p3 uuid; v_p4 uuid; v_p5 uuid; v_p6 uuid; v_ps uuid;
+begin
+  -- P1: cod SUMMER10, -10%
+  insert into promotions (org_id, property_id, name, code, discount_type, discount_value)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          'Vara','SUMMER10','percent',10) returning id into v_p1;
+  -- P2: early booking automat (min_advance_days 60), -15%
+  insert into promotions (org_id, property_id, name, discount_type, discount_value)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          'Early','percent',15) returning id into v_p2;
+  insert into promotion_rules (promotion_id, rule_type, value) values (v_p2, 'min_advance_days', 60);
+  -- P3: stay discount automat (min_nights 7), -10%
+  insert into promotions (org_id, property_id, name, discount_type, discount_value)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          'Stay7','percent',10) returning id into v_p3;
+  insert into promotion_rules (promotion_id, rule_type, value) values (v_p3, 'min_nights', 7);
+  -- P4: long stay automat (min_nights 30), -25%
+  insert into promotions (org_id, property_id, name, discount_type, discount_value)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          'Long30','percent',25) returning id into v_p4;
+  insert into promotion_rules (promotion_id, rule_type, value) values (v_p4, 'min_nights', 30);
+  -- P5: cod LIMITED, -50%, max 1 utilizare
+  insert into promotions (org_id, property_id, name, code, discount_type, discount_value, max_uses)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          'Limitat','LIMITED','percent',50,1) returning id into v_p5;
+  -- P6: last minute automat (max_advance_hours 72), -20%
+  insert into promotions (org_id, property_id, name, discount_type, discount_value)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          'LastMin','percent',20) returning id into v_p6;
+  insert into promotion_rules (promotion_id, rule_type, value) values (v_p6, 'max_advance_hours', 72);
+  -- P_scoped: cod SCOPED legat de ALT tip (300000ee) → nu se aplică pe tipul Promo
+  insert into promotions (org_id, property_id, unit_type_id, name, code, discount_type, discount_value)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '300000ee-0000-0000-0000-000000000001','Scoped','SCOPED','percent',30) returning id into v_ps;
+end $$;
+
+-- ---------- TEST 62: cod promo (percent) — reducere + snapshot ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_id uuid; v_b record;
+begin
+  -- dată „neutră" (la 10 zile): nicio automată nu se potrivește (early ≥60z, last-minute ≤72h)
+  -- → testăm codul pur, fără best-of
+  v_id := public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+    current_date + 10, current_date + 12, '50000000-0000-0000-0000-000000000001'::uuid,
+    null, 2, 0, 'confirmed', null, false, 'SUMMER10');
+  select total_amount, discount_amount, promotion_id, (price_breakdown->>'subtotal')::numeric as sub
+    into v_b from bookings where id = v_id;
+  if v_b.discount_amount = round(v_b.sub * 0.10, 2)
+     and v_b.total_amount = v_b.sub - v_b.discount_amount
+     and v_b.promotion_id is not null then
+    raise notice 'TEST 62 PASS: cod -10%% aplicat (subtotal %, discount %, total %)', v_b.sub, v_b.discount_amount, v_b.total_amount;
+  else raise exception 'TEST 62 FAIL: sub=% disc=% total=% promo=%', v_b.sub, v_b.discount_amount, v_b.total_amount, v_b.promotion_id; end if;
+  -- usage incrementat
+  if (select uses_count from promotions where code = 'SUMMER10') = 1 then
+    raise notice 'TEST 62b PASS: uses_count incrementat la 1';
+  else raise exception 'TEST 62b FAIL: uses_count=%', (select uses_count from promotions where code = 'SUMMER10'); end if;
+end $$;
+reset role;
+
+-- ---------- TEST 63: promoție automată (early booking) fără cod ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_id uuid; v_b record;
+begin
+  -- 2 nopți, 2035 (advance >> 60) → doar early booking (15%) se potrivește dintre automate
+  v_id := public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+    '2035-03-10','2035-03-12','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+  select total_amount, discount_amount, (price_breakdown->>'subtotal')::numeric as sub,
+         price_breakdown->'promotion'->>'name' as pname
+    into v_b from bookings where id = v_id;
+  if v_b.discount_amount = round(v_b.sub * 0.15, 2) and v_b.pname = 'Early' then
+    raise notice 'TEST 63 PASS: early booking automat -15%% (fără cod)';
+  else raise exception 'TEST 63 FAIL: disc=% name=%', v_b.discount_amount, v_b.pname; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 64: cea mai bună reducere câștigă între automate ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_id uuid; v_b record;
+begin
+  -- 30 nopți → early(15) + stay7(10) + long30(25) se potrivesc → câștigă long 25%
+  v_id := public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+    '2035-04-01','2035-05-01','50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+  select discount_amount, (price_breakdown->>'subtotal')::numeric as sub,
+         price_breakdown->'promotion'->>'name' as pname
+    into v_b from bookings where id = v_id;
+  if v_b.discount_amount = round(v_b.sub * 0.25, 2) and v_b.pname = 'Long30' then
+    raise notice 'TEST 64 PASS: cea mai mare reducere câștigă (long 25%%)';
+  else raise exception 'TEST 64 FAIL: disc=% name=%', v_b.discount_amount, v_b.pname; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 65: cod invalid / neeligibil => PROMO_INVALID ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+begin
+  -- date „neutre" (fără automată care să se aplice ca fallback), ca un cod invalid
+  -- să ducă efectiv la PROMO_INVALID (nu la o automată best-of)
+  -- 65a: cod inexistent
+  begin
+    perform public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+      current_date + 13, current_date + 15, '50000000-0000-0000-0000-000000000001'::uuid,
+      null, 2, 0, 'confirmed', null, false, 'NOPE');
+    raise exception 'TEST 65a FAIL: cod inexistent acceptat';
+  exception when others then
+    if sqlerrm like '%PROMO_INVALID%' then raise notice 'TEST 65a PASS: cod inexistent => PROMO_INVALID';
+    else raise; end if;
+  end;
+  -- 65b: cod legat de alt tip (SCOPED pe 300000ee) folosit pe tipul Promo => PROMO_INVALID
+  begin
+    perform public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+      current_date + 13, current_date + 15, '50000000-0000-0000-0000-000000000001'::uuid,
+      null, 2, 0, 'confirmed', null, false, 'SCOPED');
+    raise exception 'TEST 65b FAIL: cod din alt scope acceptat';
+  exception when others then
+    if sqlerrm like '%PROMO_INVALID%' then raise notice 'TEST 65b PASS: cod cu scope greșit => PROMO_INVALID';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 66: limită de utilizări (max_uses) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  -- date neutre (fără automată fallback) ca epuizarea codului să ducă la respingere
+  -- prima utilizare a codului LIMITED (max 1) => OK
+  v_id := public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+    current_date + 16, current_date + 18, '50000000-0000-0000-0000-000000000001'::uuid,
+    null, 2, 0, 'confirmed', null, false, 'LIMITED');
+  if v_id is null then raise exception 'TEST 66a FAIL: prima utilizare a eșuat'; end if;
+  raise notice 'TEST 66a PASS: prima utilizare a codului LIMITED => OK';
+  -- a doua utilizare => respinsă (cod epuizat, fără automată fallback)
+  begin
+    perform public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+      current_date + 19, current_date + 21, '50000000-0000-0000-0000-000000000001'::uuid,
+      null, 2, 0, 'confirmed', null, false, 'LIMITED');
+    raise exception 'TEST 66b FAIL: codul epuizat a fost acceptat';
+  exception when others then
+    if sqlerrm like '%PROMO_INVALID%' or sqlerrm like '%PROMO_LIMIT_REACHED%' then
+      raise notice 'TEST 66b PASS: cod epuizat respins';
+    else raise; end if;
+  end;
+  if (select uses_count from promotions where code = 'LIMITED') = 1 then
+    raise notice 'TEST 66c PASS: uses_count plafonat la max_uses';
+  else raise exception 'TEST 66c FAIL: uses_count=%', (select uses_count from promotions where code = 'LIMITED'); end if;
+end $$;
+reset role;
+
+-- ---------- TEST 67: last minute (max_advance_hours) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_id uuid; v_b record;
+begin
+  -- sosire mâine (advance < 72h) → last minute (20%) se aplică automat
+  v_id := public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+    current_date + 1, current_date + 3, '50000000-0000-0000-0000-000000000001'::uuid, null, 2, 0);
+  select discount_amount, (price_breakdown->>'subtotal')::numeric as sub,
+         price_breakdown->'promotion'->>'name' as pname
+    into v_b from bookings where id = v_id;
+  if v_b.discount_amount = round(v_b.sub * 0.20, 2) and v_b.pname = 'LastMin' then
+    raise notice 'TEST 67 PASS: last minute automat -20%% (advance < 72h)';
+  else raise exception 'TEST 67 FAIL: disc=% name=%', v_b.discount_amount, v_b.pname; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 68: discount sumă fixă + clamp la subtotal ----------
+do $$
+begin
+  insert into promotions (org_id, property_id, name, code, discount_type, discount_value)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          'Fix mare','FLAT500','amount',500);
+end $$;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_id uuid; v_b record;
+begin
+  -- 1 noapte (subtotal 100) cu FLAT500 → discount plafonat la 100, total 0
+  v_id := public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+    '2035-08-10','2035-08-11','50000000-0000-0000-0000-000000000001'::uuid,
+    null, 2, 0, 'confirmed', null, false, 'FLAT500');
+  select total_amount, discount_amount, (price_breakdown->>'subtotal')::numeric as sub
+    into v_b from bookings where id = v_id;
+  if v_b.discount_amount = v_b.sub and v_b.total_amount = 0 then
+    raise notice 'TEST 68 PASS: discount sumă plafonat la subtotal (total 0)';
+  else raise exception 'TEST 68 FAIL: sub=% disc=% total=%', v_b.sub, v_b.discount_amount, v_b.total_amount; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 69: flux public (cod + preview) ----------
+create temp table _promo69 (booking_id uuid);
+grant insert on _promo69 to anon;
+grant select on _promo69 to authenticated;
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+declare v jsonb; v_res jsonb;
+begin
+  -- 69a: preview public reflectă reducerea codului
+  v := public.public_preview_promo('hotel-test','300000ff-0000-0000-0000-000000000001',
+        '2035-09-10','2035-09-12','SUMMER10');
+  if (v->'promotion'->>'applied')::boolean and (v->>'discount')::numeric > 0
+     and (v->>'total')::numeric = (v->>'subtotal')::numeric - (v->>'discount')::numeric then
+    raise notice 'TEST 69a PASS: public_preview_promo aplică codul';
+  else raise exception 'TEST 69a FAIL: %', v; end if;
+  -- 69b: rezervare publică cu cod (verificarea snapshot-ului se face după reset role,
+  --      anon nu are select pe bookings)
+  v_res := public.public_create_booking('hotel-test','300000ff-0000-0000-0000-000000000001',
+        '2035-09-10','2035-09-12','Public Promo','pp@test.ro','0700000123', 2, 0, null, 'SUMMER10');
+  insert into _promo69 values ((v_res->>'booking_id')::uuid);
+end $$;
+reset role;
+do $$
+begin
+  if exists (select 1 from bookings b join _promo69 t on t.booking_id = b.id
+             where b.discount_amount > 0 and b.promotion_id is not null) then
+    raise notice 'TEST 69b PASS: rezervare publică cu cod aplică reducerea';
+  else raise exception 'TEST 69b FAIL: reducerea nu s-a aplicat pe flux public'; end if;
+end $$;
+
+-- ---------- TEST 70: quote_price cu cod + RLS/izolare ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v jsonb;
+begin
+  -- 70a: quote_price cu cod întoarce reducerea + total ajustat
+  v := public.quote_price('300000ff-0000-0000-0000-000000000001','2035-10-10','2035-10-12','SUMMER10');
+  if (v->'promotion'->>'applied')::boolean
+     and (v->>'total')::numeric = (v->>'subtotal')::numeric - (v->>'discount')::numeric then
+    raise notice 'TEST 70a PASS: quote_price cu cod aplică reducerea';
+  else raise exception 'TEST 70a FAIL: %', v; end if;
+end $$;
+reset role;
+
+-- 70b: anon nu vede promotions; org B nu vede promoțiile org A
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+declare v int;
+begin
+  begin
+    select count(*) into v from public.promotions;
+    raise exception 'TEST 70b FAIL: anon a citit promotions';
+  exception when insufficient_privilege then
+    raise notice 'TEST 70b PASS: anon fără select pe promotions';
+  end;
+end $$;
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v int;
+begin
+  select count(*) into v from public.promotions
+   where property_id = '20000000-0000-0000-0000-000000000001';
+  if v = 0 then raise notice 'TEST 70c PASS: org B nu vede promoțiile org A';
+  else raise exception 'TEST 70c FAIL: leak cross-tenant promotions (%)', v; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 72: best-of (automată mai bună depășește codul, non-stacking) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_id uuid; v_b record;
+begin
+  -- 30 nopți în 2036 + cod SUMMER10 (10%): candidate = cod 10% + automate (early 15,
+  -- stay 10, long 25). Best-of → câștigă long 25%, NU codul. O singură promoție aplicată.
+  v_id := public.create_booking('300000ff-0000-0000-0000-000000000001'::uuid,
+    '2036-01-01','2036-01-31','50000000-0000-0000-0000-000000000001'::uuid,
+    null, 2, 0, 'confirmed', null, false, 'SUMMER10');
+  select discount_amount, (price_breakdown->>'subtotal')::numeric as sub,
+         price_breakdown->'promotion'->>'name' as pname,
+         (price_breakdown->'promotion'->>'code_matched')::boolean as cm
+    into v_b from bookings where id = v_id;
+  if v_b.discount_amount = round(v_b.sub * 0.25, 2) and v_b.pname = 'Long30' and v_b.cm = true then
+    raise notice 'TEST 72 PASS: best-of — automata 25%% bate codul 10%% (cod valid dar depășit)';
+  else raise exception 'TEST 72 FAIL: disc=% name=% code_matched=%', v_b.discount_amount, v_b.pname, v_b.cm; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 71: availability publică „à la Booking.com" (toate tipurile + reason + reducere) ----------
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$
+declare v_r record;
+begin
+  -- 71a: tip Promo rezervabil pe dată liberă (2 nopți, 2035) → reason NULL + reducere automată
+  --      (early booking -15%, advance >> 60 zile)
+  select reason, discount, promo_label, total_price into v_r
+    from public.public_get_availability('hotel-test','2035-11-10','2035-11-12')
+   where unit_type_id = '300000ff-0000-0000-0000-000000000001';
+  if v_r.reason is null and v_r.discount = round(v_r.total_price * 0.15, 2) and v_r.promo_label = 'Early' then
+    raise notice 'TEST 71a PASS: tip rezervabil cu reducere automată în listă (-15%%, %)', v_r.promo_label;
+  else raise exception 'TEST 71a FAIL: reason=% disc=% label=% total=%', v_r.reason, v_r.discount, v_r.promo_label, v_r.total_price; end if;
+
+  -- 71b: ocupare depășită → reason OCCUPANCY, fără reducere afișată
+  select reason, discount into v_r
+    from public.public_get_availability('hotel-test','2035-11-10','2035-11-12', 5, 0)
+   where unit_type_id = '300000ff-0000-0000-0000-000000000001';
+  if v_r.reason = 'OCCUPANCY' and v_r.discount = 0 then
+    raise notice 'TEST 71b PASS: ocupare depășită → reason OCCUPANCY (fără reducere)';
+  else raise exception 'TEST 71b FAIL: reason=% disc=%', v_r.reason, v_r.discount; end if;
+
+  -- 71c: sub sejurul minim → tipul tot apare, cu reason STAY_TOO_SHORT (nu mai e filtrat)
+  --      (300000bb are min_stay 3; 2 nopți)
+  select reason, min_stay into v_r
+    from public.public_get_availability('hotel-test','2031-04-10','2031-04-12')
+   where unit_type_id = '300000bb-0000-0000-0000-000000000001';
+  if v_r.reason = 'STAY_TOO_SHORT' and v_r.min_stay = 3 then
+    raise notice 'TEST 71c PASS: sub sejur minim → reason STAY_TOO_SHORT (min %)', v_r.min_stay;
+  else raise exception 'TEST 71c FAIL: reason=% min=%', v_r.reason, v_r.min_stay; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 73: lock identitate financiară după folosire (à la Mews) ----------
+-- promoție NEFOLOSITĂ dedicată (editabilă integral)
+insert into promotions (id, org_id, property_id, name, code, discount_type, discount_value)
+values ('700000ff-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001','Nefolosită','UNUSEDX','percent',20);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+begin
+  -- SUMMER10 a fost folosită în TEST 62 (uses_count >= 1) → identitate financiară blocată
+  -- 73a: schimbarea valorii reducerii => PROMOTION_LOCKED
+  begin
+    update promotions set discount_value = 50 where code = 'SUMMER10';
+    raise exception 'TEST 73a FAIL: valoarea unei promoții folosite a putut fi schimbată';
+  exception when others then
+    if sqlerrm like '%PROMOTION_LOCKED%' then raise notice 'TEST 73a PASS: valoare blocată după folosire => PROMOTION_LOCKED';
+    else raise; end if;
+  end;
+  -- 73b: schimbarea codului => PROMOTION_LOCKED
+  begin
+    update promotions set code = 'SUMMER99' where code = 'SUMMER10';
+    raise exception 'TEST 73b FAIL: codul unei promoții folosite a putut fi schimbat';
+  exception when others then
+    if sqlerrm like '%PROMOTION_LOCKED%' then raise notice 'TEST 73b PASS: cod blocat după folosire => PROMOTION_LOCKED';
+    else raise; end if;
+  end;
+  -- 73c: câmpuri operaționale (limită, perioadă, activ) RĂMÂN editabile chiar și după folosire
+  update promotions set max_uses = 500, stay_end = '2040-12-31', is_active = false
+   where code = 'SUMMER10';
+  raise notice 'TEST 73c PASS: limită/perioadă/activ editabile pe promoție folosită';
+  -- reactivăm ca să nu afectăm alte verificări
+  update promotions set is_active = true, max_uses = null, stay_end = null where code = 'SUMMER10';
+
+  -- 73d: promoție NEFOLOSITĂ → totul editabil (cod + valoare)
+  update promotions set discount_value = 35, code = 'UNUSEDY'
+   where id = '700000ff-0000-0000-0000-000000000001';
+  raise notice 'TEST 73d PASS: promoție nefolosită complet editabilă';
+
+  -- 73e: ștergerea unei promoții folosite => blocată de FK (istoricul protejat)
+  begin
+    delete from promotions where code = 'SUMMER10';
+    raise exception 'TEST 73e FAIL: promoție folosită ștearsă';
+  exception when foreign_key_violation then
+    raise notice 'TEST 73e PASS: ștergerea unei promoții folosite respinsă (FK)';
+  end;
+end $$;
+reset role;
 
 rollback;

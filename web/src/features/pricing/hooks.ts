@@ -12,8 +12,8 @@ export const pricingKeys = {
   overrides: (propertyId: string) => ["rate-overrides", propertyId] as const,
   calendar: (propertyId: string, from: string, to: string) =>
     ["rate-calendar", propertyId, from, to] as const,
-  quote: (unitTypeId: string, checkIn: string, checkOut: string) =>
-    ["price-quote", unitTypeId, checkIn, checkOut] as const,
+  quote: (unitTypeId: string, checkIn: string, checkOut: string, promoCode?: string) =>
+    ["price-quote", unitTypeId, checkIn, checkOut, promoCode ?? ""] as const,
 }
 
 // Liste paginate „Afișează mai mult" (rândul în plus din Page.hasMore decide pagina următoare)
@@ -81,11 +81,12 @@ export function useDeleteRateRule() {
 export function useQuotePrice(
   unitTypeId: string | undefined,
   checkIn: string,
-  checkOut: string
+  checkOut: string,
+  promoCode?: string
 ) {
   return useQuery({
-    queryKey: pricingKeys.quote(unitTypeId ?? "", checkIn, checkOut),
-    queryFn: () => quotePrice(unitTypeId!, checkIn, checkOut),
+    queryKey: pricingKeys.quote(unitTypeId ?? "", checkIn, checkOut, promoCode),
+    queryFn: () => quotePrice(unitTypeId!, checkIn, checkOut, promoCode),
     enabled: !!unitTypeId && !!checkIn && !!checkOut && checkOut > checkIn,
   })
 }

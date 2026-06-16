@@ -13,11 +13,29 @@ export type PriceNight = {
   rate: number
   weekend: boolean
 }
+// Promoția rezolvată (din app.resolve_promotion) — atașată quote-ului/preview-ului.
+export type AppliedPromotion = {
+  applied: boolean
+  // codul introdus a corespuns unei promoții eligibile (chiar dacă a fost depășit de
+  // o promoție automată mai bună — best-of, non-stacking)
+  code_matched?: boolean
+  promotion_id?: string
+  code?: string | null
+  name?: string
+  discount_type?: "percent" | "amount"
+  discount_value?: number
+  discount_amount?: number
+  reason?: string | null
+}
+
 export type PriceQuote = {
   currency: string
   nights: PriceNight[]
   subtotal: number
+  // total = subtotal − discount (după aplicarea promoției, dacă există)
   total: number
+  discount?: number
+  promotion?: AppliedPromotion
   avg_nightly: number
   night_count: number
 }
@@ -109,12 +127,14 @@ export async function deleteRateRule(id: string): Promise<void> {
 export async function quotePrice(
   unitTypeId: string,
   checkIn: string,
-  checkOut: string
+  checkOut: string,
+  promoCode?: string
 ): Promise<PriceQuote> {
   const { data, error } = await supabase.rpc("quote_price", {
     p_unit_type_id: unitTypeId,
     p_check_in: checkIn,
     p_check_out: checkOut,
+    p_promo_code: promoCode?.trim() || undefined,
   })
   if (error) throw error
   return data as unknown as PriceQuote

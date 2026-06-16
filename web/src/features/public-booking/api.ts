@@ -13,6 +13,12 @@ export type PublicProperty = {
   default_locale: string
 }
 
+// Motivul pentru care un tip nu poate fi rezervat (NULL = rezervabil). Prioritate =
+// ordinea verificărilor din motorul de creare (vezi public_get_availability).
+export type AvailabilityReason =
+  | "OCCUPANCY" | "CLOSED" | "STAY_TOO_SHORT" | "STAY_TOO_LONG"
+  | "NO_ARRIVAL" | "NO_DEPARTURE" | "UNAVAILABLE"
+
 export type AvailabilityItem = {
   unit_type_id: string
   name: string
@@ -22,9 +28,12 @@ export type AvailabilityItem = {
   min_stay: number
   max_stay: number
   price_per_night: number
-  total_price: number
+  total_price: number          // subtotal „de raft" (înainte de reducere)
+  discount: number             // reducere automată pe sejur (0 dacă nerezervabil)
+  promo_label: string | null   // cod sau nume al promoției automate
   currency: string
   available_units: number
+  reason: AvailabilityReason | null  // NULL = rezervabil
 }
 
 export async function fetchPublicProperty(slug: string): Promise<PublicProperty> {
@@ -55,6 +64,40 @@ export async function fetchAvailability(
   return (data ?? []) as AvailabilityItem[]
 }
 
+// Preview reducere pe pagina publică (subtotal/discount/total + promoția rezolvată).
+export type PromoPreview = {
+  currency: string
+  subtotal: number
+  discount: number
+  total: number
+  promotion: {
+    applied: boolean
+    code_matched?: boolean
+    code?: string | null
+    name?: string
+    discount_amount?: number
+    reason?: string | null
+  }
+}
+
+export async function previewPromo(
+  slug: string,
+  unitTypeId: string,
+  checkIn: string,
+  checkOut: string,
+  code?: string
+): Promise<PromoPreview> {
+  const { data, error } = await supabase.rpc("public_preview_promo", {
+    p_slug: slug,
+    p_unit_type_id: unitTypeId,
+    p_check_in: checkIn,
+    p_check_out: checkOut,
+    p_code: code?.trim() || undefined,
+  })
+  if (error) throw error
+  return data as unknown as PromoPreview
+}
+
 export type PublicBookingInput = {
   slug: string
   unitTypeId: string
@@ -66,6 +109,7 @@ export type PublicBookingInput = {
   adults: number
   children: number
   notes?: string
+  promoCode?: string
 }
 
 export async function createPublicBooking(
@@ -82,6 +126,7 @@ export async function createPublicBooking(
     p_adults: input.adults,
     p_children: input.children,
     p_notes: input.notes,
+    p_promo_code: input.promoCode?.trim() || undefined,
   })
   if (error) throw error
   return data as { booking_id: string; status: string }

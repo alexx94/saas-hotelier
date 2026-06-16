@@ -6,7 +6,7 @@ import { z } from "zod"
 import { toast } from "sonner"
 import {
   ArchiveRestore, ArrowLeft, Ban, BedDouble, CalendarClock, CalendarX2, ChevronDown, ChevronRight,
-  ExternalLink, History, Pencil, Plus, Tag, Trash2, User,
+  ExternalLink, History, Pencil, Plus, Tag, Ticket, Trash2, User,
 } from "lucide-react"
 import { useProperty, useUpdateProperty } from "@/features/properties/hooks"
 import {
@@ -20,6 +20,7 @@ import { RateRulesDialog } from "@/features/pricing/rate-rules-dialog"
 import { StayRulesDialog } from "@/features/reservation-rules/stay-rules-dialog"
 import { ClosuresDialog } from "@/features/reservation-rules/closures-dialog"
 import { ArrivalRulesDialog } from "@/features/reservation-rules/arrival-rules-dialog"
+import { PromotionsDialog } from "@/features/promotions/promotions-dialog"
 import { WeekendDaysToggle } from "@/features/pricing/weekend-days-toggle"
 import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
 import { DEFAULT_WEEKEND_DAYS } from "@/features/pricing/weekend-pricing"
@@ -314,6 +315,7 @@ function PropertyDetailPage() {
   const [stayRulesType, setStayRulesType] = useState<UnitType | null>(null)
   const [closuresOpen, setClosuresOpen] = useState(false)
   const [arrivalRulesOpen, setArrivalRulesOpen] = useState(false)
+  const [promotionsOpen, setPromotionsOpen] = useState(false)
   // weekend_days e gestionat ca state (toggle-uri), nu prin RHF
   const [createDays, setCreateDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
   const [editDays, setEditDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
@@ -452,6 +454,10 @@ function PropertyDetailPage() {
               </Link>
             </Button>
           )}
+          <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setPromotionsOpen(true)}>
+            <Ticket className="h-4 w-4" />
+            {t("promotions.manage")}
+          </Button>
           <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setArrivalRulesOpen(true)}>
             <CalendarX2 className="h-4 w-4" />
             {t("arrival_rules.manage")}
@@ -606,6 +612,16 @@ function PropertyDetailPage() {
         propertyId={property.id}
         unitTypes={unitTypes ?? []}
         onClose={() => setArrivalRulesOpen(false)}
+      />
+
+      {/* dialog promoții și reduceri (cod sau automate + condiții) */}
+      <PromotionsDialog
+        open={promotionsOpen}
+        orgId={property.org_id}
+        propertyId={property.id}
+        currency={property.currency}
+        unitTypes={unitTypes ?? []}
+        onClose={() => setPromotionsOpen(false)}
       />
     </div>
   )

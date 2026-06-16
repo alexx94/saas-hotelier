@@ -161,6 +161,7 @@ export type Database = {
           children: number
           created_at: string
           currency: string
+          discount_amount: number
           guest_id: string | null
           guests_count: number | null
           id: string
@@ -168,6 +169,7 @@ export type Database = {
           org_id: string
           payment_status: string
           price_breakdown: Json
+          promotion_id: string | null
           property_id: string
           source: string
           status: string
@@ -189,6 +191,7 @@ export type Database = {
           children?: number
           created_at?: string
           currency: string
+          discount_amount?: number
           guest_id?: string | null
           guests_count?: number | null
           id?: string
@@ -196,6 +199,7 @@ export type Database = {
           org_id: string
           payment_status?: string
           price_breakdown?: Json
+          promotion_id?: string | null
           property_id: string
           source?: string
           status?: string
@@ -217,6 +221,7 @@ export type Database = {
           children?: number
           created_at?: string
           currency?: string
+          discount_amount?: number
           guest_id?: string | null
           guests_count?: number | null
           id?: string
@@ -224,6 +229,7 @@ export type Database = {
           org_id?: string
           payment_status?: string
           price_breakdown?: Json
+          promotion_id?: string | null
           property_id?: string
           source?: string
           status?: string
@@ -247,6 +253,13 @@ export type Database = {
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_promotion_id_fkey"
+            columns: ["promotion_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
             referencedColumns: ["id"]
           },
           {
@@ -538,6 +551,120 @@ export type Database = {
             columns: ["property_id"]
             isOneToOne: false
             referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      promotion_rules: {
+        Row: {
+          created_at: string
+          id: string
+          promotion_id: string
+          rule_type: string
+          value: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          promotion_id: string
+          rule_type: string
+          value: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          promotion_id?: string
+          rule_type?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_rules_promotion_id_fkey"
+            columns: ["promotion_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      promotions: {
+        Row: {
+          book_end: string | null
+          book_start: string | null
+          code: string | null
+          created_at: string
+          discount_type: string
+          discount_value: number
+          id: string
+          is_active: boolean
+          max_uses: number | null
+          name: string
+          org_id: string
+          property_id: string
+          stay_end: string | null
+          stay_start: string | null
+          unit_type_id: string | null
+          updated_at: string
+          uses_count: number
+        }
+        Insert: {
+          book_end?: string | null
+          book_start?: string | null
+          code?: string | null
+          created_at?: string
+          discount_type: string
+          discount_value: number
+          id?: string
+          is_active?: boolean
+          max_uses?: number | null
+          name: string
+          org_id: string
+          property_id: string
+          stay_end?: string | null
+          stay_start?: string | null
+          unit_type_id?: string | null
+          updated_at?: string
+          uses_count?: number
+        }
+        Update: {
+          book_end?: string | null
+          book_start?: string | null
+          code?: string | null
+          created_at?: string
+          discount_type?: string
+          discount_value?: number
+          id?: string
+          is_active?: boolean
+          max_uses?: number | null
+          name?: string
+          org_id?: string
+          property_id?: string
+          stay_end?: string | null
+          stay_start?: string | null
+          unit_type_id?: string | null
+          updated_at?: string
+          uses_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotions_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotions_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotions_unit_type_id_fkey"
+            columns: ["unit_type_id"]
+            isOneToOne: false
+            referencedRelation: "unit_types"
             referencedColumns: ["id"]
           },
         ]
@@ -1071,6 +1198,7 @@ export type Database = {
           p_guest_id?: string
           p_notes?: string
           p_override?: boolean
+          p_promo_code?: string
           p_status?: string
           p_unit_id?: string
           p_unit_type_id: string
@@ -1165,6 +1293,7 @@ export type Database = {
           p_full_name: string
           p_notes?: string
           p_phone?: string
+          p_promo_code?: string
           p_slug: string
           p_unit_type_id: string
         }
@@ -1182,20 +1311,34 @@ export type Database = {
           available_units: number
           currency: string
           description: Json
+          discount: number
           max_adults: number
           max_children: number
           max_stay: number
           min_stay: number
           name: string
           price_per_night: number
+          promo_label: string
+          reason: string
           total_price: number
           unit_type_id: string
         }[]
+      }
+      public_preview_promo: {
+        Args: {
+          p_check_in: string
+          p_check_out: string
+          p_code?: string
+          p_slug: string
+          p_unit_type_id: string
+        }
+        Returns: Json
       }
       quote_price: {
         Args: {
           p_check_in: string
           p_check_out: string
+          p_promo_code?: string
           p_unit_type_id: string
         }
         Returns: Json

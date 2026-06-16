@@ -67,8 +67,19 @@ function BookingDetailPage() {
   const isBlocked = booking.status === "blocked"
   const nights =
     (new Date(booking.check_out).getTime() - new Date(booking.check_in).getTime()) / 86400000
-  // snapshot-ul de preț salvat la creare (nu se recalculează)
-  const breakdown = booking.price_breakdown as unknown as PriceQuote | null
+  // snapshot-ul de preț salvat la creare (nu se recalculează). Reducerea (dacă există)
+  // vine din coloanele autoritare ale rezervării (discount_amount + total_amount), ca
+  // breakdown-ul să arate subtotal → reducere → total corect.
+  const rawBreakdown = booking.price_breakdown as unknown as PriceQuote | null
+  const discount = Number(booking.discount_amount ?? 0)
+  const breakdown: PriceQuote | null = rawBreakdown
+    ? {
+        ...rawBreakdown,
+        subtotal: Number(booking.total_amount) + discount,
+        discount,
+        total: Number(booking.total_amount),
+      }
+    : null
 
   return (
     <div className="space-y-4 md:space-y-6">

@@ -172,6 +172,8 @@ export type CreateBookingInput = {
   notes?: string
   // Manager Override: forțează peste restricțiile soft (doar owner/manager — validat server-side)
   override?: boolean
+  // cod promoțional (opțional) — reducerea se rezolvă și se snapshot-uiește server-side
+  promoCode?: string
 }
 
 export async function createBooking(input: CreateBookingInput): Promise<string> {
@@ -186,6 +188,7 @@ export async function createBooking(input: CreateBookingInput): Promise<string> 
     p_status: input.status ?? "confirmed",
     p_notes: input.notes ?? undefined,
     p_override: input.override ?? false,
+    p_promo_code: input.promoCode?.trim() || undefined,
   })
   if (error) throw error
   return data

@@ -5,13 +5,15 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
-import { CalendarDays, CheckCircle2, MapPin, Users } from "lucide-react"
+import { Ban, CalendarDays, CheckCircle2, MapPin, Users, X } from "lucide-react"
 import {
-  createPublicBooking, fetchAvailability, fetchPublicProperty,
+  createPublicBooking, fetchAvailability, fetchPublicProperty, previewPromo,
   type AvailabilityItem,
 } from "@/features/public-booking/api"
 import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
 import { t } from "@/lib/i18n"
+import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card, CardContent, CardHeader, CardTitle,
@@ -29,6 +31,20 @@ export const Route = createFileRoute("/p/$slug")({
 
 function toISO(d: Date): string {
   return d.toISOString().slice(0, 10)
+}
+
+// Mesajul afișat pe card când tipul nu poate fi rezervat (în ordinea din backend).
+function reasonText(item: AvailabilityItem): string {
+  switch (item.reason) {
+    case "OCCUPANCY": return t("public.reason.occupancy")
+    case "CLOSED": return t("public.reason.closed")
+    case "STAY_TOO_SHORT": return `${t("public.reason.stay_short")} ${item.min_stay} ${t("bookings.nights")}`
+    case "STAY_TOO_LONG": return `${t("public.reason.stay_long")} ${item.max_stay} ${t("bookings.nights")}`
+    case "NO_ARRIVAL": return t("public.reason.no_arrival")
+    case "NO_DEPARTURE": return t("public.reason.no_departure")
+    case "UNAVAILABLE": return t("public.reason.unavailable")
+    default: return ""
+  }
 }
 
 const MAX_OCCUPANCY_UNBOUNDED = 25
@@ -57,6 +73,8 @@ function PublicBookingPage() {
   // ocuparea rezervării (poate fi ajustată în dialog, în limitele tipului ales)
   const [bookAdults, setBookAdults] = useState(1)
   const [bookChildren, setBookChildren] = useState(0)
+  const [promoInput, setPromoInput] = useState("")
+  const [promoCode, setPromoCode] = useState("")
   const [confirmation, setConfirmation] = useState<string | null>(null)
 
   const { data: property, isLoading, isError } = useQuery({
@@ -73,6 +91,14 @@ function PublicBookingPage() {
 
   const book = useMutation({ mutationFn: createPublicBooking })
 
+  // preview reducere în dialog: cod aplicat sau cea mai bună promoție automată
+  const { data: promo } = useQuery({
+    queryKey: ["public-promo", slug, selected?.unit_type_id, searched?.in, searched?.out, promoCode],
+    queryFn: () => previewPromo(slug, selected!.unit_type_id, searched!.in, searched!.out, promoCode),
+    enabled: !!selected && !!searched,
+  })
+  const promoRejected = !!promoCode && !!promo && !promo.promotion.code_matched
+
   const form = useForm<GuestFormInput, unknown, GuestFormValues>({
     resolver: zodResolver(guestSchema),
   })
@@ -81,6 +107,8 @@ function PublicBookingPage() {
     // pornește de la ocuparea căutată, restrânsă la limitele tipului
     setBookAdults(Math.min(Math.max(1, searched?.adults ?? 1), item.max_adults))
     setBookChildren(Math.min(searched?.children ?? 0, item.max_children))
+    setPromoInput("")
+    setPromoCode("")
     setSelected(item)
   }
 
@@ -125,6 +153,7 @@ function PublicBookingPage() {
         phone: values.phone,
         adults: bookAdults,
         children: bookChildren,
+        promoCode: promoCode || undefined,
       })
       setSelected(null)
       setConfirmation(result.booking_id)
@@ -132,15 +161,19 @@ function PublicBookingPage() {
     } catch (e) {
       const message = e instanceof Error ? e.message : ""
       toast.error(
-        message.includes("STAY_TOO_SHORT")
-          ? t("bookings.stay_too_short")
-          : message.includes("STAY_TOO_LONG")
-            ? t("bookings.stay_too_long")
-            : message.includes("DATES_CLOSED")
-              ? t("bookings.dates_closed")
-              : message.includes("UNIT_NOT_AVAILABLE")
-                ? t("public.no_availability")
-                : t("common.error")
+        message.includes("PROMO_INVALID")
+          ? t("bookings.promo_invalid")
+          : message.includes("PROMO_LIMIT_REACHED")
+            ? t("bookings.promo_limit")
+            : message.includes("STAY_TOO_SHORT")
+              ? t("bookings.stay_too_short")
+              : message.includes("STAY_TOO_LONG")
+                ? t("bookings.stay_too_long")
+                : message.includes("DATES_CLOSED")
+                  ? t("bookings.dates_closed")
+                  : message.includes("UNIT_NOT_AVAILABLE")
+                    ? t("public.no_availability")
+                    : t("common.error")
       )
     }
   }
@@ -223,44 +256,70 @@ function PublicBookingPage() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {availability.map((item) => (
-                <Card key={item.unit_type_id}>
-                  <CardHeader>
-                    <CardTitle className="flex items-start justify-between gap-4">
-                      <span>{item.name}</span>
-                      <span className="whitespace-nowrap text-right">
-                        {Number(item.price_per_night).toFixed(0)} {item.currency}
-                        <span className="text-sm font-normal text-muted-foreground">
-                          {" "}{t("public.per_night")}
+              {availability.map((item) => {
+                const bookable = item.reason === null
+                const hasDiscount = bookable && item.discount > 0
+                const discounted = item.total_price - item.discount
+                return (
+                  <Card key={item.unit_type_id} className={cn(!bookable && "opacity-75")}>
+                    <CardHeader>
+                      <CardTitle className="flex items-start justify-between gap-4">
+                        <span>{item.name}</span>
+                        <span className="whitespace-nowrap text-right">
+                          {Number(item.price_per_night).toFixed(0)} {item.currency}
+                          <span className="text-sm font-normal text-muted-foreground">
+                            {" "}{t("public.per_night")}
+                          </span>
                         </span>
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex items-end justify-between gap-4">
-                    <div className="space-y-1 text-sm text-muted-foreground">
-                      <p className="flex items-center gap-1">
-                        <Users className="h-4 w-4" />
-                        max. {item.max_adults} {t("occupancy.adults").toLowerCase()} ·{" "}
-                        {item.max_children} {t("occupancy.children").toLowerCase()} · {item.available_units}{" "}
-                        {t("public.available_rooms")}
-                      </p>
-                      {item.min_stay > 1 && (
-                        <p>{t("public.min_nights")} {item.min_stay} {t("bookings.nights")}</p>
-                      )}
-                      <p>
-                        {nights} nopți ·{" "}
-                        <strong className="text-foreground">
-                          {Number(item.total_price).toFixed(0)} {item.currency}
-                        </strong>{" "}
-                        {t("public.total_for_stay")}
-                      </p>
-                    </div>
-                    <Button onClick={() => openBooking(item)}>
-                      {t("public.book_now")}
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex items-end justify-between gap-4">
+                      <div className="space-y-1 text-sm text-muted-foreground">
+                        <p className="flex items-center gap-1">
+                          <Users className="h-4 w-4" />
+                          max. {item.max_adults} {t("occupancy.adults").toLowerCase()} ·{" "}
+                          {item.max_children} {t("occupancy.children").toLowerCase()} · {item.available_units}{" "}
+                          {t("public.available_rooms")}
+                        </p>
+                        {bookable && item.min_stay > 1 && (
+                          <p>{t("public.min_nights")} {item.min_stay} {t("bookings.nights")}</p>
+                        )}
+                        {bookable ? (
+                          hasDiscount ? (
+                            <p className="flex flex-wrap items-center gap-2">
+                              <span>{nights} {t("bookings.nights")} ·</span>
+                              <span className="text-muted-foreground line-through" title={t("public.before")}>
+                                {Number(item.total_price).toFixed(0)} {item.currency}
+                              </span>
+                              <strong className="text-emerald-600 dark:text-emerald-400">
+                                {Number(discounted).toFixed(0)} {item.currency}
+                              </strong>
+                              {item.promo_label && (
+                                <Badge variant="outline" className="text-[10px]">{item.promo_label}</Badge>
+                              )}
+                            </p>
+                          ) : (
+                            <p>
+                              {nights} {t("bookings.nights")} ·{" "}
+                              <strong className="text-foreground">
+                                {Number(item.total_price).toFixed(0)} {item.currency}
+                              </strong>{" "}
+                              {t("public.total_for_stay")}
+                            </p>
+                          )
+                        ) : (
+                          <p className="flex items-center gap-1.5 text-destructive">
+                            <Ban className="h-4 w-4 shrink-0" />{reasonText(item)}
+                          </p>
+                        )}
+                      </div>
+                      <Button onClick={() => openBooking(item)} disabled={!bookable}>
+                        {t("public.book_now")}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           )
         ) : null}
@@ -307,13 +366,61 @@ function PublicBookingPage() {
                 <span className="font-semibold text-primary">{selected.min_stay} {t("bookings.nights")}</span>
               </p>
             )}
+            {/* cod promoțional (opțional) */}
             {selected && (
-              <p className="text-sm text-muted-foreground">
-                {t("bookings.total")}:{" "}
-                <strong className="text-foreground">
-                  {Number(selected.total_price).toFixed(0)} {selected.currency}
-                </strong>
-              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="b-promo">{t("public.promo_code")}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="b-promo" value={promoInput}
+                    onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setPromoCode(promoInput.trim()) } }}
+                  />
+                  <Button type="button" variant="outline" onClick={() => setPromoCode(promoInput.trim())}>
+                    {t("public.promo_apply")}
+                  </Button>
+                  {promoCode && (
+                    <Button
+                      type="button" variant="ghost" size="icon"
+                      title={t("bookings.promo_remove")}
+                      onClick={() => { setPromoInput(""); setPromoCode("") }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                {promoRejected ? (
+                  <p className="text-xs text-destructive">{t("bookings.promo_invalid")}</p>
+                ) : promoCode && promo?.promotion.code_matched ? (
+                  <p className="text-xs text-emerald-600">{t("bookings.promo_applied")}: {promoCode}</p>
+                ) : null}
+                <p className="text-xs text-muted-foreground">{t("bookings.promo_bestof")}</p>
+              </div>
+            )}
+            {selected && (
+              <div className="space-y-0.5 text-sm">
+                {promo?.promotion.applied && promo.discount > 0 && (
+                  <>
+                    <p className="flex justify-between text-muted-foreground">
+                      <span>{t("bookings.subtotal")}</span>
+                      <span>{Number(promo.subtotal).toFixed(0)} {selected.currency}</span>
+                    </p>
+                    <p className="flex justify-between text-emerald-600">
+                      <span>
+                        {t("public.discount")}
+                        {promo.promotion.code ? ` (${promo.promotion.code})` : promo.promotion.name ? ` (${promo.promotion.name})` : ""}
+                      </span>
+                      <span>−{Number(promo.discount).toFixed(0)} {selected.currency}</span>
+                    </p>
+                  </>
+                )}
+                <p className="flex justify-between font-medium">
+                  <span>{t("bookings.total")}</span>
+                  <strong className="text-foreground">
+                    {Number(promo?.total ?? selected.total_price).toFixed(0)} {selected.currency}
+                  </strong>
+                </p>
+              </div>
             )}
             <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
               {t("public.book_now")}

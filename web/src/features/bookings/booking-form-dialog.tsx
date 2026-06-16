@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
-import { Ban, Bot, ShieldAlert, User } from "lucide-react"
+import { Ban, Bot, ShieldAlert, User, X } from "lucide-react"
 import { useCurrentOrg } from "@/features/organizations/context"
 import { GuestCombobox } from "@/features/guests/guest-combobox"
 import { useUnitTypes } from "@/features/unit-types/hooks"
@@ -89,6 +89,9 @@ export function BookingFormDialog({
   const [adults, setAdults] = useState(1)
   const [children, setChildren] = useState(0)
   const [override, setOverride] = useState(false)
+  // cod promo introdus vs cod „aplicat" (trimis la quote doar la apăsarea Aplică)
+  const [promoInput, setPromoInput] = useState("")
+  const [promoCode, setPromoCode] = useState("")
 
   const canOverride = ["owner", "manager"].includes(currentOrg.role)
 
@@ -113,10 +116,14 @@ export function BookingFormDialog({
   const maxAdults = selectedType?.max_adults ?? MAX_OCCUPANCY_UNBOUNDED
   const maxChildren = selectedType?.max_children ?? MAX_OCCUPANCY_UNBOUNDED
 
-  // estimare preț server-side (același motor ca la creare — sursă unică de adevăr)
+  // estimare preț server-side (același motor ca la creare — sursă unică de adevăr);
+  // include reducerea promoției (cod aplicat sau cea mai bună automată)
   const { data: quote } = useQuotePrice(
-    datesValid ? unitTypeId : undefined, checkIn ?? "", checkOut ?? ""
+    datesValid ? unitTypeId : undefined, checkIn ?? "", checkOut ?? "", promoCode
   )
+  // cod introdus dar care nu corespunde unei promoții eligibile (greșit/neeligibil) —
+  // chiar dacă o promoție automată mai bună s-a aplicat (best-of), semnalăm codul
+  const promoRejected = !!promoCode && !!quote?.promotion && !quote.promotion.code_matched
 
   // constrângeri de durată (min/max stay) rezolvate pe data de check-in
   const { data: stay } = useStayConstraints(unitTypeId || undefined, checkIn ?? "")
@@ -157,6 +164,8 @@ export function BookingFormDialog({
     setAdults(1)
     setChildren(0)
     setOverride(false)
+    setPromoInput("")
+    setPromoCode("")
   }
 
   function handleGuestChange(id: string) {
@@ -185,13 +194,16 @@ export function BookingFormDialog({
         status: values.status,
         notes: values.notes,
         override: override && canOverride,
+        promoCode: promoCode || undefined,
       })
       toast.success(t("bookings.created"))
       onOpenChange(false)
       resetForm()
     } catch (e) {
       const message = errorMessage(e)
-      if (message.includes("OVERRIDE_FORBIDDEN")) toast.error(t("bookings.override_forbidden"))
+      if (message.includes("PROMO_INVALID")) toast.error(t("bookings.promo_invalid"))
+      else if (message.includes("PROMO_LIMIT_REACHED")) toast.error(t("bookings.promo_limit"))
+      else if (message.includes("OVERRIDE_FORBIDDEN")) toast.error(t("bookings.override_forbidden"))
       else if (message.includes("STAY_TOO_SHORT")) toast.error(t("bookings.stay_too_short"))
       else if (message.includes("STAY_TOO_LONG")) toast.error(t("bookings.stay_too_long"))
       else if (message.includes("DATES_CLOSED")) toast.error(t("bookings.dates_closed"))
@@ -384,7 +396,42 @@ export function BookingFormDialog({
             <Textarea rows={2} {...form.register("notes")} />
           </div>
 
-          {/* Estimare preț: breakdown per noapte din motor (override > sezon > base + weekend) */}
+          {/* Cod promoțional (opțional) — aplicat la quote la apăsarea Aplică */}
+          {datesValid && unitTypeId && (
+            <div className="space-y-1.5">
+              <Label>{t("bookings.promo_code")}</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={promoInput}
+                  placeholder={t("promotions.code_placeholder")}
+                  onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setPromoCode(promoInput.trim()) } }}
+                />
+                <Button type="button" variant="outline" onClick={() => setPromoCode(promoInput.trim())}>
+                  {t("bookings.promo_apply")}
+                </Button>
+                {promoCode && (
+                  <Button
+                    type="button" variant="ghost" size="icon"
+                    title={t("bookings.promo_remove")}
+                    onClick={() => { setPromoInput(""); setPromoCode("") }}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              {promoRejected ? (
+                <p className="text-xs text-destructive">{t("bookings.promo_invalid")}</p>
+              ) : promoCode && quote?.promotion?.code_matched ? (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                  {t("bookings.promo_applied")}: {promoCode}
+                </p>
+              ) : null}
+              <p className="text-xs text-muted-foreground">{t("bookings.promo_bestof")}</p>
+            </div>
+          )}
+
+          {/* Estimare preț: breakdown per noapte + reducere promoție + total final */}
           {quote && quote.nights.length > 0 && (
             <div className="space-y-1.5">
               <Label>{t("bookings.price_estimate")}</Label>

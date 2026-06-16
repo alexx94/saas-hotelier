@@ -5,6 +5,44 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 4.8 — Promotions & Commercial Rules (16 iun 2026)
+
+> **Integritate „à la Mews"** (migrația `20260616150000`): odată ce o promoție a fost **folosită** (`uses_count > 0`), **codul + tipul + valoarea reducerii devin imutabile** — ranforțat pe backend (trigger `app.guard_promotion_update` → `PROMOTION_LOCKED`), nu doar în UI. Rămân editabile perioadele/limita/scope/condiții/activ. Ștergerea unei promoții folosite e blocată de FK (dezactivare în loc); cod duplicat respins (`23505`). Modelul = „Locked Dependencies + Snapshot Ledger Invoicing" (snapshot-ul pe rezervare protejează factura, referința rămâne relevantă pentru raportare). UI: câmpurile financiare se blochează la editarea unei promoții folosite, cu explicație + mesaje de eroare dedicate. Hint best-of în formularul de rezervare (admin + public): „se aplică cea mai mare reducere disponibilă". TEST 73. Paritate Mews avansată (audit per-noapte blackout, channel manager isolation, pagină dedicată) notată ca TODO.
+
+> **Best-of, non-stacking** (migrația `20260616140000`): reducerile rămân necumulabile (o singură promoție/rezervare, standard OTA/PMS), dar rezolvarea trece de la „codul are prioritate" la **best-of** — dintre codul introdus și promoțiile automate eligibile se aplică cea mai mare reducere, deci un cod nu dă niciodată un rezultat mai prost decât automata. `resolve_promotion` întoarce `code_matched` (UI: „cod invalid" corect chiar dacă o automată acoperă). Prețul final e **mereu calculat server-side** (clientul trimite doar codul). TEST 72 nou + 62/65/66 ajustate la date neutre.
+
+> **Rafinare pagină publică** (migrația `20260616130000`): lista de disponibilitate funcționează acum **ca pe Booking.com** — `public_get_availability` **nu mai filtrează** tipurile neeligibile, ci le întoarce pe **toate** (active) cu un `reason` (NULL = rezervabil). Frontend-ul afișează toate camerele, dezactivează „Rezervă" pe cele nerezervabile și arată **motivul** (în ordinea verificărilor din backend: `OCCUPANCY → CLOSED → STAY_TOO_SHORT → STAY_TOO_LONG → NO_ARRIVAL → NO_DEPARTURE → UNAVAILABLE`). În plus, pentru tipurile rezervabile întoarce reducerea **automată** (`discount` + `promo_label`) → în listă apare **prețul tăiat + prețul nou** (verde), înainte de „Rezervă", **fără request-uri suplimentare** (resolver per tip în aceeași interogare). Teste DB actualizate (40/49/60) + TEST 71 (reason + reducere în listă).
+
+### Obiectiv
+
+Strat **comercial** de promoții: reduceri cu cod (ex. SUMMER10) sau **automate** (early booking, last minute, sejur lung, stay discount), cu condiții, ferestre de valabilitate și limită de utilizări — apropiind aplicația de PMS-urile mari (Cloudbeds/Mews).
+
+### Decizii (adaptate după PMS-urile gigant)
+
+- **`promotions` + `promotion_rules`** (condiții AND, generice): `min_nights` (stay/long stay), `min_advance_days` (early booking), `max_advance_hours` (last minute). Tip nou de condiție = o ramură în resolver, fără schimbare de schemă.
+- **Cod (null = automată)** + `discount_type` percent/amount, scope `unit_type_id` (null = toate), ferestre **sejur** (check-in) și **rezervare**, `max_uses`/`uses_count`, `is_active`.
+- **O singură promoție/rezervare** (cea mai mare reducere); **codul are prioritate** peste automate. **Snapshot imuabil** pe `bookings` (`promotion_id` + `discount_amount`). **Limită atomică** la creare (anti-oversell). Discount plafonat la subtotal (total ≥ 0).
+- Sursă unică `app.resolve_promotion` → admin + public identic. Roluri viitoare: CUD owner/manager, citire `can_access_property` (fără cuplaje noi).
+
+### Soluția (migrația `20260616120000_promotions.sql`)
+
+- Tabele `promotions` (index unic `upper(code)`/proprietate, RLS owner/manager) + `promotion_rules` (RLS prin promoția-părinte). `bookings.promotion_id` + `discount_amount`.
+- `app.resolve_promotion` (DEFINER, fără excepții/usage — folosit și la preview).
+- `create_booking_internal` + `create_booking` + `public_create_booking` recreate cu `p_promo_code`; usage consumat atomic la inserție; erori `PROMO_INVALID` / `PROMO_LIMIT_REACHED`.
+- `quote_price` extins (+`p_promo_code`, întoarce subtotal/discount/total/promotion) + RPC nou `public_preview_promo` (anon).
+
+### Frontend
+
+- `features/promotions/`: `promotions-dialog.tsx` (creare cod/automată + reducere + scope + ferestre + limită + **condiții** dinamice; listă cu toggle activ + ștergere); buton „Promoții" în header-ul proprietății.
+- `PriceBreakdown` arată subtotal + reducere (cu cod/nume) + total final. Formular rezervare (admin) și pagina publică: câmp **cod promoțional** cu „Aplică" + preview reducere (auto reflectat fără cod). Erori i18n `bookings.promo_invalid`/`promo_limit`.
+
+### Note
+
+- Param nou cu default = overload → drop funcția veche întâi, apoi recreate.
+- Teste DB **TEST 62–70** (toate PASS, total **157**): cod percent + snapshot + usage, early booking automat, cea mai bună reducere câștigă, cod invalid/scope greșit, limită utilizări, last minute, sumă fixă + clamp, flux public (preview + booking), `quote_price` cu cod, RLS + izolare cross-tenant. Doc: [`docs/backend/rpc/promotions.md`](backend/rpc/promotions.md).
+
+---
+
 ## Sprint 4.7 — Stay Restrictions (15 iun 2026)
 
 > **Rafinări UX calendar** (după feedback): pauza de pregătire a fost redenumită din „Gap de curățenie" în **„Pauză de pregătire între rezervări (nopți)"** cu descriere explicită (în formularul de tip cameră) și e auditată în istoricul tipului (`turnover_days_hist`). În **calendar**: nopțile de turnover apar ca **bară hașurată subtilă cu iconiță 🧹** după fiecare plecare (nu se mai pictează tarif pe ele, ca să se vadă „de ce nu merge"); restricțiile de sosire/plecare apar ca **marcaje de colț** (triunghi ambră stânga-sus = fără sosiri / violet dreapta-sus = fără plecări, cu tooltip), nu bare pline — plus intrări noi în **legendă**. Tokens vizuale centralizate în `features/reservation-rules/restriction-display.ts`; restricțiile se rezolvă o singură dată pe lună (`resolveArrivalRestrictions`, O(reguli × zile), lookup pe `Map`). Fereastra „Restricții sosire/plecare" se deschide acum cu **ambele opțiuni (CTA/CTD) debifate**.
