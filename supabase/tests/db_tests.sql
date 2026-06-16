@@ -2516,6 +2516,14 @@ begin
     if sqlerrm like '%PROMOTION_LOCKED%' then raise notice 'TEST 73b PASS: cod blocat după folosire => PROMOTION_LOCKED';
     else raise; end if;
   end;
+  -- 73b2: schimbarea TIPULUI reducerii (percent <-> amount) => PROMOTION_LOCKED
+  begin
+    update promotions set discount_type = 'amount' where code = 'SUMMER10';
+    raise exception 'TEST 73b2 FAIL: tipul reducerii unei promoții folosite a putut fi schimbat';
+  exception when others then
+    if sqlerrm like '%PROMOTION_LOCKED%' then raise notice 'TEST 73b2 PASS: tip reducere blocat după folosire => PROMOTION_LOCKED';
+    else raise; end if;
+  end;
   -- 73c: câmpuri operaționale (limită, perioadă, activ) RĂMÂN editabile chiar și după folosire
   update promotions set max_uses = 500, stay_end = '2040-12-31', is_active = false
    where code = 'SUMMER10';
