@@ -489,6 +489,7 @@ export const ro = {
   "bookings.stay_too_short": "Sejurul este sub minimul permis pentru aceste date.",
   "bookings.stay_too_long": "Sejurul depășește durata maximă permisă.",
   "bookings.dates_closed": "Rezervările sunt oprite pe intervalul ales.",
+  "bookings.occupancy_exceeded": "Numărul de persoane depășește capacitatea camerei.",
   "public.min_nights": "min.",
 
   // ─── Sprint 4.7 — Stay Restrictions ───────────────────────────────────────

@@ -5,6 +5,40 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 4.9 — Availability & Allocation Engine: strat de validatori (17 iun 2026)
+
+### Obiectiv
+
+Toate verificările de rezervare existau, dar erau **inline** (`if...if...if...`) în `app.create_booking_internal` și **duplicate** în `public_get_availability` (scara de `reason`), `get_available_units`, `update_booking_dates`. Sprint 4.9 le unifică într-un **strat de validatori compozabili**, cu o singură sursă de adevăr, refolosit de **create + update + availability** + un RPC nou de preview.
+
+### Decizii (arhitectură)
+
+- **Validatori separați** `app.validate_*` (occupancy / stay / restrictions / availability / promotion), fiecare `{ valid, errors[], warnings[] }` cu **coduri** (vocabularul de excepții). Frontend-ul mapează codurile pe i18n (`VALIDATION_LABEL`) — nicio etichetă UI în DB.
+- **Severitate**: FIZIC (`OCCUPANCY_EXCEEDED`, `UNIT_NOT_AVAILABLE`) = mereu eroare; SOFT (`DATES_CLOSED`, `STAY_*`, `NO_ARRIVAL/DEPARTURE`) = eroare, dar **Manager Override** le coboară în `warnings`; COMERCIAL (`PROMO_INVALID`) = mereu eroare.
+- **Predicat unic** `app.unit_is_free` (booking cu gap + room_block) — elimină 4 copii ale aceluiași `not exists`. **Scara canonică** `app.booking_block_codes` (ordine = prioritatea motorului), folosită și de availability (`reason = [1]`, mapat la vocabularul public).
+- **Orchestrator** `app.validate_booking` → clasifică + ordonează + adaugă promoția. RPC nou `public.validate_booking` (preview formular). `get_booking_restrictions` **eliminat** (înlocuit).
+
+### Soluția (migrația `20260617120000_validators.sql`)
+
+- Helpers `app.jsonb_text_array`, `app.order_codes`, `app.unit_is_free`; validatorii + `app.booking_block_codes` + `app.validate_booking` (toate DEFINER, `set search_path = ''`, revocate de la roluri).
+- `create_booking_internal` + `update_booking_dates` rescrise: o singură chemare `validate_booking` (ridică `errors[0]`), apoi alocare cu `unit_is_free`. `public_get_availability` + `get_available_units` folosesc predicatul unic; `get_available_units` devine **DEFINER** + `can_access_property` (predicatul e definer-only — un apel din context invoker sub `authenticated`/`anon` declanșează **segfault JIT** în acest build Postgres).
+- RPC `validate_booking(unit_type, in, out, adults, children, unit_id, promo_code, override)` → `{valid, errors[], warnings[]}`; `authenticated`, override previzualizat doar owner/manager.
+
+### Frontend
+
+- `features/reservation-rules/`: `validateBooking()` + `useValidateBooking` (înlocuiesc `getBookingRestrictions`/`useBookingRestrictions`); `ValidationCode`, `SOFT_CODES`, `VALIDATION_LABEL`.
+- `booking-form-dialog.tsx` + `edit-dates-dialog.tsx`: panoul de restricții afișează `errors[]` (blocante) + `warnings[]` soft (tăiate, „forțate prin override"); `blockedByRules = errors.length>0` (severitate decisă server-side). `noFreeUnits` eliminat (acoperit de `UNIT_NOT_AVAILABLE`).
+
+### Curățare Docker (drift de schemă)
+
+DB-ul local Docker fusese populat dintr-o versiune anterioară cu un strat de validatori **șters ulterior din cod** (funcții orfane `app.validate_rules`, `validation_result/errors/warnings`, semnături cu `p_status`/`p_require_availability` — neproduse de niciun fișier de migrare, deși `migration list` arăta istoricul sincronizat). Tabelele coincideau 1:1 (fără tabele orfane). Soluție: `supabase db reset` → bază curată, rejoacă cele 31 migrări + cea nouă (stare reproductibilă).
+
+### Teste
+
+`db_tests.sql`: TEST 59 migrat la `validate_booking`, TEST 74 nou (orchestrator: valid pe interval liber, ocupare = eroare fizică neoverridabilă, soft fără/cu override = eroare/warning). **181 aserții PASS**, regresiile 1–73 neschimbate.
+
+---
+
 ## Sprint 4.8 — Promotions & Commercial Rules (16 iun 2026)
 
 > **Integritate „à la Mews"** (migrația `20260616150000`): odată ce o promoție a fost **folosită** (`uses_count > 0`), **codul + tipul + valoarea reducerii devin imutabile** — ranforțat pe backend (trigger `app.guard_promotion_update` → `PROMOTION_LOCKED`), nu doar în UI. Rămân editabile perioadele/limita/scope/condiții/activ. Ștergerea unei promoții folosite e blocată de FK (dezactivare în loc); cod duplicat respins (`23505`). Modelul = „Locked Dependencies + Snapshot Ledger Invoicing" (snapshot-ul pe rezervare protejează factura, referința rămâne relevantă pentru raportare). UI: câmpurile financiare se blochează la editarea unei promoții folosite, cu explicație + mesaje de eroare dedicate. Hint best-of în formularul de rezervare (admin + public): „se aplică cea mai mare reducere disponibilă". TEST 73. Paritate Mews avansată (audit per-noapte blackout, channel manager isolation, pagină dedicată) notată ca TODO.

@@ -25,13 +25,14 @@ edit-dates-dialog ──► update_booking_dates ──► UPDATE bookings ◄�
 | Security | DEFINER, **revocată de la toate rolurile API** — apelabilă doar din `create_booking` / `public_create_booking` |
 | Autorizare | **niciuna** (responsabilitatea apelanților — de aceea e inaccesibilă direct) |
 
-**Flux**: validează tipul există, datele, capacitatea → iterează camerele active ale tipului care par libere → INSERT; la `exclusion_violation` (race — alt client a luat camera între SELECT și INSERT) **continuă cu următoarea cameră**; dacă nu mai sunt → `UNIT_NOT_AVAILABLE`. Moneda se ia din proprietate, nu de la apelant.
+**Flux** (Sprint 4.9): rulează **toate** verificările printr-o singură chemare `app.validate_booking` (occupancy + stay + restricții + availability + promoție — vezi [validators.md](validators.md)); dacă rezultatul nu e valid, ridică **prima eroare** (`errors[0]`). Apoi rezolvă promoția pentru snapshot (`app.resolve_promotion`, neschimbată din 4.8) → iterează camerele active libere (`app.unit_is_free`) → INSERT; la `exclusion_violation` (race — alt client a luat camera între SELECT și INSERT) **continuă cu următoarea cameră**; dacă nu mai sunt → `UNIT_NOT_AVAILABLE`. Moneda se ia din proprietate, nu de la apelant.
 
 **Snapshot oaspete** (migrația 8): scrie `booked_full_name/email/phone` — parametrii `p_snap_*` (datele tastate la rezervarea publică) sau, dacă sunt NULL (fluxul admin), o copie a profilului din acel moment. Rezervările trecute nu se schimbă când profilul e actualizat.
 
-**Erori**: `UNIT_TYPE_NOT_FOUND`, `INVALID_DATES`, `OCCUPANCY_EXCEEDED`, `UNIT_NOT_AVAILABLE`.
+**Erori** (din validatori): `UNIT_TYPE_NOT_FOUND`, `INVALID_DATES`, `OCCUPANCY_EXCEEDED`, `DATES_CLOSED`, `STAY_TOO_SHORT/LONG`, `NO_ARRIVAL`, `NO_DEPARTURE`, `UNIT_NOT_AVAILABLE`, `PROMO_INVALID`, `PROMO_LIMIT_REACHED`.
 
 > Sprint 4.5: semnătura internă primește `p_adults/p_children` (în loc de `p_guests_count`) + `p_total/p_breakdown/p_unit_price` (snapshot din motorul de preț). Vezi [pricing.md](pricing.md).
+> Sprint 4.9: verificările sunt delegate stratului de validatori — vezi [validators.md](validators.md). Logica de preț ([pricing.md](pricing.md)) și de promoții ([promotions.md](promotions.md)) e **neschimbată**; doar locul de unde e apelată.
 
 ---
 

@@ -8,9 +8,9 @@ import { useUpdateBookingDates } from "./hooks"
 import { addDays } from "./date-utils"
 import type { Booking } from "./api"
 import { useCurrentOrg } from "@/features/organizations/context"
-import { useBookingRestrictions } from "@/features/reservation-rules/hooks"
-import type { RestrictionReason } from "@/features/reservation-rules/api"
-import { t, type TranslationKey } from "@/lib/i18n"
+import { useValidateBooking } from "@/features/reservation-rules/hooks"
+import { VALIDATION_LABEL, isSoftCode } from "@/features/reservation-rules/api"
+import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,14 +18,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-
-const RESTRICTION_LABEL: Record<RestrictionReason, TranslationKey> = {
-  DATES_CLOSED: "bookings.dates_closed",
-  STAY_TOO_SHORT: "bookings.stay_too_short",
-  STAY_TOO_LONG: "bookings.stay_too_long",
-  NO_ARRIVAL: "bookings.no_arrival",
-  NO_DEPARTURE: "bookings.no_departure",
-}
 
 const schema = z
   .object({
@@ -63,12 +55,17 @@ export function EditDatesDialog({ booking, open, onOpenChange }: Props) {
   const datesChanged =
     !!booking && (checkIn !== booking.check_in || checkOut !== booking.check_out)
 
-  // restricțiile se reevaluează DOAR când datele se schimbă (altfel sunt ignorate)
-  const { data: restrictions } = useBookingRestrictions(
-    datesChanged ? booking?.unit_type_id : undefined, checkIn ?? "", checkOut ?? ""
-  )
-  const reasons = (datesChanged ? restrictions : undefined) ?? []
-  const blockedByRules = reasons.length > 0 && !(override && canOverride)
+  // validatorii se reevaluează DOAR când datele se schimbă (altfel sunt ignorate);
+  // severitatea (eroare vs warning sub override) e decisă server-side
+  const { data: validation } = useValidateBooking({
+    unitTypeId: datesChanged ? booking?.unit_type_id : undefined,
+    checkIn: checkIn ?? "", checkOut: checkOut ?? "",
+    override: override && canOverride,
+  })
+  const errors = (datesChanged ? validation?.errors : undefined) ?? []
+  const softWarnings = ((datesChanged ? validation?.warnings : undefined) ?? []).filter(isSoftCode)
+  const overridable = canOverride && [...errors, ...softWarnings].some(isSoftCode)
+  const blockedByRules = errors.length > 0
 
   async function onSubmit(values: FormValues) {
     if (!booking) return
@@ -130,18 +127,25 @@ export function EditDatesDialog({ booking, open, onOpenChange }: Props) {
           </div>
 
           {/* restricții pe noile date (afișate simultan) + override pentru manager */}
-          {reasons.length > 0 && (
+          {(errors.length > 0 || softWarnings.length > 0) && (
             <div className="space-y-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
               <div className="flex items-center gap-2 font-medium text-destructive">
                 <Ban className="h-4 w-4 shrink-0" />
                 {t("bookings.restrictions_title")}
               </div>
               <ul className="ml-6 list-disc space-y-0.5 text-destructive">
-                {reasons.map((r) => (
-                  <li key={r}>{t(RESTRICTION_LABEL[r])}</li>
+                {errors.map((c) => (
+                  <li key={c}>{VALIDATION_LABEL[c] ? t(VALIDATION_LABEL[c]!) : c}</li>
                 ))}
               </ul>
-              {canOverride && (
+              {softWarnings.length > 0 && (
+                <ul className="ml-6 list-disc space-y-0.5 text-muted-foreground line-through">
+                  {softWarnings.map((c) => (
+                    <li key={c}>{VALIDATION_LABEL[c] ? t(VALIDATION_LABEL[c]!) : c}</li>
+                  ))}
+                </ul>
+              )}
+              {overridable && (
                 <button
                   type="button"
                   onClick={() => setOverride((v) => !v)}

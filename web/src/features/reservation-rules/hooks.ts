@@ -5,7 +5,7 @@ import type { TablesInsert, TablesUpdate } from "@/lib/database.types"
 import {
   createArrivalRule, createClosure, createStayRule, deleteArrivalRule, deleteClosure, deleteStayRule,
   fetchArrivalRules, fetchArrivalRulesInRange, fetchClosures, fetchClosuresInRange, fetchStayRules,
-  getBookingRestrictions, getStayConstraints, updateStayRule,
+  getStayConstraints, updateStayRule, validateBooking, type ValidateBookingInput,
 } from "./api"
 
 export const reservationKeys = {
@@ -18,8 +18,12 @@ export const reservationKeys = {
     ["arrival-rules-range", propertyId, from, to] as const,
   stayConstraints: (unitTypeId: string, checkIn: string) =>
     ["stay-constraints", unitTypeId, checkIn] as const,
-  bookingRestrictions: (unitTypeId: string, checkIn: string, checkOut: string) =>
-    ["booking-restrictions", unitTypeId, checkIn, checkOut] as const,
+  validateBooking: (i: ValidateBookingInput) =>
+    [
+      "validate-booking", i.unitTypeId, i.checkIn, i.checkOut,
+      i.adults ?? null, i.children ?? null, i.unitId ?? null,
+      i.promoCode ?? null, i.override ?? false,
+    ] as const,
 }
 
 // Liste paginate „Afișează mai mult" (rândul în plus din Page.hasMore decide pagina următoare)
@@ -60,7 +64,7 @@ function invalidateRules(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["arrival-rules"] })
   qc.invalidateQueries({ queryKey: ["arrival-rules-range"] })
   qc.invalidateQueries({ queryKey: ["stay-constraints"] })
-  qc.invalidateQueries({ queryKey: ["booking-restrictions"] })
+  qc.invalidateQueries({ queryKey: ["validate-booking"] })
 }
 
 export function useCreateStayRule() {
@@ -150,15 +154,16 @@ export function useDeleteArrivalRule() {
   })
 }
 
-// Toate motivele „soft" pe un tip + interval (afișate simultan în formularul de rezervare).
-export function useBookingRestrictions(
-  unitTypeId: string | undefined,
-  checkIn: string,
-  checkOut: string
+// Validare completă a rezervării (Sprint 4.9): occupancy + stay + restricții +
+// availability + promoție, clasificate server-side după Manager Override.
+export function useValidateBooking(
+  input: Omit<ValidateBookingInput, "unitTypeId"> & { unitTypeId: string | undefined }
 ) {
+  const enabled =
+    !!input.unitTypeId && !!input.checkIn && !!input.checkOut && input.checkOut > input.checkIn
   return useQuery({
-    queryKey: reservationKeys.bookingRestrictions(unitTypeId ?? "", checkIn, checkOut),
-    queryFn: () => getBookingRestrictions(unitTypeId!, checkIn, checkOut),
-    enabled: !!unitTypeId && !!checkIn && !!checkOut && checkOut > checkIn,
+    queryKey: reservationKeys.validateBooking({ ...input, unitTypeId: input.unitTypeId ?? "" }),
+    queryFn: () => validateBooking({ ...input, unitTypeId: input.unitTypeId! }),
+    enabled,
   })
 }

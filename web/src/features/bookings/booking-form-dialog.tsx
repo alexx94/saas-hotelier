@@ -10,10 +10,10 @@ import { useUnitTypes } from "@/features/unit-types/hooks"
 import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
 import { PriceBreakdown } from "@/features/pricing/price-breakdown"
 import { useQuotePrice } from "@/features/pricing/hooks"
-import { useStayConstraints, useBookingRestrictions } from "@/features/reservation-rules/hooks"
-import type { RestrictionReason } from "@/features/reservation-rules/api"
+import { useStayConstraints, useValidateBooking } from "@/features/reservation-rules/hooks"
+import { VALIDATION_LABEL, isSoftCode } from "@/features/reservation-rules/api"
 import { useAvailableUnits, useCreateBooking } from "./hooks"
-import { t, type TranslationKey } from "@/lib/i18n"
+import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { errorMessage } from "@/lib/errors"
 import { Badge } from "@/components/ui/badge"
@@ -35,15 +35,6 @@ import { addDays, formatDateShort } from "./date-utils"
 const NIGHT_SHORTCUTS = [1, 2, 3, 5, 7]
 // limită de bun simț pentru ocupare când nu e ales încă un tip de cameră
 const MAX_OCCUPANCY_UNBOUNDED = 25
-
-// motivele „soft" întoarse de get_booking_restrictions → cheie i18n
-const RESTRICTION_LABEL: Record<RestrictionReason, TranslationKey> = {
-  DATES_CLOSED: "bookings.dates_closed",
-  STAY_TOO_SHORT: "bookings.stay_too_short",
-  STAY_TOO_LONG: "bookings.stay_too_long",
-  NO_ARRIVAL: "bookings.no_arrival",
-  NO_DEPARTURE: "bookings.no_departure",
-}
 
 // ─── schema ───────────────────────────────────────────────────────────────────
 
@@ -132,18 +123,20 @@ export function BookingFormDialog({
   // shortcut-uri de nopți limitate la intervalul permis
   const nightShortcuts = NIGHT_SHORTCUTS.filter((n) => n >= minStay && n <= maxStay)
 
-  // toate restricțiile „soft" pe tip + interval (închideri, durată, sosire/plecare) —
-  // afișate simultan; un manager le poate forța cu override
-  const { data: restrictions } = useBookingRestrictions(
-    datesValid ? unitTypeId : undefined, checkIn ?? "", checkOut ?? ""
-  )
-  const reasons = (unitTypeId ? restrictions : undefined) ?? []
-  const blockedByRules = reasons.length > 0 && !(override && canOverride)
-
-  // alocare manuală fără nicio cameră liberă pe interval → nu are sens submit-ul
-  const noFreeUnits =
-    roomMode === "manual" && !!datesValid && !loadingUnits &&
-    (availableUnits ?? []).every((u) => !u.is_free)
+  // validare unificată (occupancy + stay + restricții + availability + promoție),
+  // clasificată server-side după Manager Override. errors[] = blocante; soft forțat = warnings.
+  const { data: validation } = useValidateBooking({
+    unitTypeId: datesValid ? unitTypeId : undefined,
+    checkIn: checkIn ?? "", checkOut: checkOut ?? "",
+    adults, children,
+    unitId: roomMode === "manual" ? selectedUnitId : null,
+    promoCode: promoCode || null,
+    override: override && canOverride,
+  })
+  const errors = (unitTypeId ? validation?.errors : undefined) ?? []
+  const softWarnings = ((unitTypeId ? validation?.warnings : undefined) ?? []).filter(isSoftCode)
+  const overridable = canOverride && [...errors, ...softWarnings].some(isSoftCode)
+  const blockedByRules = errors.length > 0
 
   // la schimbarea tipului, restrânge ocuparea la limitele lui
   function selectType(v: string) {
@@ -439,19 +432,26 @@ export function BookingFormDialog({
             </div>
           )}
 
-          {/* toate motivele de restricție, afișate simultan (CTA + durată etc.) */}
-          {datesValid && reasons.length > 0 && (
+          {/* validare unificată: blocante (errors) + soft forțate prin override (warnings) */}
+          {datesValid && (errors.length > 0 || softWarnings.length > 0) && (
             <div className="space-y-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
               <div className="flex items-center gap-2 font-medium text-destructive">
                 <Ban className="h-4 w-4 shrink-0" />
                 {t("bookings.restrictions_title")}
               </div>
               <ul className="ml-6 list-disc space-y-0.5 text-destructive">
-                {reasons.map((r) => (
-                  <li key={r}>{t(RESTRICTION_LABEL[r])}</li>
+                {errors.map((c) => (
+                  <li key={c}>{VALIDATION_LABEL[c] ? t(VALIDATION_LABEL[c]!) : c}</li>
                 ))}
               </ul>
-              {canOverride && (
+              {softWarnings.length > 0 && (
+                <ul className="ml-6 list-disc space-y-0.5 text-muted-foreground line-through">
+                  {softWarnings.map((c) => (
+                    <li key={c}>{VALIDATION_LABEL[c] ? t(VALIDATION_LABEL[c]!) : c}</li>
+                  ))}
+                </ul>
+              )}
+              {overridable && (
                 <button
                   type="button"
                   onClick={() => setOverride((v) => !v)}
@@ -472,12 +472,9 @@ export function BookingFormDialog({
               )}
             </div>
           )}
-          {noFreeUnits && (
-            <p className="text-sm text-destructive">{t("bookings.not_available")}</p>
-          )}
           <Button
             type="submit" className="w-full"
-            disabled={form.formState.isSubmitting || noFreeUnits || blockedByRules}
+            disabled={form.formState.isSubmitting || blockedByRules}
           >
             {t("common.save")}
           </Button>

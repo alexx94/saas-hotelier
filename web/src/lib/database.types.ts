@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -1241,14 +1241,6 @@ export type Database = {
           unit_id: string
         }[]
       }
-      get_booking_restrictions: {
-        Args: {
-          p_check_in: string
-          p_check_out: string
-          p_unit_type_id: string
-        }
-        Returns: Json
-      }
       get_guest_stats: {
         Args: { p_guest_id: string }
         Returns: {
@@ -1368,6 +1360,19 @@ export type Database = {
           p_override?: boolean
         }
         Returns: undefined
+      }
+      validate_booking: {
+        Args: {
+          p_adults?: number
+          p_check_in: string
+          p_check_out: string
+          p_children?: number
+          p_override?: boolean
+          p_promo_code?: string
+          p_unit_id?: string
+          p_unit_type_id: string
+        }
+        Returns: Json
       }
     }
     Enums: {

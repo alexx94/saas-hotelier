@@ -69,17 +69,9 @@ Drop + recreate cu `p_override boolean default false`. Override-ul e permis doar
 
 Drop + recreate cu `p_override boolean default false`. Stratul *soft* (closed/stay/arrival/departure) se evaluează **doar dacă datele chiar se schimbă** și `not p_override`. Gap-ul de curățenie (fizic) se verifică mereu față de celelalte rezervări de pe aceeași unitate (EXCLUDE prinde doar suprapunerea exactă, nu gap-ul). Override doar owner/manager → altfel `OVERRIDE_FORBIDDEN`.
 
-## `get_booking_restrictions(p_unit_type_id, p_check_in, p_check_out) returns jsonb {reasons:[...]}`
+## `get_booking_restrictions(...)` — ⚠️ ÎNLOCUIT în Sprint 4.9
 
-**Scop**: formularul de recepție afișează simultan toate motivele *soft* și propune Manager Override. Agregă `DATES_CLOSED`, `STAY_TOO_SHORT/LONG`, `NO_ARRIVAL`, `NO_DEPARTURE`.
-
-| | |
-|---|---|
-| Security | DEFINER, `stable` |
-| Grants | `authenticated` ✅ · `anon`/PUBLIC ❌ |
-| Autorizare | `can_access_property(unit_type.property_id)` → `FORBIDDEN` |
-| Erori | `UNIT_TYPE_NOT_FOUND`, `FORBIDDEN` |
-| Frontend | `reservation-rules/api.ts` → `getBookingRestrictions()`, hook `useBookingRestrictions`, folosit în `booking-form-dialog.tsx` + `edit-dates-dialog.tsx` |
+> Eliminat (migrația `20260617120000`). Înlocuit de `validate_booking`, care întoarce imaginea completă (`errors[]` + `warnings[]`, inclusiv fizic + promoție, clasificat după override), nu doar motivele soft. Vezi [validators.md](validators.md). Restul documentului descrie tabela `arrival_rules` + `app.check_arrival_departure`, neschimbate.
 
 ## `public_get_availability(...)` + `get_available_units(...)` — actualizate
 

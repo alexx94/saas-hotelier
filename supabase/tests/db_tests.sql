@@ -2017,35 +2017,35 @@ begin
 end $$;
 reset role;
 
--- ---------- TEST 59: get_booking_restrictions (toate motivele) + anon ----------
+-- ---------- TEST 59: validate_booking (toate motivele soft, errors[]) + anon ----------
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
 do $$
 declare v jsonb;
 begin
-  -- 59a: pe CTA => reasons conține NO_ARRIVAL
-  v := public.get_booking_restrictions('300000ee-0000-0000-0000-000000000001', '2034-12-20', '2034-12-22');
-  if v->'reasons' @> '["NO_ARRIVAL"]'::jsonb then
-    raise notice 'TEST 59a PASS: get_booking_restrictions raportează NO_ARRIVAL';
+  -- 59a: pe CTA => errors conține NO_ARRIVAL
+  v := public.validate_booking('300000ee-0000-0000-0000-000000000001', '2034-12-20', '2034-12-22');
+  if v->'errors' @> '["NO_ARRIVAL"]'::jsonb then
+    raise notice 'TEST 59a PASS: validate_booking raportează NO_ARRIVAL';
   else raise exception 'TEST 59a FAIL: %', v; end if;
-  -- 59b: dată curată => reasons gol
-  v := public.get_booking_restrictions('300000ee-0000-0000-0000-000000000001', '2034-11-05', '2034-11-07');
-  if v->'reasons' = '[]'::jsonb then
-    raise notice 'TEST 59b PASS: dată fără restricții => reasons gol';
+  -- 59b: dată curată => fără cod de sosire/plecare în errors
+  v := public.validate_booking('300000ee-0000-0000-0000-000000000001', '2034-11-05', '2034-11-07');
+  if not (v->'errors' @> '["NO_ARRIVAL"]'::jsonb) and not (v->'errors' @> '["NO_DEPARTURE"]'::jsonb) then
+    raise notice 'TEST 59b PASS: dată fără restricții de sosire/plecare';
   else raise exception 'TEST 59b FAIL: %', v; end if;
 end $$;
 reset role;
 
--- 59c: anon nu are execute pe get_booking_restrictions (aserție pe privilegiu —
+-- 59c: anon nu are execute pe validate_booking (aserție pe privilegiu —
 --      NU apelăm funcția: în acest build Postgres, un apel revocat sub rolul anon
 --      poate declanșa un segfault JIT; calea e oricum inaccesibilă în producție)
 do $$
 begin
   if has_function_privilege('anon',
-       'public.get_booking_restrictions(uuid,date,date)', 'execute') then
-    raise exception 'TEST 59c FAIL: anon are execute pe get_booking_restrictions';
+       'public.validate_booking(uuid,date,date,int,int,uuid,text,boolean)', 'execute') then
+    raise exception 'TEST 59c FAIL: anon are execute pe validate_booking';
   end if;
-  raise notice 'TEST 59c PASS: anon fără execute pe get_booking_restrictions';
+  raise notice 'TEST 59c PASS: anon fără execute pe validate_booking';
 end $$;
 
 set local role anon;
@@ -2542,6 +2542,198 @@ begin
     raise exception 'TEST 73e FAIL: promoție folosită ștearsă';
   exception when foreign_key_violation then
     raise notice 'TEST 73e PASS: ștergerea unei promoții folosite respinsă (FK)';
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 74: validate_booking — strat de validatori (errors/warnings + override) ----------
+-- Sprint 4.9: o singură sursă de adevăr; FIZIC = mereu eroare, SOFT = override → warning.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v jsonb;
+begin
+  -- 74a: rezervare validă pe interval liber → valid, fără erori
+  v := public.validate_booking('30000000-0000-0000-0000-000000000001','2045-03-01','2045-03-03');
+  if (v->>'valid')::boolean and v->'errors' = '[]'::jsonb then
+    raise notice 'TEST 74a PASS: validate_booking valid pe interval liber';
+  else raise exception 'TEST 74a FAIL: %', v; end if;
+
+  -- 74b: ocupare depășită (FIZIC) → eroare CHIAR și cu override
+  v := public.validate_booking('30000000-0000-0000-0000-000000000001','2045-03-01','2045-03-03', 9, 0, null, null, true);
+  if not (v->>'valid')::boolean and v->'errors' @> '["OCCUPANCY_EXCEEDED"]'::jsonb then
+    raise notice 'TEST 74b PASS: ocupare = eroare fizică, neoverridabilă';
+  else raise exception 'TEST 74b FAIL: %', v; end if;
+
+  -- 74c: restricție SOFT (CTA) fără override = eroare
+  v := public.validate_booking('300000ee-0000-0000-0000-000000000001','2034-12-20','2034-12-22');
+  if not (v->>'valid')::boolean and v->'errors' @> '["NO_ARRIVAL"]'::jsonb then
+    raise notice 'TEST 74c PASS: soft fără override = eroare (NO_ARRIVAL)';
+  else raise exception 'TEST 74c FAIL: %', v; end if;
+
+  -- 74d: același soft CU override (owner) = warning, nu eroare
+  v := public.validate_booking('300000ee-0000-0000-0000-000000000001','2034-12-20','2034-12-22', 1, 0, null, null, true);
+  if v->'warnings' @> '["NO_ARRIVAL"]'::jsonb and not (v->'errors' @> '["NO_ARRIVAL"]'::jsonb) then
+    raise notice 'TEST 74d PASS: Manager Override coboară soft-ul în warnings';
+  else raise exception 'TEST 74d FAIL: %', v; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 75: validate_booking — cazuri negative + edge (multi-violare, ordine, promo) ----------
+-- Fixture izolat: tip cu O SINGURĂ cameră + închidere + min stay 5 + CTA, toate pe 2038-06.
+insert into unit_types (id, org_id, property_id, name, max_adults, max_children, base_price)
+values ('300000dd-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001','Validator type', 2, 1, 100);
+insert into units (id, org_id, property_id, unit_type_id, name)
+values ('400000dd-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001','300000dd-0000-0000-0000-000000000001','Val 1');
+insert into closures (org_id, property_id, unit_type_id, start_date, end_date, reason)
+values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+        '300000dd-0000-0000-0000-000000000001','2038-06-10','2038-06-20','event');
+insert into stay_rules (org_id, property_id, unit_type_id, name, start_date, end_date, min_stay)
+values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+        '300000dd-0000-0000-0000-000000000001','Min 5 iun','2038-06-01','2038-06-30', 5);
+insert into arrival_rules (org_id, property_id, unit_type_id, name, start_date, end_date, weekdays, no_arrival)
+values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+        '300000dd-0000-0000-0000-000000000001','CTA iun','2038-06-10','2038-06-20', null, true);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v jsonb;
+begin
+  -- 75a: interval curat, o singură cameră liberă → valid + warning LAST_UNIT
+  v := public.validate_booking('300000dd-0000-0000-0000-000000000001','2038-07-05','2038-07-07', 2, 0);
+  if (v->>'valid')::boolean and v->'warnings' @> '["LAST_UNIT"]'::jsonb then
+    raise notice 'TEST 75a PASS: ultima cameră liberă → valid + warning LAST_UNIT';
+  else raise exception 'TEST 75a FAIL: %', v; end if;
+
+  -- 75b: date invalide (check_out <= check_in) → INVALID_DATES, fără alte verificări
+  v := public.validate_booking('300000dd-0000-0000-0000-000000000001','2038-07-07','2038-07-05');
+  if not (v->>'valid')::boolean and v->'errors' @> '["INVALID_DATES"]'::jsonb then
+    raise notice 'TEST 75b PASS: date inversate → INVALID_DATES';
+  else raise exception 'TEST 75b FAIL: %', v; end if;
+
+  -- 75c: MULTI-violare soft simultană (închidere + min stay + CTA) → toate în errors, ordine canonică
+  v := public.validate_booking('300000dd-0000-0000-0000-000000000001','2038-06-12','2038-06-14');
+  if v->'errors' @> '["DATES_CLOSED","STAY_TOO_SHORT","NO_ARRIVAL"]'::jsonb
+     and (v->'errors'->>0) = 'DATES_CLOSED' then
+    raise notice 'TEST 75c PASS: 3 motive soft simultan, errors[0]=DATES_CLOSED (ordine canonică)';
+  else raise exception 'TEST 75c FAIL: %', v; end if;
+
+  -- 75d: aceleași date CU override → TOT soft-ul coboară în warnings, valid (fizicul e ok)
+  v := public.validate_booking('300000dd-0000-0000-0000-000000000001','2038-06-12','2038-06-14', 1, 0, null, null, true);
+  if (v->>'valid')::boolean
+     and v->'warnings' @> '["DATES_CLOSED","STAY_TOO_SHORT","NO_ARRIVAL"]'::jsonb
+     and v->'errors' = '[]'::jsonb then
+    raise notice 'TEST 75d PASS: override coboară TOT soft-ul simultan → valid';
+  else raise exception 'TEST 75d FAIL: %', v; end if;
+
+  -- 75e: cod invalid, pe o fereastră FĂRĂ promoție automată (avans 30 zile: nu early ≥60,
+  -- nu last-minute ≤72h; 2 nopți < stay 7) → PROMO_INVALID (override nu forțează codul)
+  v := public.validate_booking('300000dd-0000-0000-0000-000000000001',
+                               current_date + 30, current_date + 32, 1, 0, null, 'NOPE', true);
+  if not (v->>'valid')::boolean and v->'errors' @> '["PROMO_INVALID"]'::jsonb then
+    raise notice 'TEST 75e PASS: cod inexistent → PROMO_INVALID (override nu-l forțează)';
+  else raise exception 'TEST 75e FAIL: %', v; end if;
+end $$;
+reset role;
+
+-- 75f: FIZIC neoverridabil — ocupăm singura cameră (cu override pe soft), apoi validăm același interval
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v jsonb; v_id uuid;
+begin
+  v_id := public.create_booking('300000dd-0000-0000-0000-000000000001','2038-06-12','2038-06-14',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, true, null);
+  if v_id is null then raise exception 'TEST 75f FAIL: create cu override a eșuat'; end if;
+  -- camera e ocupată → UNIT_NOT_AVAILABLE rămâne eroare CHIAR și cu override
+  v := public.validate_booking('300000dd-0000-0000-0000-000000000001','2038-06-12','2038-06-14', 1, 0, null, null, true);
+  if not (v->>'valid')::boolean and v->'errors' @> '["UNIT_NOT_AVAILABLE"]'::jsonb then
+    raise notice 'TEST 75f PASS: camera ocupată → UNIT_NOT_AVAILABLE neoverridabil (fizic)';
+  else raise exception 'TEST 75f FAIL: %', v; end if;
+end $$;
+reset role;
+
+-- 75g: promoție AUTOMATĂ aplicată → warning PROMO_APPLIED (fără cod), pe tipul cu promoții
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v jsonb;
+begin
+  -- 300000ff are early booking automat (-15%); interval îndepărtat 2039 => advance mare => aplicată
+  v := public.validate_booking('300000ff-0000-0000-0000-000000000001','2039-05-10','2039-05-12');
+  if v->'warnings' @> '["PROMO_APPLIED"]'::jsonb then
+    raise notice 'TEST 75g PASS: promoție automată aplicată → warning PROMO_APPLIED';
+  else raise exception 'TEST 75g FAIL: %', v; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 76: securitate strat validatori (izolare + override + motor inaccesibil) ----------
+-- 76a: org B (owner) NU poate valida pe un tip din org A → FORBIDDEN (izolare cross-tenant)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+begin
+  begin
+    perform public.validate_booking('300000ee-0000-0000-0000-000000000001','2034-12-20','2034-12-22');
+    raise exception 'TEST 76a FAIL: org B a validat pe tip din org A';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 76a PASS: validate_booking cross-tenant => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- 76b: staff (non-manager) NU poate forța override la preview → soft rămâne în errors
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000e","role":"authenticated"}';
+do $$
+declare v jsonb;
+begin
+  v := public.validate_booking('300000ee-0000-0000-0000-000000000001','2034-12-20','2034-12-22', 1, 0, null, null, true);
+  if v->'errors' @> '["NO_ARRIVAL"]'::jsonb and not (v->'warnings' @> '["NO_ARRIVAL"]'::jsonb) then
+    raise notice 'TEST 76b PASS: staff nu poate forța override la preview (soft rămâne eroare)';
+  else raise exception 'TEST 76b FAIL: %', v; end if;
+end $$;
+reset role;
+
+-- 76c: motorul de preț + validatorii interni sunt INACCESIBILI direct (clientul nu poate fabrica
+--      preț/availability). Aserție pe privilegiu — NU apelăm (apel revocat sub rol = segfault JIT).
+do $$
+begin
+  if has_function_privilege('authenticated', 'app.compute_price(uuid,date,date)', 'execute')
+     or has_function_privilege('authenticated',
+          'app.validate_booking(uuid,uuid,date,date,integer,integer,text,boolean,timestamp with time zone,uuid)', 'execute')
+     or has_function_privilege('authenticated', 'app.unit_is_free(uuid,date,date,integer,uuid)', 'execute')
+     or has_function_privilege('authenticated', 'app.resolve_promotion(uuid,date,date,numeric,text,timestamp with time zone)', 'execute') then
+    raise exception 'TEST 76c FAIL: motor de preț/availability apelabil direct de client';
+  end if;
+  raise notice 'TEST 76c PASS: compute_price/validate_booking/unit_is_free/resolve_promotion inaccesibile direct';
+end $$;
+
+-- ---------- TEST 77: update_booking_dates — mutare validă + re-validare la schimbarea datelor ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_id uuid; v_ci date;
+begin
+  -- rezervare pe interval curat (300000dd nu are reguli pe 2045)
+  v_id := public.create_booking('300000dd-0000-0000-0000-000000000001','2045-03-01','2045-03-03',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+  -- 77a: mutare pe alt interval liber → succes (datele se schimbă)
+  perform public.update_booking_dates(v_id, '2045-04-01', '2045-04-03');
+  select check_in into v_ci from bookings where id = v_id;
+  if v_ci = '2045-04-01' then raise notice 'TEST 77a PASS: update_booking_dates mută pe interval liber';
+  else raise exception 'TEST 77a FAIL: check_in=%', v_ci; end if;
+  -- 77b: mutare pe o închidere → DATES_CLOSED (regulile se re-verifică la schimbarea datelor)
+  begin
+    perform public.update_booking_dates(v_id, '2038-06-12', '2038-06-14');
+    raise exception 'TEST 77b FAIL: mutare pe interval închis acceptată';
+  exception when others then
+    if sqlerrm like '%DATES_CLOSED%' then raise notice 'TEST 77b PASS: mutare pe închidere => DATES_CLOSED (re-validare)';
+    else raise; end if;
   end;
 end $$;
 reset role;

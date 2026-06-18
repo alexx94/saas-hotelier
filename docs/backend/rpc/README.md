@@ -16,18 +16,18 @@
 | `create_booking` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
 | `update_booking_dates` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
 | `reassign_booking` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
-| `get_available_units` | rezervări | INVOKER | membri (prin RLS) | [bookings.md](bookings.md) |
+| `get_available_units` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
+| `validate_booking` | validatori | DEFINER | membri cu acces pe proprietate | [validators.md](validators.md) |
 | `record_payment` | plăți | DEFINER | membri cu acces pe proprietate | [payments.md](payments.md) |
 | `get_revenue_summary` | plăți | DEFINER | membri cu acces pe proprietate | [payments.md](payments.md) |
 | `quote_price` | pricing | DEFINER | membri cu acces pe proprietate | [pricing.md](pricing.md) |
 | `get_rate_calendar` | pricing | DEFINER | membri cu acces pe proprietate | [pricing.md](pricing.md) |
 | `get_stay_constraints` | reguli rezervare | DEFINER | membri cu acces pe proprietate | [reservation-rules.md](reservation-rules.md) |
-| `get_booking_restrictions` | reguli rezervare | DEFINER | membri cu acces pe proprietate | [stay-restrictions.md](stay-restrictions.md) |
 | `public_preview_promo` | promoții | DEFINER | **anon** + authenticated | [promotions.md](promotions.md) |
 | `public_get_availability` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |
 | `public_create_booking` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |
 
-Funcții interne (schema `app`, neapelabile din API): `app.create_booking_internal` ([bookings.md](bookings.md)), `app.find_or_create_guest_internal` ([guests.md](guests.md)), `app.sync_booking_payment` (trigger plăți, [payments.md](payments.md)), `app.compute_price` (motorul de preț, [pricing.md](pricing.md)), `app.resolve_stay` + `app.is_closed` (reguli de rezervare, [reservation-rules.md](reservation-rules.md)), `app.check_arrival_departure` (restricții sosire/plecare, [stay-restrictions.md](stay-restrictions.md)), `app.resolve_promotion` (rezolvare promoții, [promotions.md](promotions.md)).
+Funcții interne (schema `app`, neapelabile din API): `app.create_booking_internal` ([bookings.md](bookings.md)), `app.find_or_create_guest_internal` ([guests.md](guests.md)), `app.sync_booking_payment` (trigger plăți, [payments.md](payments.md)), `app.compute_price` (motorul de preț, [pricing.md](pricing.md)), `app.resolve_stay` + `app.is_closed` (reguli de rezervare, [reservation-rules.md](reservation-rules.md)), `app.check_arrival_departure` (restricții sosire/plecare, [stay-restrictions.md](stay-restrictions.md)), `app.resolve_promotion` (rezolvare promoții, [promotions.md](promotions.md)), `app.validate_booking` + validatorii `app.validate_*`, `app.booking_block_codes`, `app.unit_is_free` (strat de validatori, [validators.md](validators.md)).
 
 ## Contractul cu frontend-ul
 
