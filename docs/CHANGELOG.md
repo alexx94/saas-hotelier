@@ -5,6 +5,32 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 6.2 — RBAC Enforcement (18 iun 2026)
+
+### Obiectiv
+
+Activarea fundației din 6.1: autorizarea de scriere pe domeniile operaționale trece de la enum (`is_org_role` owner/manager) la **permisiuni granulare** (`app.has_permission`). O recepție nu mai editează tarife, housekeeping nu mai creează rezervări, finance rambursează dar nu schimbă prețuri etc. Frontend-ul capătă gate-uri declarative.
+
+### Decizii (arhitectură)
+
+- **Domeniu operațional, nu admin**: gate-uite tabelele bookings/guests/pricing/properties/units/payments/promotions/reguli. `organizations`/`organization_members`/`member_property_access` rămân pe enum (UI de management membri + logica anti-escaladare = 6.3). Enum-ul rămâne bridge → `is_org_role` funcționează unde nu-l atingem.
+- **SELECT = izolare de tenant**; permisiunile `*.view` se aplică în UI (nav/acțiuni ascunse). Gating-ul pe SELECT ar rupe citiri compuse — se poate adăuga țintit ulterior.
+- **Non-lockout**: owner structural + rol Administrator → toți userii actuali trec orice `has_permission`. Cele 192 teste anterioare (rulează ca administrator) rămân verzi.
+- Permisiune nouă `booking.override` (Manager Override) acordată administrator+manager, înlocuind `is_org_role` din gărzile de override.
+
+### Soluția (migrația `20260618140000_rbac_enforcement.sql`)
+
+- RLS de scriere remapat pe `has_permission(org, property, key)` (drop+recreate, fără atingerea migrațiilor vechi); `guests` split din `for all` în select/insert/update/delete.
+- Gărzi în RPC-uri DEFINER: `create_booking`/`update_booking_dates`/`reassign_booking`/`record_payment`/`link_booking_guest`/`validate_booking`. `record_payment` cere `payment.refund` suplimentar pentru `kind='refund'`.
+- RPC nou `get_my_permissions(org)` (wrapper peste `app.user_permissions`) pentru hidratarea UI-ului.
+- Teste `db_tests.sql` TEST 80–84: RLS scriere ±, gărzi RPC FORBIDDEN, permisiune×acces proprietate, Manager Override, `get_my_permissions` union/cross-org. **213 PASS**.
+
+### Frontend (`features/auth/`)
+
+- `permissions.ts` (`usePermissions` + `useHasPermission` + `permissionKeys`) → `get_my_permissions`; `can.tsx` (`<Can permission>`). Gate-uri pe „Adaugă rezervare" (`booking.create`), încasare/rambursare (`payment.record`/`payment.refund`), „Adaugă proprietate" (`property.create`) și **nav filtrat** după `*.view` (`SidebarNav`). Harta completă acțiune→permisiune: [`docs/frontend/permissions.md`](frontend/permissions.md). UI-ul nu e autoritatea — DB respinge oricum.
+
+---
+
 ## Sprint 6.1 — RBAC Foundation (18 iun 2026)
 
 ### Obiectiv

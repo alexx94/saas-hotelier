@@ -9,6 +9,7 @@ import { requireSession } from "@/features/auth/hooks"
 import { UserMenu } from "@/features/auth/user-menu"
 import { useMyOrganizations } from "@/features/organizations/hooks"
 import { OrgProvider } from "@/features/organizations/context"
+import { usePermissions } from "@/features/auth/permissions"
 import { supabase } from "@/lib/supabase"
 import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -24,12 +25,36 @@ export const Route = createFileRoute("/_app")({
 })
 
 const navItems = [
-  { to: "/app", label: t("nav.dashboard"), icon: LayoutDashboard, exact: true },
-  { to: "/app/properties", label: t("nav.properties"), icon: Building2 },
-  { to: "/app/calendar", label: t("nav.calendar"), icon: CalendarDays },
-  { to: "/app/bookings", label: t("nav.bookings"), icon: BookOpenCheck },
-  { to: "/app/guests", label: t("nav.guests"), icon: Users },
+  { to: "/app", label: t("nav.dashboard"), icon: LayoutDashboard, exact: true, permission: "dashboard.view" },
+  { to: "/app/properties", label: t("nav.properties"), icon: Building2, permission: "property.view" },
+  { to: "/app/calendar", label: t("nav.calendar"), icon: CalendarDays, permission: "calendar.view" },
+  { to: "/app/bookings", label: t("nav.bookings"), icon: BookOpenCheck, permission: "booking.view" },
+  { to: "/app/guests", label: t("nav.guests"), icon: Users, permission: "guest.view" },
 ] as const
+
+// Nav filtrat după permisiunile de view. Trebuie randat sub OrgProvider
+// (usePermissions are nevoie de organizația curentă). Cât timp se încarcă,
+// arătăm tot (owner-ul are oricum toate → fără flicker).
+function SidebarNav({ onNavigate }: { onNavigate: () => void }) {
+  const { has, isLoading } = usePermissions()
+  const items = isLoading ? navItems : navItems.filter((i) => has(i.permission))
+  return (
+    <nav className="flex-1 space-y-1 overflow-y-auto p-2">
+      {items.map((item) => (
+        <Link
+          key={item.to}
+          to={item.to}
+          activeOptions={{ exact: "exact" in item && item.exact }}
+          onClick={onNavigate}
+          className="flex items-center gap-3 rounded-md px-3 py-2 text-[15px] text-sidebar-foreground hover:bg-sidebar-accent [&.active]:bg-sidebar-accent [&.active]:font-medium"
+        >
+          <item.icon className="h-5 w-5 shrink-0" />
+          {item.label}
+        </Link>
+      ))}
+    </nav>
+  )
+}
 
 function AppLayout() {
   const navigate = useNavigate()
@@ -84,20 +109,7 @@ function AppLayout() {
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <nav className="flex-1 space-y-1 overflow-y-auto p-2">
-            {navItems.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                activeOptions={{ exact: "exact" in item && item.exact }}
-                onClick={() => setSidebarOpen(false)}
-                className="flex items-center gap-3 rounded-md px-3 py-2 text-[15px] text-sidebar-foreground hover:bg-sidebar-accent [&.active]:bg-sidebar-accent [&.active]:font-medium"
-              >
-                <item.icon className="h-5 w-5 shrink-0" />
-                {item.label}
-              </Link>
-            ))}
-          </nav>
+          <SidebarNav onNavigate={() => setSidebarOpen(false)} />
           <div className="border-t p-2">
             <UserMenu onLogout={logout} />
           </div>

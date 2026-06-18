@@ -6,6 +6,7 @@ import { z } from "zod"
 import { toast } from "sonner"
 import { Building2, Plus } from "lucide-react"
 import { useCurrentOrg } from "@/features/organizations/context"
+import { Can } from "@/features/auth/can"
 import { useCreateProperty, useProperties } from "@/features/properties/hooks"
 import { t } from "@/lib/i18n"
 import { slugify } from "@/lib/slugify"
@@ -69,12 +70,14 @@ function PropertiesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{t("properties.title")}</h1>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4" />
-              {t("properties.add")}
-            </Button>
-          </DialogTrigger>
+          <Can permission="property.create">
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4" />
+                {t("properties.add")}
+              </Button>
+            </DialogTrigger>
+          </Can>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{t("properties.add")}</DialogTitle>

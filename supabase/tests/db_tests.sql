@@ -2933,4 +2933,297 @@ begin
 end $$;
 reset role;
 
+-- ============================================================
+-- Sprint 6.2 — RBAC Enforcement
+-- ============================================================
+-- Restaurăm owner-ul structural al Org A la owner-a (TEST 79e îl mutase pe ...079)
+-- și creăm membri proaspeți cu UN SINGUR rol de sistem pentru izolare curată.
+update organizations set owner_user_id = '00000000-0000-0000-0000-00000000000a'
+  where id = '10000000-0000-0000-0000-000000000001';
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000a1', 'hk-a@test.ro'),
+  ('00000000-0000-0000-0000-0000000000a2', 'fin-a@test.ro'),
+  ('00000000-0000-0000-0000-0000000000a3', 'ro-a@test.ro'),
+  ('00000000-0000-0000-0000-0000000000a4', 'mgr-a@test.ro'),
+  ('00000000-0000-0000-0000-0000000000a5', 'rec-a@test.ro'),
+  ('00000000-0000-0000-0000-0000000000a6', 'recB-a@test.ro');
+-- staff → trigger pune Reception; manager → trigger pune Manager
+insert into organization_members (org_id, user_id, role) values
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a1', 'staff'),
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a2', 'staff'),
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a3', 'staff'),
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a4', 'manager'),
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a5', 'staff'),
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a6', 'staff');
+-- înlocuim rolul Reception auto cu rolul de sistem dorit (housekeeping/finance/readonly)
+update member_roles set role_id = (select id from roles where slug='housekeeping' and org_id is null)
+  where member_id = (select id from organization_members
+                     where user_id='00000000-0000-0000-0000-0000000000a1'
+                       and org_id='10000000-0000-0000-0000-000000000001');
+update member_roles set role_id = (select id from roles where slug='finance' and org_id is null)
+  where member_id = (select id from organization_members
+                     where user_id='00000000-0000-0000-0000-0000000000a2'
+                       and org_id='10000000-0000-0000-0000-000000000001');
+update member_roles set role_id = (select id from roles where slug='readonly' and org_id is null)
+  where member_id = (select id from organization_members
+                     where user_id='00000000-0000-0000-0000-0000000000a3'
+                       and org_id='10000000-0000-0000-0000-000000000001');
+-- recB restrâns la propB (Hotel Secret) pentru testul permisiune×acces
+insert into member_property_access (member_id, property_id)
+  select id, '20000000-0000-0000-0000-000000000002' from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000a6'
+    and org_id='10000000-0000-0000-0000-000000000001';
+
+-- ---------- TEST 80: RLS de scriere pe permisiuni (pozitiv + negativ) ----------
+-- 80a: guests insert — reception (guest.create) DA, readonly NU
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ begin
+  insert into guests (org_id, full_name) values ('10000000-0000-0000-0000-000000000001', 'Test Rec');
+  raise notice 'TEST 80a PASS: reception inserează guest (guest.create)';
+end $$;
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a3","role":"authenticated"}';
+do $$ begin
+  begin
+    insert into guests (org_id, full_name) values ('10000000-0000-0000-0000-000000000001', 'Test RO');
+    raise exception 'TEST 80a FAIL: readonly a inserat guest';
+  exception when insufficient_privilege then
+    raise notice 'TEST 80a PASS: readonly nu inserează guest (42501)';
+  end;
+end $$;
+reset role;
+
+-- 80b: units update status — housekeeping (unit.manage) DA, reception NU
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+do $$ begin
+  update units set status = 'inactive' where id = '40000000-0000-0000-0000-000000000002';
+  if not found then raise exception 'TEST 80b FAIL: housekeeping nu a putut actualiza (0 rânduri)'; end if;
+  update units set status = 'active' where id = '40000000-0000-0000-0000-000000000002';
+  raise notice 'TEST 80b PASS: housekeeping schimbă status cameră (unit.manage)';
+end $$;
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ declare v_n int; begin
+  update units set status = 'inactive' where id = '40000000-0000-0000-0000-000000000002';
+  get diagnostics v_n = row_count;
+  if v_n = 0 then raise notice 'TEST 80b PASS: reception nu schimbă status cameră (RLS ascunde rândul la UPDATE)';
+  else raise exception 'TEST 80b FAIL: reception a actualizat % rânduri', v_n; end if;
+end $$;
+reset role;
+
+-- 80c: properties — manager edit DA, delete NU (fără property.delete); owner delete DA
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ begin
+  update properties set city = 'Cluj' where id = '20000000-0000-0000-0000-000000000002';
+  if not found then raise exception 'TEST 80c FAIL: manager nu a putut edita proprietatea'; end if;
+  raise notice 'TEST 80c PASS: manager editează proprietatea (property.edit)';
+end $$;
+do $$ declare v_n int; begin
+  delete from properties where id = '20000000-0000-0000-0000-000000000002';
+  get diagnostics v_n = row_count;
+  if v_n = 0 then raise notice 'TEST 80c PASS: manager NU șterge proprietatea (fără property.delete)';
+  else raise exception 'TEST 80c FAIL: manager a șters proprietatea'; end if;
+end $$;
+reset role;
+
+-- 80d: closures insert — manager (rules.manage) DA, reception NU
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ begin
+  insert into closures (org_id, property_id, start_date, end_date)
+  values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+          '2050-12-01','2050-12-05');
+  raise notice 'TEST 80d PASS: manager creează închidere (rules.manage)';
+end $$;
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ begin
+  begin
+    insert into closures (org_id, property_id, start_date, end_date)
+    values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+            '2050-12-10','2050-12-15');
+    raise exception 'TEST 80d FAIL: reception a creat închidere';
+  exception when insufficient_privilege then
+    raise notice 'TEST 80d PASS: reception nu creează închidere (42501)';
+  end;
+end $$;
+reset role;
+
+-- 80e: WITH CHECK edge — reception nu poate muta un guest spre altă organizație
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ begin
+  begin
+    update guests set org_id = '10000000-0000-0000-0000-000000000002'
+    where id = '50000000-0000-0000-0000-000000000001';
+    raise exception 'TEST 80e FAIL: guest mutat în altă org (WITH CHECK nu a prins)';
+  exception when insufficient_privilege then
+    raise notice 'TEST 80e PASS: WITH CHECK blochează mutarea guest-ului cross-org';
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 81: gărzi în RPC-uri DEFINER (FORBIDDEN) ----------
+-- 81a: create_booking — reception DA, housekeeping FORBIDDEN
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ declare v_b uuid; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2050-02-10','2050-02-12',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+  if v_b is null then raise exception 'TEST 81a FAIL: reception nu a creat rezervarea'; end if;
+  raise notice 'TEST 81a PASS: reception creează rezervare (booking.create)';
+end $$;
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+do $$ begin
+  begin
+    perform public.create_booking('30000000-0000-0000-0000-000000000001','2050-02-20','2050-02-22',
+      '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+    raise exception 'TEST 81a FAIL: housekeeping a creat rezervare';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 81a PASS: housekeeping create_booking => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- 81b: record_payment — reception încasare DA, reception refund FORBIDDEN, finance refund DA
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ declare v_b uuid; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2050-04-10','2050-04-12',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+  perform public.record_payment(v_b, 100, 'payment', 'cash');
+  raise notice 'TEST 81b PASS: reception încasează (payment.record)';
+  begin
+    perform public.record_payment(v_b, 50, 'refund', 'cash');
+    raise exception 'TEST 81b FAIL: reception a rambursat fără payment.refund';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 81b PASS: reception refund => FORBIDDEN';
+    else raise; end if;
+  end;
+  -- păstrăm v_b pt finance prin temp table
+  create temp table _rbac_b (id uuid) on commit drop;
+  insert into _rbac_b values (v_b);
+end $$;
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
+do $$ declare v_b uuid; begin
+  select id into v_b from _rbac_b limit 1;
+  perform public.record_payment(v_b, 30, 'refund', 'cash');
+  raise notice 'TEST 81b PASS: finance rambursează (payment.refund)';
+end $$;
+reset role;
+
+-- 81c: update_booking_dates — readonly FORBIDDEN
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a3","role":"authenticated"}';
+do $$ declare v_b uuid; begin
+  select id into v_b from _rbac_b limit 1;
+  begin
+    perform public.update_booking_dates(v_b, '2050-04-11', '2050-04-13');
+    raise exception 'TEST 81c FAIL: readonly a modificat datele';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 81c PASS: readonly update_booking_dates => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 82: permisiune × acces pe proprietate (enforcement rule) ----------
+-- recB are booking.create dar e restrâns la propB → create_booking pe tip din propA = FORBIDDEN
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a6","role":"authenticated"}';
+do $$ begin
+  begin
+    perform public.create_booking('30000000-0000-0000-0000-000000000001','2050-05-10','2050-05-12',
+      '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+    raise exception 'TEST 82 FAIL: acces la propA deși restrâns la propB';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 82 PASS: booking.create fără acces pe propA => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 83: Manager Override (booking.override) ----------
+-- închidere pe propA în 2050-03; manager poate forța, reception nu
+insert into closures (org_id, property_id, unit_type_id, start_date, end_date)
+values ('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',
+        '30000000-0000-0000-0000-000000000001','2050-03-10','2050-03-15');
+-- 83a: reception fără override → DATES_CLOSED
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ begin
+  begin
+    perform public.create_booking('30000000-0000-0000-0000-000000000001','2050-03-11','2050-03-13',
+      '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+    raise exception 'TEST 83a FAIL: rezervare pe interval închis acceptată';
+  exception when others then
+    if sqlerrm like '%DATES_CLOSED%' then raise notice 'TEST 83a PASS: reception fără override => DATES_CLOSED';
+    else raise; end if;
+  end;
+  -- 83b: reception cu override → OVERRIDE_FORBIDDEN (nu are booking.override)
+  begin
+    perform public.create_booking('30000000-0000-0000-0000-000000000001','2050-03-11','2050-03-13',
+      '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, true, null);
+    raise exception 'TEST 83b FAIL: reception a forțat override';
+  exception when others then
+    if sqlerrm like '%OVERRIDE_FORBIDDEN%' then raise notice 'TEST 83b PASS: reception override => OVERRIDE_FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+-- 83c: manager cu override → rezervarea trece peste închidere
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ declare v_b uuid; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2050-03-11','2050-03-13',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, true, null);
+  if v_b is null then raise exception 'TEST 83c FAIL: manager nu a putut forța'; end if;
+  raise notice 'TEST 83c PASS: manager override trece peste închidere (booking.override)';
+end $$;
+reset role;
+
+-- ---------- TEST 84: get_my_permissions + multi-rol union ----------
+-- ...079 = reception ∪ finance (din TEST 79); owner-ul a fost restaurat la owner-a
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000079","role":"authenticated"}';
+do $$
+declare v_perms text[]; v_orgA uuid := '10000000-0000-0000-0000-000000000001';
+begin
+  select array_agg(p) into v_perms from public.get_my_permissions(v_orgA) p;
+  if 'booking.create' = any(v_perms) and 'payment.refund' = any(v_perms)
+     and not ('pricing.edit' = any(v_perms)) then
+    raise notice 'TEST 84a PASS: union reception+finance (create+refund, fără pricing.edit)';
+  else
+    raise exception 'TEST 84a FAIL: perms=%', v_perms;
+  end if;
+end $$;
+reset role;
+-- 84b: owner vede tot; cross-org → set gol
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_cnt int; v_cross int;
+begin
+  select count(*) into v_cnt from public.get_my_permissions('10000000-0000-0000-0000-000000000001');
+  select count(*) into v_cross from public.get_my_permissions('10000000-0000-0000-0000-000000000002');
+  if v_cnt >= 31 and v_cross = 0 then
+    raise notice 'TEST 84b PASS: owner-a = set complet (%), cross-org Org B = gol', v_cnt;
+  else
+    raise exception 'TEST 84b FAIL: orgA=% orgB=%', v_cnt, v_cross;
+  end if;
+end $$;
+reset role;
+
 rollback;

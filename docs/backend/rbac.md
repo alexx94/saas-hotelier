@@ -54,7 +54,7 @@ Cheie `domeniu.acțiune`. Static, seed-only. Grupat pe domenii de business (ca l
 
 | Domeniu | Permisiuni |
 |---|---|
-| `booking` | `booking.view`, `booking.create`, `booking.edit`, `booking.cancel`, `booking.move` |
+| `booking` | `booking.view`, `booking.create`, `booking.edit`, `booking.cancel`, `booking.move`, `booking.override` (Manager Override, Sprint 6.2) |
 | `calendar` | `calendar.view` |
 | `guest` | `guest.view`, `guest.create`, `guest.edit`, `guest.delete` |
 | `pricing` | `pricing.view`, `pricing.edit` |
@@ -118,7 +118,7 @@ Fiecare sub-sprint implementat primește **doc propriu** (în `rpc/` sau `fronte
 | Sub-sprint | Conținut | Status | Doc |
 |---|---|---|---|
 | **6.1 — RBAC Foundation (DB)** | Tabele `permissions/roles/role_permissions/member_roles`, `owner_user_id`, seed catalog + roluri sistem, backfill din enum, helperi `has_permission`/`user_permissions`. **Fără enforcement.** | ✅ **done** | acest doc |
-| **6.2 — Enforcement** | RLS + autorizare RPC migrate `is_org_role` → `has_permission`; frontend `usePermissions()` + `<Can>`; deprecierea enum-ului. | ⏳ planificat | `frontend/permissions.md` |
+| **6.2 — Enforcement** | RLS de scriere + gărzi RPC pe domenii operaționale migrate `is_org_role` → `has_permission`; permisiunea `booking.override`; RPC `get_my_permissions`; frontend `usePermissions()` + `<Can>` + nav filtrat. | ✅ **done** | [frontend/permissions.md](../frontend/permissions.md) + §9 |
 | **6.3 — Member management + profiles** | `profiles` (+ trigger signup), listă membri, atribuire roluri multiple, UI acces per-proprietate, UI roluri custom; `#settings/members` + `#settings/roles`; `transfer_ownership` + garda „cel puțin un owner"; `owner_user_id` → NOT NULL. | ⏳ planificat | `rpc/members.md` |
 | **6.4 — Invitations (link/token, email-ready)** | `organization_invites` (token, email, `role_ids[]`, property_scope, expirare); RPC `create_invite`/`accept_invite`; **seam `app.dispatch_invite`** (acum link; viitor email edge function — fără schimbare de schemă); UI invite + inbox. | ⏳ planificat | `rpc/invites.md` |
 | **6.5 — Audit** | `audit_logs` generic pentru acțiuni admin cross-entitate (rol/acces/ownership/invitații); tabelele bogate per-entitate (`booking_events` etc.) rămân pt. operațional. | ⏳ planificat | `rpc/audit.md` |
@@ -130,3 +130,36 @@ Fiecare sub-sprint implementat primește **doc propriu** (în `rpc/` sau `fronte
 ## 8. Ce NU s-a atins în 6.1 (garanția zero-regresie)
 
 Politicile RLS existente, helperii `is_org_role`/`can_access_property` și toate RPC-urile rămân **neschimbate** (excepție: `create_organization` setează acum `owner_user_id`, pur aditiv). Noii helperi există dar nu sunt apelați de nimeni. Aplicația se comportă identic — capătă doar fundația de date + primitivele de autorizare.
+
+---
+
+## 9. Enforcement (Sprint 6.2)
+
+Migrația `20260618140000_rbac_enforcement.sql` mută autorizarea de **scriere** pe `has_permission`, pe domeniile **operaționale**. SELECT rămâne la nivel de izolare de tenant (permisiunile `*.view` se aplică în UI). Domeniile **admin** (`organizations`, `organization_members`, `member_property_access`) rămân pe `is_org_role` — vin în 6.3.
+
+### Maparea RLS de scriere
+
+| Tabel | Operație | Permisiune |
+|---|---|---|
+| `properties` | insert / update / delete | `property.create` (org) / `property.edit` / `property.delete` |
+| `unit_types` | cud | `unit_type.manage` |
+| `units`, `room_blocks` | cud | `unit.manage` |
+| `guests` | insert / update / delete | `guest.create` / `guest.edit` / `guest.delete` (select = membru) |
+| `bookings` | update / delete | `booking.edit` / `booking.cancel` |
+| `payments` | delete | `payment.refund` |
+| `rate_rules` | cud | `pricing.edit` |
+| `stay_rules`, `closures`, `arrival_rules` | cud | `rules.manage` |
+| `promotions`, `promotion_rules` | cud | `promotion.manage` |
+
+### Gărzi în RPC-uri (DEFINER)
+
+`create_booking`→`booking.create`, `update_booking_dates`/`link_booking_guest`→`booking.edit`, `reassign_booking`→`booking.move`, `record_payment`→`payment.record` (+`payment.refund` pentru `kind='refund'`). Manager Override (`p_override`) cere `booking.override` (în `create_booking`/`update_booking_dates`/`validate_booking`). Toate folosesc `has_permission`, care include și verificarea de acces pe proprietate.
+
+### Frontend
+`public.get_my_permissions(org)` → `usePermissions()` + `<Can>` (vezi [frontend/permissions.md](../frontend/permissions.md)). Gate-uri pe acțiuni + nav filtrat. UI-ul nu e autoritatea — DB respinge oricum (`FORBIDDEN`/`42501`).
+
+### Teste
+`db_tests.sql` TEST 80 (RLS scriere ±), 81 (gărzi RPC FORBIDDEN), 82 (permisiune × acces proprietate), 83 (Manager Override), 84 (`get_my_permissions` union). **213 PASS**. Cele 192 anterioare rulează ca administrator → neschimbate.
+
+### Ce rămâne pe enum (bridge) până la 6.3
+`organizations`/`organization_members`/`member_property_access` (admin), plus crearea de membri (doar prin enum, fără UI). `is_org_role` + triggerul de sync rămân active acolo.

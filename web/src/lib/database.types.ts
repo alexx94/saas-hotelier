@@ -1387,6 +1387,7 @@ export type Database = {
           upcoming: number
         }[]
       }
+      get_my_permissions: { Args: { p_org_id: string }; Returns: string[] }
       get_rate_calendar: {
         Args: { p_from: string; p_property_id: string; p_to: string }
         Returns: {

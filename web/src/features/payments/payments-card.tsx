@@ -9,6 +9,7 @@ import { usePayments, useDeletePayment } from "./hooks"
 import { paymentMethodLabel } from "./payment-status"
 import { PaymentStatusBadge } from "./payment-status-badge"
 import { RecordPaymentDialog } from "./record-payment-dialog"
+import { Can } from "@/features/auth/can"
 import type { Payment, PaymentKind, PaymentMethod, PaymentStatus } from "./api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -84,18 +85,22 @@ export function PaymentsCard({
 
         {/* Acțiuni */}
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" className="flex-1" onClick={() => setDialogKind("payment")}>
-            <Plus className="h-3.5 w-3.5" />
-            {t("payments.add")}
-          </Button>
-          <Button
-            size="sm" variant="ghost" className="flex-1"
-            disabled={amountPaid <= 0}
-            onClick={() => setDialogKind("refund")}
-          >
-            <Undo2 className="h-3.5 w-3.5" />
-            {t("payments.add_refund")}
-          </Button>
+          <Can permission="payment.record">
+            <Button size="sm" variant="outline" className="flex-1" onClick={() => setDialogKind("payment")}>
+              <Plus className="h-3.5 w-3.5" />
+              {t("payments.add")}
+            </Button>
+          </Can>
+          <Can permission="payment.refund">
+            <Button
+              size="sm" variant="ghost" className="flex-1"
+              disabled={amountPaid <= 0}
+              onClick={() => setDialogKind("refund")}
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              {t("payments.add_refund")}
+            </Button>
+          </Can>
         </div>
 
         {/* Listă tranzacții (paginată: „Afișează mai mult") */}

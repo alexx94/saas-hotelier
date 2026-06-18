@@ -11,6 +11,7 @@ import { ReassignDialog } from "@/features/bookings/reassign-dialog"
 import { EditDatesDialog } from "@/features/bookings/edit-dates-dialog"
 import { BookingHistory } from "@/features/bookings/booking-history"
 import { StatusBadge, statusLabel } from "@/features/bookings/status-badge"
+import { Can } from "@/features/auth/can"
 import { PaymentStatusBadge } from "@/features/payments/payment-status-badge"
 import type { PaymentStatus } from "@/features/payments/api"
 import { formatMoney } from "@/lib/money"
@@ -99,10 +100,12 @@ function BookingsPage() {
             }}
             triggerClassName="flex-1 w-full sm:w-56 sm:flex-none"
           />
-          <Button onClick={() => setCreateOpen(true)} disabled={!property} className="shrink-0">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">{t("bookings.add")}</span>
-          </Button>
+          <Can permission="booking.create">
+            <Button onClick={() => setCreateOpen(true)} disabled={!property} className="shrink-0">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">{t("bookings.add")}</span>
+            </Button>
+          </Can>
         </div>
       </div>
 

@@ -24,7 +24,9 @@
 | `role_permissions` (RBAC) | dacă rolul e vizibil | ❌ în 6.1 | ❌ | ❌ |
 | `member_roles` (RBAC) | membrii org-ului | trigger sync (6.1); direct → 6.3 | trigger | trigger |
 
-> Tabelele RBAC (`permissions/roles/role_permissions/member_roles`) sunt fundație Sprint 6.1 — vezi [rbac.md](rbac.md). `anon` nu are acces la niciunul. Enforcement-ul pe restul tabelelor migrează la `app.has_permission` în 6.2.
+> Tabelele RBAC (`permissions/roles/role_permissions/member_roles`) sunt fundație Sprint 6.1 — vezi [rbac.md](rbac.md). `anon` nu are acces la niciunul.
+
+**Sprint 6.2 — enforcement pe permisiuni**: politicile de **scriere** pe domeniile operaționale au trecut de la `is_org_role(owner/manager)` la `app.has_permission(org, property, '<permisiune>')`. Maparea completă: [rbac.md §9](rbac.md#9-enforcement-sprint-62). SELECT rămâne pe izolare de tenant (`*.view` aplicat în UI). `organizations`/`organization_members`/`member_property_access` rămân pe `is_org_role` (admin → 6.3).
 
 ## Grants pe coloane pentru `anon` (vitrina publică)
 
