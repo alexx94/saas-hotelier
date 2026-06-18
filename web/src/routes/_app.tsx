@@ -56,7 +56,10 @@ function AppLayout() {
 
   return (
     <OrgProvider orgs={orgs}>
-      <div className="flex min-h-screen">
+      {/* App-shell: înălțime fixă cât viewport-ul; pagina nu scrollează —
+          doar <main> e zonă de scroll. Astfel sidebar-ul (md:static) rămâne
+          pe loc indiferent cât de lung e conținutul. */}
+      <div className="flex h-dvh overflow-hidden">
         {/* Backdrop mobil */}
         {sidebarOpen && (
           <div
@@ -81,7 +84,7 @@ function AppLayout() {
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <nav className="flex-1 space-y-1 p-2">
+          <nav className="flex-1 space-y-1 overflow-y-auto p-2">
             {navItems.map((item) => (
               <Link
                 key={item.to}
@@ -100,8 +103,9 @@ function AppLayout() {
           </div>
         </aside>
 
-        {/* Conținut principal */}
-        <div className="flex min-w-0 flex-1 flex-col">
+        {/* Conținut principal — min-h-0 resetează min-height:auto al flex-item-ului
+            ca <main> să poată scrolla intern (altfel ar crește cu conținutul) */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Header mobil */}
           <header className="flex items-center gap-3 border-b bg-background px-4 py-3 md:hidden">
             <Button
@@ -113,7 +117,7 @@ function AppLayout() {
             </Button>
             <p className="font-semibold truncate">{orgs[0].name}</p>
           </header>
-          <main className="flex-1 overflow-auto p-4 md:p-6">
+          <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
             <Outlet />
           </main>
         </div>

@@ -4,7 +4,7 @@
 
 ---
 
-## Starea curentă a proiectului (17 iun 2026 — Sprint 4.9 complet)
+## Starea curentă a proiectului (18 iun 2026 — Sprint 5 complet)
 
 Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 **https://github.com/alexx94/saas-hotelier**
@@ -78,6 +78,9 @@ web/src/
     promotions/         ← promoții & reduceri comerciale (Sprint 4.8)
       api.ts / hooks.ts ← promotions + promotion_rules CRUD
       promotions-dialog.tsx ← creare/listare promoții (cod/automată + condiții + limită)
+    dashboard/          ← analytics panou (Sprint 5)
+      api.ts / hooks.ts ← get_dashboard_stats + dashboardKeys
+      dashboard-cards.tsx ← StatCard reutilizabil + secțiuni Astăzi/Ocupare/Rezervări
     organizations/
       api.ts
       hooks.ts
@@ -141,6 +144,11 @@ component  → apelează DOAR hooks, nu api direct
 **Nu pune logică de fetch în componente** — dacă ai nevoie de date noi, adaugi în `api.ts` + `hooks.ts`, nu inline.
 
 ### 2. TanStack Query — cache keys
+
+> **Inventarul complet al cheilor + defaults comportamentale documentate în [`docs/frontend/tanstack-query.md`](../docs/frontend/tanstack-query.md).** Ce urmează e rezumatul de lucru; documentul de mai sus e sursa de adevăr.
+
+**Defaults globale relevante (neschimbate față de TanStack v5 defaults):**
+- `staleTime: 0` → orice query e imediat stale; `refetchOnWindowFocus: true` → la revenirea pe tab, toate query-urile active se refetch automat. **Comportament intenționat** — pe un PMS multi-staff datele trebuie să fie proaspete fără refresh manual. Dacă vrei să eviți refetch-ul pe un query specific (ex. form în editare), pune `refetchOnWindowFocus: false` per-query, nu global.
 
 Fiecare feature are un obiect `*Keys` exportat:
 ```ts
@@ -276,6 +284,7 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 - ✅ **Sprint 4.7 — Stay Restrictions**: restricții de **sosire/plecare** (`arrival_rules`) unificate — pe zi a săptămânii (`weekdays`, ex. „fără sosiri Vi/Sâ") SAU pe dată fixă (`weekdays` NULL = CTA/CTD pe interval), cu `no_arrival` (CTA) / `no_departure` (CTD) și scope proprietate/tip (uniunea = cea mai restrictivă). **Gap de curățenie** `unit_types.turnover_days` (0..7) = constrângere fizică (extinde conflictul cu `gap` nopți pe ambele capete) → scade disponibilitatea peste tot. **Manager Override** (`p_override`, doar owner/manager) bypass-ează stratul soft (sosire/plecare, CTA/CTD, closures, min/max stay); fizicul (double-booking, blocaje, ocupare, gap) rămâne mereu; public = HARD. Enforcement în `create_booking_internal` + `update_booking_dates` (doar pe schimbarea datelor). RPC `get_booking_restrictions` (toate motivele simultan), `app.check_arrival_departure`. UI: dialog „Restricții sosire/plecare" pe proprietate (CTA/CTD debifate la deschidere) + stepper „Pauză de pregătire" în formularul de tip + panou cu toate motivele și comutator Manager Override în formularul de creare/editare date. **Calendar**: turnover = bară hașurată 🧹 după plecare; restricții sosire/plecare = marcaje de colț (ambră/violet) + legendă (tokens centralizați în `restriction-display.ts`, resolver O(reguli×zile)/lună). Teste DB TEST 55–61. Doc: [`docs/backend/rpc/stay-restrictions.md`](backend/rpc/stay-restrictions.md)
 - ✅ **Sprint 4.6 — Reservation Rules Engine**: strat modular de restricții, separat de preț și de `room_blocks`. **min/max stay** global per tip (`unit_types.min_stay/max_stay`, 1..30, max≥min) + **`stay_rules`** pe perioade (suprascriu globalul, cheiat pe data de check-in, recență ca `rate_rules`). **`closures`** = stop-sell / closed dates cu **scope** (`unit_type_id` NULL = toată proprietatea; setat = un tip) — **distinct de `room_blocks`**: oprește vânzarea unui produs, nu blochează camere fizice. Enforcement în `app.create_booking_internal` (admin + public): `STAY_TOO_SHORT/LONG`, `DATES_CLOSED`. RPC `get_stay_constraints` (limitează check-out-ul în formular); `public_get_availability` filtrează închiderile + durata și întoarce min/max stay. UI: dialog „Reguli durată" per tip + buton „Stop sell / Închideri" la nivel de proprietate (`features/reservation-rules/`); formularul de rezervare limitează check-out-ul + afișează „Sejur minim". Occupancy (`max_adults/max_children`) era deja implementat. Teste DB TEST 45–52. Doc: [`docs/backend/rpc/reservation-rules.md`](backend/rpc/reservation-rules.md)
 - ✅ **Sprint 4 — Pricing & Revenue**: snapshot preț/noapte pe rezervare (`bookings.unit_price`); **payments ledger** (`payments` — kind payment/refund, status pending/completed/failed, provider+provider_ref pregătite pentru Stripe & e-factură); stare plată = agregat cached (`payment_status` unpaid/partial/paid/refunded + `amount_paid`) întreținut de trigger din ledger; RPC `record_payment` + `get_revenue_summary` (venit azi/lună/an, server-side, în tz proprietății); feature frontend `payments/` (card plăți pe rezervare, dialog încasare/rambursare, carduri venit pe dashboard, coloană stare în listă); helper `lib/money.ts`. Doc: [`docs/backend/rpc/payments.md`](backend/rpc/payments.md)
+- ✅ **Sprint 5 — Analytics & Dashboard**: panou operațional în stil Mews. RPC unic `get_dashboard_stats` (agregare server-side, în tz proprietății, o trecere `FILTER` peste `bookings` + `count` pe `units`): sosiri/plecări azi, oaspeți în casă, grad de ocupare, camere ocupate/disponibile (`occupied ⊆ active` → invariant `ocupate+disponibile=total`), rezervări create lună/an + anulări lună. Venitul rămâne separat (`get_revenue_summary`, reutilizat). Feature `dashboard/` (api/hooks + `StatCard` reutilizabil + secțiuni `Astăzi/Ocupare/Rezervări`, toate pe același query → un fetch). Invalidare `dashboardKeys.all` la mutații pe rezervări + pe camere active. UI simplu (redesign viitor: doar `StatCard` se schimbă). Teste DB TEST 78. Doc: [`docs/backend/rpc/dashboard.md`](backend/rpc/dashboard.md)
 - ✅ User menu (popover) + dialog setări cu hash routing (`#settings/account`)
 - ✅ Mobile responsive: sidebar hamburger, layout adaptat pe toate paginile
 - ✅ i18n complet în română
@@ -290,7 +299,7 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 - **Pagina publică mai completă** — descriere proprietate, galerie, disponibilitate pe calendar
 - **Setări extinse** — `#settings/notifications`, `#settings/billing` etc. (SECTIONS array e scalabil în `settings-dialog.tsx`)
 - **Export** — CSV rezervări, rapoarte ocupare
-- **Dashboard** — statistici reale (acum e placeholder)
+- **Dashboard extins** — bază operațională livrată (Sprint 5); de adăugat: serii temporale/grafice, RevPAR/ADR, comparații perioadă, occupancy care scade și blocajele (acum doar bookings)
 
 ---
 

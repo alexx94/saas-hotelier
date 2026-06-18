@@ -2738,4 +2738,80 @@ begin
 end $$;
 reset role;
 
+-- ============================================================
+-- Sprint 5 — Analytics & Dashboard
+-- ============================================================
+-- tip + cameră izolate pe proprietatea A pentru metricile panoului
+insert into unit_types (id, org_id, property_id, name, max_adults, max_children, base_price)
+values ('30000055-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001', 'Dashboard', 4, 0, 100);
+insert into units (id, org_id, property_id, unit_type_id, name)
+values ('40005500-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        '20000000-0000-0000-0000-000000000001', '30000055-0000-0000-0000-000000000001', 'D-1');
+
+-- ---------- TEST 78: get_dashboard_stats — sosiri/ocupare azi + izolare RLS ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare
+  v_tz text; v_today date; v_id uuid; v_gc int;
+  s0 record; s1 record;
+begin
+  select timezone into v_tz from properties where id = '20000000-0000-0000-0000-000000000001';
+  v_today := (now() at time zone v_tz)::date;
+
+  -- 78a: invariant numitor — ocupate + disponibile = total active
+  select * into s0 from public.get_dashboard_stats('20000000-0000-0000-0000-000000000001');
+  if s0.occupied_units + s0.available_units = s0.total_units then
+    raise notice 'TEST 78a PASS: ocupate(%) + disponibile(%) = total(%)',
+      s0.occupied_units, s0.available_units, s0.total_units;
+  else
+    raise exception 'TEST 78a FAIL: %/%/%', s0.occupied_units, s0.available_units, s0.total_units;
+  end if;
+
+  -- rezervare care sosește azi pe camera izolată (2 nopți, acoperă azi)
+  v_id := public.create_booking('30000055-0000-0000-0000-000000000001', v_today, v_today + 2,
+    '50000000-0000-0000-0000-000000000001', '40005500-0000-0000-0000-000000000001',
+    2, 0, 'confirmed', null, false, null);
+  select guests_count into v_gc from bookings where id = v_id;
+  select * into s1 from public.get_dashboard_stats('20000000-0000-0000-0000-000000000001');
+
+  -- 78b: sosirea de azi mută toți contoarele operaționale cu exact un pas
+  if s1.arrivals_today = s0.arrivals_today + 1
+     and s1.occupied_units = s0.occupied_units + 1
+     and s1.available_units = s0.available_units - 1
+     and s1.in_house_guests = s0.in_house_guests + v_gc then
+    raise notice 'TEST 78b PASS: sosire azi → arrivals+1, occupied+1, available-1, in_house+%', v_gc;
+  else
+    raise exception 'TEST 78b FAIL: arrivals %→%, occupied %→%, available %→%, in_house %→%',
+      s0.arrivals_today, s1.arrivals_today, s0.occupied_units, s1.occupied_units,
+      s0.available_units, s1.available_units, s0.in_house_guests, s1.in_house_guests;
+  end if;
+
+  -- 78c: anularea ei iese din ocupare și din sosiri (nu mai e activă)
+  update bookings set status = 'cancelled' where id = v_id;
+  select * into s1 from public.get_dashboard_stats('20000000-0000-0000-0000-000000000001');
+  if s1.arrivals_today = s0.arrivals_today and s1.occupied_units = s0.occupied_units then
+    raise notice 'TEST 78c PASS: anulare → exclusă din sosiri/ocupare';
+  else
+    raise exception 'TEST 78c FAIL: arrivals=% occupied=%', s1.arrivals_today, s1.occupied_units;
+  end if;
+end $$;
+reset role;
+
+-- ---------- TEST 78d: get_dashboard_stats cross-org => FORBIDDEN ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+begin
+  begin
+    perform public.get_dashboard_stats('20000000-0000-0000-0000-000000000001');
+    raise exception 'TEST 78d FAIL: owner-b a citit panoul proprietatii A';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 78d PASS: get_dashboard_stats cross-org => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
 rollback;

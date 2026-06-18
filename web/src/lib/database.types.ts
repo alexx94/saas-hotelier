@@ -1,4 +1,5 @@
-﻿export type Json =
+Connecting to db 5432
+export type Json =
   | string
   | number
   | boolean
@@ -1241,6 +1242,21 @@ export type Database = {
           unit_id: string
         }[]
       }
+      get_dashboard_stats: {
+        Args: { p_property_id: string }
+        Returns: {
+          arrivals_today: number
+          available_units: number
+          bookings_month: number
+          bookings_year: number
+          cancellations_month: number
+          departures_today: number
+          in_house_guests: number
+          occupancy_pct: number
+          occupied_units: number
+          total_units: number
+        }[]
+      }
       get_guest_stats: {
         Args: { p_guest_id: string }
         Returns: {
@@ -1510,3 +1526,5 @@ export const Constants = {
   },
 } as const
 
+A new version of Supabase CLI is available: v2.107.0 (currently installed v2.95.4)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli

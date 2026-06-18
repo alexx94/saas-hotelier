@@ -9,6 +9,7 @@ import {
   removeBlock, setUnitStatus, updateUnit, updateUnitType,
   type BlockReason, type UnitStatus,
 } from "./api"
+import { dashboardKeys } from "@/features/dashboard/hooks"
 
 export const unitTypeKeys = {
   list: (propertyId: string) => ["unit-types", propertyId] as const,
@@ -65,6 +66,7 @@ export function useGenerateUnits(propertyId: string) {
     onSuccess: (_, { unitTypeId }) => {
       qc.invalidateQueries({ queryKey: unitTypeKeys.list(propertyId) })
       qc.invalidateQueries({ queryKey: unitTypeKeys.units(unitTypeId) })
+      qc.invalidateQueries({ queryKey: dashboardKeys.all })
     },
   })
 }
@@ -114,6 +116,7 @@ export function useSetUnitStatus(propertyId: string) {
       qc.invalidateQueries({ queryKey: unitTypeKeys.list(propertyId) })
       qc.invalidateQueries({ queryKey: ["units-for-type"] })
       qc.invalidateQueries({ queryKey: ["units"] })
+      qc.invalidateQueries({ queryKey: dashboardKeys.all })
       qc.invalidateQueries({ queryKey: ["unit-events"] })
     },
   })
@@ -128,6 +131,7 @@ export function useBulkSetUnitStatus(propertyId: string) {
       qc.invalidateQueries({ queryKey: unitTypeKeys.list(propertyId) })
       qc.invalidateQueries({ queryKey: ["units-for-type"] })
       qc.invalidateQueries({ queryKey: ["units"] })
+      qc.invalidateQueries({ queryKey: dashboardKeys.all })
       qc.invalidateQueries({ queryKey: ["unit-events"] })
     },
   })
@@ -141,6 +145,7 @@ export function useBulkDeleteUnits(propertyId: string) {
       qc.invalidateQueries({ queryKey: unitTypeKeys.list(propertyId) })
       qc.invalidateQueries({ queryKey: ["units-for-type"] })
       qc.invalidateQueries({ queryKey: ["units"] })
+      qc.invalidateQueries({ queryKey: dashboardKeys.all })
       qc.invalidateQueries({ queryKey: ["unit-events"] })
     },
   })
@@ -227,6 +232,7 @@ export function useDeleteUnit(propertyId: string) {
       qc.invalidateQueries({ queryKey: unitTypeKeys.list(propertyId) })
       qc.invalidateQueries({ queryKey: ["units-for-type"] })
       qc.invalidateQueries({ queryKey: ["units"] })
+      qc.invalidateQueries({ queryKey: dashboardKeys.all })
     },
   })
 }

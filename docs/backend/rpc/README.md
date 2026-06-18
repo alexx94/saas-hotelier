@@ -23,6 +23,7 @@
 | `quote_price` | pricing | DEFINER | membri cu acces pe proprietate | [pricing.md](pricing.md) |
 | `get_rate_calendar` | pricing | DEFINER | membri cu acces pe proprietate | [pricing.md](pricing.md) |
 | `get_stay_constraints` | reguli rezervare | DEFINER | membri cu acces pe proprietate | [reservation-rules.md](reservation-rules.md) |
+| `get_dashboard_stats` | panou (analytics) | DEFINER | membri cu acces pe proprietate | [dashboard.md](dashboard.md) |
 | `public_preview_promo` | promoții | DEFINER | **anon** + authenticated | [promotions.md](promotions.md) |
 | `public_get_availability` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |
 | `public_create_booking` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |

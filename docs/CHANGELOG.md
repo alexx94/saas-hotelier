@@ -5,6 +5,32 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 5 — Analytics & Dashboard (18 iun 2026)
+
+### Obiectiv
+
+Panoul (`/app`) afișa doar cardurile de venit; restul era placeholder. Sprint 5 îl transformă într-un dashboard operațional în stil Mews: sosiri/plecări de azi, oaspeți în casă, grad de ocupare, camere ocupate/disponibile și volum de rezervări (lună/an + anulări).
+
+### Decizii (arhitectură)
+
+- **Un singur RPC** `get_dashboard_stats(p_property_id)` întoarce toate metricile operaționale într-un rând — agregare **server-side** (convenția proiectului: nu se numără pe client), în **timezone-ul proprietății**, o trecere peste `bookings` cu `FILTER` + un `count` pe `units`. Venitul rămâne separat (`get_revenue_summary`), reutilizat de cardul „Venit".
+- **`occupied_units` ⊆ `total_units`** (join pe `units.status='active'`) → invariantul `ocupate + disponibile = total` ține fără `greatest` artificial. `total_units` = camere `status='active'`, aceeași definiție de „vandabil" ca engine-ul de disponibilitate.
+- **Definiții explicite**: `bookings_month/year` = rezervări *create* în perioada curentă (volum comercial, exclude `status='blocked'`); `cancellations_month` = anulate luna curentă după `updated_at` (proxy — nu există `cancelled_at` dedicat); `in_house_guests` = suma `guests_count` din sejururile care acoperă azi.
+
+### Soluția (migrația `20260618120000_dashboard_stats.sql`)
+
+- `get_dashboard_stats` DEFINER, `stable`, `set search_path = ''`, autorizare `PROPERTY_NOT_FOUND` → `FORBIDDEN`, grants revocate de la `anon/public`.
+- Test `db_tests.sql` TEST 78 (a–d): invariant numitor, delta sosire/ocupare/in-house la o rezervare de azi, excludere la anulare, izolare cross-org (`FORBIDDEN`). 187 PASS.
+
+### Frontend (`features/dashboard/`)
+
+- `api.ts` (`DashboardStats` + `fetchDashboardStats`) → `hooks.ts` (`dashboardKeys` + `useDashboardStats`) → `dashboard-cards.tsx` (`StatCard` reutilizabil + secțiunile `DashboardTodayCards` / `DashboardOccupancyCards` / `DashboardBookingCards`, toate pe **același** query → un singur fetch, dedupe TanStack).
+- `routes/_app/app/index.tsx`: panou pe secțiuni (`Astăzi` / `Venit` / `Ocupare` / `Rezervări`), reutilizează `RevenueCards`.
+- **Invalidare**: `dashboardKeys.all` adăugat în `invalidateBookingData` (orice mutație pe rezervări) și în mutațiile pe camere care schimbă numărul de camere active (`unit-types/hooks`: generate/status/bulk/delete). Venitul are propriul ciclu (`revenueAll`).
+- UI simplu intenționat (redesign viitor): doar `StatCard` se schimbă vizual, restul rămâne neatins. Doc: [`docs/backend/rpc/dashboard.md`](backend/rpc/dashboard.md).
+
+---
+
 ## Sprint 4.9 — Availability & Allocation Engine: strat de validatori (17 iun 2026)
 
 ### Obiectiv

@@ -9,6 +9,7 @@ import {
   type BookingListParams, type BookingStatus, type CreateBookingInput,
 } from "./api"
 import { guestKeys } from "@/features/guests/hooks"
+import { dashboardKeys } from "@/features/dashboard/hooks"
 
 export const bookingKeys = {
   all: ["bookings"] as const,
@@ -24,14 +25,16 @@ export const bookingKeys = {
   eventsAll: ["booking-events"] as const,
 }
 
-// Orice mutație pe rezervări afectează listele, detaliul, istoricul (audit)
-// și datele oaspetelui (istoric + statistici)
+// Orice mutație pe rezervări afectează listele, detaliul, istoricul (audit),
+// datele oaspetelui (istoric + statistici) și metricile panoului
+// (sosiri/plecări/ocupare/rezervări)
 function invalidateBookingData(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: bookingKeys.all })
   qc.invalidateQueries({ queryKey: bookingKeys.detailAll })
   qc.invalidateQueries({ queryKey: bookingKeys.eventsAll })
   qc.invalidateQueries({ queryKey: guestKeys.bookingsAll })
   qc.invalidateQueries({ queryKey: guestKeys.statsAll })
+  qc.invalidateQueries({ queryKey: dashboardKeys.all })
 }
 
 export const unitKeys = {

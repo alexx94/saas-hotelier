@@ -3,12 +3,24 @@ import {
   PropertySelect, usePropertySelection,
 } from "@/features/properties/property-select"
 import { RevenueCards } from "@/features/payments/revenue-cards"
+import {
+  DashboardTodayCards, DashboardOccupancyCards, DashboardBookingCards,
+} from "@/features/dashboard/dashboard-cards"
 import { t } from "@/lib/i18n"
 import { Card, CardContent } from "@/components/ui/card"
 
 export const Route = createFileRoute("/_app/app/")({
   component: DashboardPage,
 })
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
+      {children}
+    </section>
+  )
+}
 
 function DashboardPage() {
   const { properties, property, setPropertyId } = usePropertySelection()
@@ -26,10 +38,20 @@ function DashboardPage() {
       </div>
 
       {property ? (
-        <>
-          <h2 className="text-sm font-medium text-muted-foreground">{t("revenue.title")}</h2>
-          <RevenueCards propertyId={property.id} />
-        </>
+        <div className="space-y-6">
+          <Section title={t("dashboard.section.today")}>
+            <DashboardTodayCards propertyId={property.id} />
+          </Section>
+          <Section title={t("revenue.title")}>
+            <RevenueCards propertyId={property.id} />
+          </Section>
+          <Section title={t("dashboard.section.occupancy")}>
+            <DashboardOccupancyCards propertyId={property.id} />
+          </Section>
+          <Section title={t("dashboard.section.bookings")}>
+            <DashboardBookingCards propertyId={property.id} />
+          </Section>
+        </div>
       ) : (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">

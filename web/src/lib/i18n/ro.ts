@@ -370,6 +370,21 @@ export const ro = {
   "revenue.month": "Venit luna aceasta",
   "revenue.year": "Venit anul acesta",
 
+  // panou — analytics (Sprint 5)
+  "dashboard.section.today": "Astăzi",
+  "dashboard.section.occupancy": "Ocupare",
+  "dashboard.section.bookings": "Rezervări",
+  "dashboard.arrivals_today": "Sosiri azi",
+  "dashboard.departures_today": "Plecări azi",
+  "dashboard.in_house_guests": "Oaspeți în casă",
+  "dashboard.occupancy_rate": "Grad de ocupare",
+  "dashboard.occupied_units": "Camere ocupate",
+  "dashboard.available_units": "Camere disponibile",
+  "dashboard.bookings_month": "Rezervări luna aceasta",
+  "dashboard.bookings_year": "Rezervări anul acesta",
+  "dashboard.cancellations_month": "Anulări luna aceasta",
+  "dashboard.rooms": "camere",
+
   // capacitate & ocupare (Sprint 4.5)
   "unit_types.occupancy": "Capacitate",
   "unit_types.max_adults": "Maxim adulți",
