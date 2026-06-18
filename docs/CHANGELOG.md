@@ -5,6 +5,34 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 6.1 — RBAC Foundation (18 iun 2026)
+
+### Obiectiv
+
+Primul pas spre un PMS multi-user real: înlocuirea autorizării rudimentare (enum fix `owner/manager/staff` + `is_org_role` hardcodat în RLS) cu o **fundație RBAC scalabilă** — roluri configurabile, permisiuni granulare pe acțiuni, multiple roluri per membru. Spec-ul complet (RBAC + invitații + audit + planuri + workspace switcher) ≈ 5 sub-sprinturi; **acum doar fundația 6.1**, restul documentat ca roadmap. Doc master: [`docs/backend/rbac.md`](backend/rbac.md).
+
+### Decizii (arhitectură)
+
+- **Două lane-uri de principali** (scalabilitate viitoare impusă de la început): **staff** (membru org → RBAC) vs **guest** (viitor: `guests.user_id` → ownership). Catalogul de permisiuni e exclusiv pentru staff; conturile de oaspeți vor fi un lane ortogonal, fără suprapunere pe backend sau UI. Previne coliziuni când se adaugă self-booking gen Booking.com.
+- **Multiple roluri per membru** (`member_roles`), permisiunile se cumulează (union) — ca la Mews. Roluri de **sistem** (globale, `org_id NULL`) + spațiu pentru roluri **custom** per org. Permisiuni `domeniu.acțiune` (31 în catalog).
+- **Owner structural** separat de roluri (`organizations.owner_user_id`, 1/org, transferabil) → bypass de permisiuni; baza pt. billing și garda „un owner" (6.3).
+- **Enforcement rule**: `has_permission` = permisiune deținută **ȘI** acces pe proprietate (`can_access_property`), cu owner-bypass.
+- **Zero regresie**: enum-ul rămâne sursa, un **trigger** (`app.sync_member_role`) oglindește automat `member_roles` din enum → tot codul existent populează noul model fără modificări. Helperii `has_permission`/`user_permissions` sunt aditivi, **încă neapelați** (enforcement în 6.2).
+
+### Soluția (migrația `20260618130000_rbac_foundation.sql`)
+
+- Tabele `permissions` (seed catalog), `roles` (6 roluri de sistem + RLS), `role_permissions`, `member_roles`; `organizations.owner_user_id` (nullable în 6.1, NOT NULL în 6.3) cu backfill.
+- Triggere: `sync_member_role` (bridge enum→member_roles), `check_member_role_org` (guard cross-tenant → `ROLE_ORG_MISMATCH`). `create_organization` setează `owner_user_id`.
+- Helperi `app.user_permissions(org)` + `app.has_permission(org, property, key)`.
+- Teste `db_tests.sql` TEST 79 (a–e): backfill prin trigger, has_permission (permisiune/union/scoping), izolare cross-org, owner-bypass. **192 PASS**.
+- Documentație: `rbac.md` (master cu roadmap 6.1–6.6 + status), `helpers.md`, `rpc/README.md`, `rls-policies.md`, `ARCHITECTURE.md`.
+
+### Ce NU s-a atins
+
+Politicile RLS, `is_org_role`/`can_access_property`, toate RPC-urile — neschimbate (excepție aditivă: `create_organization`). Aplicația se comportă identic.
+
+---
+
 ## Sprint 5 — Analytics & Dashboard (18 iun 2026)
 
 ### Obiectiv

@@ -32,8 +32,11 @@ values (
   'email', now(), now(), now());
 
 -- ── 2. Organizație + membru owner ──
-insert into organizations (id, name, slug) values
-  ('b0000000-0000-0000-0000-000000000001', 'Hotel Demo', 'hotel-demo');
+-- owner_user_id = owner structural (RBAC Sprint 6.1); insertul membrului owner
+-- declanșează triggerul member_roles_sync → rolul de sistem Administrator
+insert into organizations (id, name, slug, owner_user_id) values
+  ('b0000000-0000-0000-0000-000000000001', 'Hotel Demo', 'hotel-demo',
+   'a0000000-0000-0000-0000-000000000001');
 
 insert into organization_members (org_id, user_id, role) values
   ('b0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'owner');

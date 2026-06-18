@@ -48,6 +48,15 @@ create table member_property_access (
   primary key (member_id, property_id)
 );
 
+-- ============ RBAC (Sprint 6.1 — vezi docs/backend/rbac.md) ============
+-- organizations.owner_user_id  → owner structural (1/org, transferabil)
+-- permissions(key, domain, ...)            catalog static `domeniu.acțiune`
+-- roles(id, org_id NULL=sistem, slug, is_system)   roluri sistem + custom/org
+-- role_permissions(role_id, permission_key)        ce poate un rol
+-- member_roles(member_id, role_id)                 MULTI-rol/membru (union perms)
+-- Helperi: app.user_permissions(org), app.has_permission(org, property, key).
+-- Enum-ul `role` rămâne ca bridge (trigger sync) până la enforcement (6.2).
+
 -- ============ INVENTAR ============
 create table properties (
   id              uuid primary key default gen_random_uuid(),

@@ -19,6 +19,12 @@
 | `unit_events` | `can_access_property` (prin unit) | ❌ (exclusiv trigger `units_audit` / `room_blocks_audit`) | ❌ | ❌ |
 | `unit_type_events` | `can_access_property` (prin tip) | ❌ (exclusiv trigger `unit_types_audit`) | ❌ | ❌ |
 | `room_blocks` | `can_access_property` | `can_access_property` (validare în trigger) | `can_access_property` | `can_access_property` |
+| `permissions` (RBAC) | orice autentificat (catalog) | ❌ seed-only | ❌ | ❌ |
+| `roles` (RBAC) | roluri sistem (toți) + roluri org propriu | ❌ în 6.1 (custom → 6.3) | ❌ | ❌ |
+| `role_permissions` (RBAC) | dacă rolul e vizibil | ❌ în 6.1 | ❌ | ❌ |
+| `member_roles` (RBAC) | membrii org-ului | trigger sync (6.1); direct → 6.3 | trigger | trigger |
+
+> Tabelele RBAC (`permissions/roles/role_permissions/member_roles`) sunt fundație Sprint 6.1 — vezi [rbac.md](rbac.md). `anon` nu are acces la niciunul. Enforcement-ul pe restul tabelelor migrează la `app.has_permission` în 6.2.
 
 ## Grants pe coloane pentru `anon` (vitrina publică)
 

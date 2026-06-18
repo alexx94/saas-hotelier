@@ -2814,4 +2814,123 @@ begin
 end $$;
 reset role;
 
+-- ============================================================
+-- Sprint 6.1 — RBAC Foundation
+-- ============================================================
+-- Fixtures (ca postgres → bypass RLS). Un membru „recepție" pe Org A:
+-- role='staff' declanșează triggerul member_roles_sync → rolul Reception.
+insert into auth.users (id, email)
+values ('00000000-0000-0000-0000-000000000079', 'reception-a@test.ro');
+insert into organization_members (org_id, user_id, role) values
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000079', 'staff');
+-- al doilea rol (multi-rol → permisiunile se cumulează): Finance
+insert into member_roles (member_id, role_id)
+  select m.id, r.id
+  from organization_members m, roles r
+  where m.user_id = '00000000-0000-0000-0000-000000000079'
+    and m.org_id = '10000000-0000-0000-0000-000000000001'
+    and r.slug = 'finance' and r.org_id is null;
+-- rol custom în Org B (pt. testul de izolare cross-tenant)
+insert into roles (id, org_id, slug, name) values
+  ('79000000-0000-0000-0000-0000000000b1', '10000000-0000-0000-0000-000000000002',
+   'custom-b', 'Custom B');
+
+-- ---------- TEST 79a: trigger backfill enum→rol de sistem ----------
+do $$
+declare v_slug text;
+begin
+  select r.slug into v_slug
+  from member_roles mr
+  join organization_members m on m.id = mr.member_id
+  join roles r on r.id = mr.role_id and r.is_system
+  where m.user_id = '00000000-0000-0000-0000-000000000079' and r.slug = 'reception';
+  if v_slug = 'reception' then
+    raise notice 'TEST 79a PASS: staff → rol de sistem Reception (trigger sync)';
+  else
+    raise exception 'TEST 79a FAIL: rol mapat = %', v_slug;
+  end if;
+end $$;
+
+-- ---------- TEST 79b: has_permission ca recepție (permisiune + union + scoping) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000079","role":"authenticated"}';
+do $$
+declare v_orgA uuid := '10000000-0000-0000-0000-000000000001';
+        v_propA uuid := '20000000-0000-0000-0000-000000000001';
+begin
+  -- recepția are booking.create
+  if not app.has_permission(v_orgA, v_propA, 'booking.create') then
+    raise exception 'TEST 79b FAIL: recepția nu are booking.create';
+  end if;
+  -- recepția NU are pricing.edit
+  if app.has_permission(v_orgA, v_propA, 'pricing.edit') then
+    raise exception 'TEST 79b FAIL: recepția are pricing.edit';
+  end if;
+  -- union: payment.refund vine din al doilea rol (Finance)
+  if not app.has_permission(v_orgA, v_propA, 'payment.refund') then
+    raise exception 'TEST 79b FAIL: union de roluri nu aduce payment.refund';
+  end if;
+  raise notice 'TEST 79b PASS: has_permission (booking.create da, pricing.edit nu, refund prin union)';
+end $$;
+reset role;
+
+-- ---------- TEST 79c: enforcement rule = permisiune ȘI acces pe proprietate ----------
+-- restrângem recepția la propB (Hotel Secret) → propA devine inaccesibilă
+insert into member_property_access (member_id, property_id)
+  select m.id, '20000000-0000-0000-0000-000000000002'
+  from organization_members m
+  where m.user_id = '00000000-0000-0000-0000-000000000079'
+    and m.org_id = '10000000-0000-0000-0000-000000000001';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000079","role":"authenticated"}';
+do $$
+declare v_orgA uuid := '10000000-0000-0000-0000-000000000001';
+        v_propA uuid := '20000000-0000-0000-0000-000000000001';
+begin
+  -- are permisiunea, dar NU are acces pe propA → fals
+  if app.has_permission(v_orgA, v_propA, 'booking.create') then
+    raise exception 'TEST 79c FAIL: acces la propA deși restrâns la propB';
+  end if;
+  -- fără scope de proprietate (p_property_id null) → doar permisiunea contează
+  if not app.has_permission(v_orgA, null, 'booking.create') then
+    raise exception 'TEST 79c FAIL: scoping pe null ar trebui să treacă';
+  end if;
+  raise notice 'TEST 79c PASS: permisiune ∧ acces proprietate (propA blocat, null permis)';
+end $$;
+reset role;
+
+-- ---------- TEST 79d: izolare cross-tenant pe member_roles ----------
+do $$
+begin
+  begin
+    insert into member_roles (member_id, role_id)
+      select m.id, '79000000-0000-0000-0000-0000000000b1'
+      from organization_members m
+      where m.user_id = '00000000-0000-0000-0000-000000000079'
+        and m.org_id = '10000000-0000-0000-0000-000000000001';
+    raise exception 'TEST 79d FAIL: membru Org A a primit rol custom din Org B';
+  exception when others then
+    if sqlerrm like '%ROLE_ORG_MISMATCH%' then
+      raise notice 'TEST 79d PASS: rol custom din altă org => ROLE_ORG_MISMATCH';
+    else raise; end if;
+  end;
+end $$;
+
+-- ---------- TEST 79e: owner structural bypass-ează permisiunile ----------
+-- facem temporar din recepție owner-ul Org A; deși rolul Reception n-are
+-- organization.billing, bypass-ul pe owner_user_id îl acordă
+update organizations set owner_user_id = '00000000-0000-0000-0000-000000000079'
+  where id = '10000000-0000-0000-0000-000000000001';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000079","role":"authenticated"}';
+do $$
+declare v_orgA uuid := '10000000-0000-0000-0000-000000000001';
+begin
+  if not app.has_permission(v_orgA, null, 'organization.billing') then
+    raise exception 'TEST 79e FAIL: owner nu bypass-ează spre organization.billing';
+  end if;
+  raise notice 'TEST 79e PASS: owner_user_id bypass → toate permisiunile';
+end $$;
+reset role;
+
 rollback;

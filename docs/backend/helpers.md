@@ -18,6 +18,15 @@ Userul are unul din rolurile date în org. Folosit în politicile de scriere (`o
 ### `app.can_access_property(p_property_id uuid) returns boolean`
 Verificarea standard de acces la o proprietate: membru al org-ului proprietății **și** (nu are restricții per-proprietate **sau** are rând în `member_property_access` pentru ea). Folosit de politicile pe `unit_types`/`units`/`bookings`/`booking_events` și ca verificare explicită în RPC-urile definer pe bookings.
 
+### `app.user_permissions(p_org_id uuid) returns setof text` — RBAC (Sprint 6.1)
+Toate permisiunile efective ale userului curent în organizație: owner structural (`organizations.owner_user_id`) → toate; altfel union peste rolurile membrului (`member_roles ⋈ role_permissions`). **Aditiv, încă neapelat** — enforcement în 6.2. Detalii: [rbac.md](rbac.md).
+
+### `app.has_permission(p_org_id uuid, p_property_id uuid, p_key text) returns boolean` — RBAC (Sprint 6.1)
+Primitiva de enforcement: owner bypass SAU (permisiune deținută ȘI acces pe proprietate, când `p_property_id` e dat). `p_property_id = NULL` pentru verificări la nivel de organizație. **Aditiv, încă neapelat.** Detalii: [rbac.md](rbac.md).
+
+### `app.sync_member_role()` / `app.check_member_role_org()` — triggers RBAC (Sprint 6.1)
+`sync_member_role` (AFTER pe `organization_members`) oglindește enum-ul în `member_roles` cât timp enum-ul e sursa (bridge de tranziție). `check_member_role_org` (BEFORE pe `member_roles`) blochează atribuirea unui rol custom din altă org (`ROLE_ORG_MISMATCH`).
+
 ## Helpers de date
 
 ### `app.normalize_phone(p_phone text) returns text` — `immutable strict`
