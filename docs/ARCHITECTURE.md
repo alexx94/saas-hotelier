@@ -56,6 +56,9 @@ create table member_property_access (
 -- member_roles(member_id, role_id)                 MULTI-rol/membru (union perms)
 -- Helperi: app.user_permissions(org), app.has_permission(org, property, key).
 -- Enum-ul `role` rămâne ca bridge (trigger sync) până la enforcement (6.2).
+-- profiles(user_id pk → auth.users, full_name, avatar_url)  identitate partajată
+--   (staff + guest); trigger pe auth.users la signup. Management membri/roluri
+--   prin RPC-uri DEFINER (6.3); gărzi anti-escaladare (subset + self) în 6.3.1.
 
 -- ============ INVENTAR ============
 create table properties (

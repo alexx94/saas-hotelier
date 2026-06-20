@@ -7,12 +7,15 @@ import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
+import { useMyProfile } from "./profile"
 import { SettingsDialog, settingsHash } from "./settings-dialog"
 
 export function UserMenu({ onLogout }: { onLogout: () => void }) {
   const [email, setEmail] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const navigate = useNavigate()
+  const { data: profile } = useMyProfile()
+  const displayName = profile?.full_name || email
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null))
@@ -27,7 +30,7 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
               <User className="h-4 w-4" />
             </div>
             <span className="min-w-0 flex-1 truncate text-left text-xs">
-              {email ?? "…"}
+              {displayName ?? "…"}
             </span>
           </button>
         </PopoverTrigger>

@@ -40,7 +40,9 @@ const MAX_OCCUPANCY_UNBOUNDED = 25
 
 const schema = z
   .object({
-    unit_type_id: z.string().uuid(),
+    // doar „selectat" — validitatea reală o impune FK-ul din DB. `.uuid()` (strict
+    // RFC în zod 4) respingea uuid-urile sintetice din seed și bloca submit-ul silențios.
+    unit_type_id: z.string().min(1, "Alege un tip de cameră"),
     check_in: z.string().min(10),
     check_out: z.string().min(10),
     // adulți/copii sunt gestionați ca state (steppere) — vezi mai jos
@@ -237,6 +239,9 @@ export function BookingFormDialog({
                 {t("bookings.min_stay_hint")}{" "}
                 <span className="font-semibold text-primary">{minStay} {t("bookings.nights")}</span>
               </p>
+            )}
+            {form.formState.errors.unit_type_id && (
+              <p className="text-sm text-destructive">{form.formState.errors.unit_type_id.message}</p>
             )}
           </div>
 

@@ -13,6 +13,7 @@ import {
   useCreateUnitType, useDeleteUnitType, useUnitTypes, useUpdateUnitType,
 } from "@/features/unit-types/hooks"
 import type { UnitType } from "@/features/unit-types/api"
+import { Can } from "@/features/auth/can"
 import { UnitRows } from "@/features/unit-types/unit-rows"
 import { UnitTypeHistoryDialog } from "@/features/unit-types/unit-type-history-dialog"
 import { parseRoomNumbering } from "@/features/unit-types/room-numbering"
@@ -153,30 +154,40 @@ function UnitTypeRow({
         <TableCell className="text-right">
           <div className="flex items-center justify-end gap-1">
             {!ut.is_active && (
-              <Button
-                variant="ghost" size="icon" className="h-8 w-8"
-                title={t("unit_types.restore")}
-                disabled={updateUnitType.isPending}
-                onClick={onRestore}
-              >
-                <ArchiveRestore className="h-4 w-4" />
-              </Button>
+              <Can permission="unit_type.manage">
+                <Button
+                  variant="ghost" size="icon" className="h-8 w-8"
+                  title={t("unit_types.restore")}
+                  disabled={updateUnitType.isPending}
+                  onClick={onRestore}
+                >
+                  <ArchiveRestore className="h-4 w-4" />
+                </Button>
+              </Can>
             )}
-            <Button variant="ghost" size="icon" className="h-8 w-8" title={t("pricing.manage")} onClick={() => onRates(ut)}>
-              <Tag className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8" title={t("stay_rules.manage")} onClick={() => onStayRules(ut)}>
-              <CalendarClock className="h-4 w-4" />
-            </Button>
+            <Can permission="pricing.edit">
+              <Button variant="ghost" size="icon" className="h-8 w-8" title={t("pricing.manage")} onClick={() => onRates(ut)}>
+                <Tag className="h-4 w-4" />
+              </Button>
+            </Can>
+            <Can permission="rules.manage">
+              <Button variant="ghost" size="icon" className="h-8 w-8" title={t("stay_rules.manage")} onClick={() => onStayRules(ut)}>
+                <CalendarClock className="h-4 w-4" />
+              </Button>
+            </Can>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setHistoryOpen(true)}>
               <History className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEdit(ut)}>
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setConfirmDelete(true)}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            <Can permission="unit_type.manage">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEdit(ut)}>
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </Can>
+            <Can permission="unit_type.manage">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setConfirmDelete(true)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </Can>
           </div>
         </TableCell>
       </TableRow>
@@ -454,30 +465,40 @@ function PropertyDetailPage() {
               </Link>
             </Button>
           )}
-          <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setPromotionsOpen(true)}>
-            <Ticket className="h-4 w-4" />
-            {t("promotions.manage")}
-          </Button>
-          <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setArrivalRulesOpen(true)}>
-            <CalendarX2 className="h-4 w-4" />
-            {t("arrival_rules.manage")}
-          </Button>
-          <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setClosuresOpen(true)}>
-            <Ban className="h-4 w-4" />
-            {t("closures.manage")}
-          </Button>
-          <Button variant="outline" size="sm" className="sm:h-9" onClick={togglePublish}>
-            {property.is_published ? t("properties.unpublish") : t("properties.publish")}
-          </Button>
+          <Can permission="promotion.manage">
+            <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setPromotionsOpen(true)}>
+              <Ticket className="h-4 w-4" />
+              {t("promotions.manage")}
+            </Button>
+          </Can>
+          <Can permission="rules.manage">
+            <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setArrivalRulesOpen(true)}>
+              <CalendarX2 className="h-4 w-4" />
+              {t("arrival_rules.manage")}
+            </Button>
+          </Can>
+          <Can permission="rules.manage">
+            <Button variant="outline" size="sm" className="sm:h-9" onClick={() => setClosuresOpen(true)}>
+              <Ban className="h-4 w-4" />
+              {t("closures.manage")}
+            </Button>
+          </Can>
+          <Can permission="property.edit">
+            <Button variant="outline" size="sm" className="sm:h-9" onClick={togglePublish}>
+              {property.is_published ? t("properties.unpublish") : t("properties.publish")}
+            </Button>
+          </Can>
         </div>
       </div>
 
       {/* tipuri camere */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-medium">{t("unit_types.title")}</h2>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />{t("unit_types.add")}
-        </Button>
+        <Can permission="unit_type.manage">
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />{t("unit_types.add")}
+          </Button>
+        </Can>
       </div>
 
       {loadingTypes ? (

@@ -5,6 +5,51 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 6.3.2/6.3.3 — Autoritate, ierarhie clară & bugfix-uri (19 iun 2026)
+
+### Autoritate prin permisiuni „elevate" + tier-uri (`20260619120000`)
+Cine pe cine **gestionează** — nu din ranguri numerice (strică rolurile custom) sau „cine are mai multe permisiuni" (ambiguu), ci dintr-un set FIX de permisiuni elevate. Tier: OWNER(structural) > ADMIN(`role.manage`) > MANAGER(`user.manage`) > BASE. Reguli: gestionezi doar tier strict mai mic; acorzi doar roluri sub tine; rolurile custom forțat BASE (`ELEVATED_NOT_ALLOWED`); acces la proprietăți doar cât ai tu; manager doar în proprietățile lui. Helperi `app.member_tier`/`actor_tier`/`can_manage_member`/`can_grant_roles`. Detalii: [`rbac.md §10`](backend/rbac.md).
+
+### Ierarhie clară de roluri (`20260619130000`)
+Eliminată redundanța admin/manager: **OWNER** = tot + billing/abonament + ownership; **ADMIN** = users/roluri/**proprietăți (creare/ștergere)** + setări org, fără billing; **MANAGER** = operațional în proprietățile lui + management base, **fără creare/ștergere proprietăți**. `property.create`/`delete` → elevate (admin-only). `organization.billing` → exclusiv owner.
+
+### Bugfix — adăugarea de proprietăți era blocată de RLS
+`properties_select` folosea `can_access_property(id)` care **re-interoghează** `properties`; la `INSERT...RETURNING` (PostgREST `.insert().select()`) rândul nou nu e vizibil funcției `stable` → crearea era blocată. Înlocuit cu `can_access_property_row(org_id, id)` (evaluează pe coloanele rândului). Manager-ul oricum nu mai poate crea proprietăți.
+
+### Bugfix — butonul „Salvează" la rezervare (din sesiunea anterioară, reconfirmat)
+`z.string().uuid()` (zod 4, strict RFC) respingea uuid-urile sintetice din seed → submit silențios. `.min(1)` + eroare vizibilă.
+
+### Frontend
+- **Cache golit la logout** (`main.tsx` `onAuthStateChange SIGNED_OUT` → `queryClient.clear()`) — gata cu rolurile/tab-urile rămase din contul anterior.
+- **Gate `<Can>`** pe toate acțiunile de management (pricing/promotions/rules/unit types/properties) — gata cu falsul „succes" când RLS taie silențios.
+- **Membri**: owner primul, „tu", restul cu paginare; editorul ascunde acțiunile pe cine nu poți gestiona (`useAuthority`); rolurile oferite filtrate la cele acordabile (tier + subset); editorul de roluri custom nu oferă permisiuni elevate.
+- **Org switcher** în sidebar (`features/organizations/org-switcher.tsx`) — navigare între organizațiile la care ai acces; property switcher e deja scoped prin RLS.
+
+### Teste
+`db_tests.sql` TEST 92–94 (anti-escaladare, autoritate/tier, creare proprietăți admin DA/manager NU). **253 PASS.**
+
+---
+
+## Sprint 6.3 — Member Management, Custom Roles & Profiles (19 iun 2026)
+
+### Obiectiv
+Partea vizibilă a RBAC: identitate (`profiles`), management de membri (adăugare cont existent după email, roluri multiple, acces per-proprietate, transfer ownership) și editor de roluri custom. Plus reparații de flux raportate la testare.
+
+### Backend (migrațiile `20260618150000` + `20260618160000`)
+- `profiles` (+ trigger signup + RLS „coleg de org"). RPC-uri DEFINER gate pe permisiuni: `add_member`/`set_member_roles`/`set_member_property_access`/`remove_member`/`transfer_ownership` (`user.manage`/owner), `create_role`/`update_role`/`delete_role` (`role.manage`), `get_org_members`. Doc: [`rpc/members.md`](backend/rpc/members.md).
+- **Separarea actorilor**: `add_member` lucrează doar pe lane-ul staff (atașează contul auth), nu atinge `guests` — o persoană poate fi guest la altă org și staff aici fără suprapunere.
+- **6.3.1 — gărzi anti-escaladare** (reparație): regula **subset** (`app.user_covers_roles`) → nu poți acorda un rol cu permisiuni pe care nu le ai (manager nu mai dă Administrator → `INSUFFICIENT_GRANT`); **fără self-modificare** (`CANNOT_EDIT_SELF`/`CANNOT_REMOVE_SELF`).
+- Teste `db_tests.sql` TEST 85–92. **242 PASS**.
+
+### Frontend
+- `features/members/` + `features/roles/` randate în `settings-dialog` (`#settings/members`/`#settings/roles`, gate pe `user.manage`/`role.manage`); `features/auth/profile.ts` (nume editabil + afișat în user-menu).
+- Dialog settings mărit (spațios) + conținut sub butonul X (fără suprapunere). Roluri **expandabile** cu permisiuni grupate pe domeniu (catalog lazy). Roluri afișate filtrate la cele **acordabile**. **Self-protection** în UI. **Confirmare cu tastat** (email) la remove/transfer.
+
+### Bugfix — butonul „Salvează" la rezervare nouă
+`unit_type_id: z.string().uuid()` — zod 4 validează strict versiunea/varianta RFC și respingea uuid-urile sintetice din seed (`d0000000-…`, versiune=0), blocând submit-ul **silențios**. Înlocuit cu `z.string().min(1)` (validitatea reală o impune FK-ul din DB) + mesaj de eroare vizibil.
+
+---
+
 ## Sprint 6.2 — RBAC Enforcement (18 iun 2026)
 
 ### Obiectiv

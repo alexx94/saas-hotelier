@@ -9,6 +9,7 @@ import { requireSession } from "@/features/auth/hooks"
 import { UserMenu } from "@/features/auth/user-menu"
 import { useMyOrganizations } from "@/features/organizations/hooks"
 import { OrgProvider } from "@/features/organizations/context"
+import { OrgSwitcher } from "@/features/organizations/org-switcher"
 import { usePermissions } from "@/features/auth/permissions"
 import { supabase } from "@/lib/supabase"
 import { t } from "@/lib/i18n"
@@ -100,7 +101,7 @@ function AppLayout() {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}>
           <div className="flex items-center justify-between border-b p-4">
-            <p className="font-semibold truncate">{orgs[0].name}</p>
+            <OrgSwitcher />
             <Button
               variant="ghost" size="icon"
               className="md:hidden h-8 w-8 shrink-0 -mr-1"
@@ -127,7 +128,7 @@ function AppLayout() {
             >
               <Menu className="h-5 w-5" />
             </Button>
-            <p className="font-semibold truncate">{orgs[0].name}</p>
+            <OrgSwitcher />
           </header>
           <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
             <Outlet />

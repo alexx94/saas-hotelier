@@ -72,8 +72,8 @@ Cheie `domeniu.acțiune`. Static, seed-only. Grupat pe domenii de business (ca l
 
 | Rol (slug) | Acoperire |
 |---|---|
-| **administrator** | **toate** permisiunile (echivalent owner) |
-| **manager** | tot, **mai puțin** `organization.billing`, `role.manage`, `property.delete` |
+| **administrator** | toate **mai puțin** `organization.billing` (owner-only) — vezi §10 |
+| **manager** | operațional + management base, **fără** creare/ștergere proprietăți, role.manage, setări org — vezi §10 |
 | **reception** | `booking.*`, `calendar.view`, `guest.view/create/edit`, `payment.view/record`, `dashboard.view` |
 | **housekeeping** | `calendar.view`, `booking.view`, `unit.manage` |
 | **finance** | `payment.*`, `revenue.view`, `booking.view`, `dashboard.view` |
@@ -119,7 +119,7 @@ Fiecare sub-sprint implementat primește **doc propriu** (în `rpc/` sau `fronte
 |---|---|---|---|
 | **6.1 — RBAC Foundation (DB)** | Tabele `permissions/roles/role_permissions/member_roles`, `owner_user_id`, seed catalog + roluri sistem, backfill din enum, helperi `has_permission`/`user_permissions`. **Fără enforcement.** | ✅ **done** | acest doc |
 | **6.2 — Enforcement** | RLS de scriere + gărzi RPC pe domenii operaționale migrate `is_org_role` → `has_permission`; permisiunea `booking.override`; RPC `get_my_permissions`; frontend `usePermissions()` + `<Can>` + nav filtrat. | ✅ **done** | [frontend/permissions.md](../frontend/permissions.md) + §9 |
-| **6.3 — Member management + profiles** | `profiles` (+ trigger signup), listă membri, atribuire roluri multiple, UI acces per-proprietate, UI roluri custom; `#settings/members` + `#settings/roles`; `transfer_ownership` + garda „cel puțin un owner"; `owner_user_id` → NOT NULL. | ⏳ planificat | `rpc/members.md` |
+| **6.3 — Member management + profiles** | `profiles` (+ trigger signup), `add_member` (cont existent după email), roluri multiple, acces per-proprietate, editor roluri custom, `transfer_ownership`; UI `#settings/members` + `#settings/roles`. | ✅ **done** | [rpc/members.md](rpc/members.md) |
 | **6.4 — Invitations (link/token, email-ready)** | `organization_invites` (token, email, `role_ids[]`, property_scope, expirare); RPC `create_invite`/`accept_invite`; **seam `app.dispatch_invite`** (acum link; viitor email edge function — fără schimbare de schemă); UI invite + inbox. | ⏳ planificat | `rpc/invites.md` |
 | **6.5 — Audit** | `audit_logs` generic pentru acțiuni admin cross-entitate (rol/acces/ownership/invitații); tabelele bogate per-entitate (`booking_events` etc.) rămân pt. operațional. | ⏳ planificat | `rpc/audit.md` |
 | **6.6 — Plans & limits** | `plans`, `organizations.plan_id`, garde `can_create_property`/`can_invite_user`. | ⏳ planificat | `rpc/plans.md` |
@@ -163,3 +163,47 @@ Migrația `20260618140000_rbac_enforcement.sql` mută autorizarea de **scriere**
 
 ### Ce rămâne pe enum (bridge) până la 6.3
 `organizations`/`organization_members`/`member_property_access` (admin), plus crearea de membri (doar prin enum, fără UI). `is_org_role` + triggerul de sync rămân active acolo.
+
+---
+
+## 10. Autoritate prin permisiuni „elevate" + tier-uri (Sprint 6.3.2)
+
+Cine pe cine poate **gestiona** (nu doar ce poate face) — fără ranguri numerice pe roluri (ar strica rolurile custom) și fără „cine are mai multe permisiuni" (ambiguu). Autoritatea vine dintr-un set FIX de **permisiuni elevate**.
+
+### Permisiuni elevate (`permissions.is_elevated`)
+`user.invite`, `user.manage`, `role.manage`, `property.create`, `property.delete`, `organization.edit`, `organization.billing`, `audit.view`. Restul = de bază (operațional). Permisiunile elevate **nu pot fi puse în roluri custom**.
+
+### Ierarhia clară de roluri (Sprint 6.3.3 — redesign)
+| Rol | Ce poate | Ce NU poate |
+|---|---|---|
+| **OWNER** (structural) | **tot**, inclusiv `organization.billing`/abonament, transfer/ștergere organizație | — |
+| **ADMIN** (`role.manage`) | management users/roluri, **proprietăți (creare/ștergere)**, setări org, audit, tot operațional | billing/abonament/ownership (owner-only) |
+| **MANAGER** (`user.manage`, fără `role.manage`) | operațional **doar în proprietățile la care are acces** + gestionează useri de bază acolo, `property.edit` | **creare/ștergere proprietăți**, role management, setări org/billing |
+| **BASE** (reception/housekeeping/finance/readonly + custom) | task-uri operaționale specifice | management de orice fel |
+
+`organization.billing` nu mai e acordat niciunui rol — rămâne exclusiv owner (prin bypass), reprezentând abonamentul/facturarea.
+
+### Tier (derivat din permisiuni)
+| Tier | Cum |
+|---|---|
+| **OWNER (3)** | `organizations.owner_user_id` (structural, bypass tot) |
+| **ADMIN (2)** | deține `role.manage` |
+| **MANAGER (1)** | deține `user.manage` (fără `role.manage`) |
+| **BASE (0)** | niciuna elevată — reception/housekeeping/finance/readonly **și orice rol custom** |
+
+### Reguli (toate DEFINER)
+1. **Gestionezi doar tier STRICT mai mic** (`app.can_manage_member`): owner intangibil; admin nu atinge alt admin; manager nu atinge alt manager/admin; base nimic. În plus, **un manager (non-admin) poate gestiona doar ținte explicit restrânse la proprietățile lui** (o țintă cu acces complet vede proprietăți pe care managerul nu le are → doar admin/owner o gestionează).
+2. **Acorzi doar roluri de tier mai mic** (`app.can_grant_roles`): doar owner acordă Administrator; admin → manager+base; manager → base. (+ regula subset pe permisiuni, păstrată.)
+3. **Rolurile custom sunt forțat BASE**: `create_role`/`update_role` resping permisiuni elevate (`ELEVATED_NOT_ALLOWED`). Crearea de roluri = `user.manage` (manager+), dar doar roluri de bază. → nu există ambiguitate „rol X peste Y", pentru că doar rolurile de sistem au permisiuni elevate.
+4. **Acces la proprietăți doar cât ai tu**: `set_member_property_access` acordă doar proprietăți accesibile actorului (`PROPERTY_FORBIDDEN`). **„Toate proprietățile" (listă goală) e permis DOAR dacă actorul nu e el însuși restrâns** (`app.actor_property_restricted`) — altfel un admin restrâns la hotel 1 ar putea acorda acces complet (bypass). În plus, `add_member` făcut de un actor restrâns **moștenește** scope-ul actorului pentru noul membru (altfel ar primi acces complet implicit).
+
+### Scoping vizibilitate
+`properties_select` (authenticated) = `app.can_access_property_row(org_id, id)` → un membru restrâns **nici nu vede** alte proprietăți (switcher/liste). Owner/admin fără restricții → tot.
+
+> **Important** (capcană rezolvată): politica folosește `can_access_property_row(org_id, id)` care evaluează pe **coloanele rândului**, NU `can_access_property(id)` care re-interoghează tabelul `properties`. La `INSERT...RETURNING` (ce face PostgREST `.insert().select()`), rândul nou nu e vizibil unei funcții `stable` care re-selectează → ar bloca crearea de proprietăți. Varianta pe coloane evaluează corect pe `NEW`.
+
+### Frontend (oglindă, doar UX)
+`features/members/authority.ts` (`useAuthority`): `actorTier`, `canGrantRole` (tier + subset), `canManage(member)` (tier). Lista de membri ascunde editarea pe cine nu poți gestiona; editorul de roluri custom nu oferă permisiuni elevate; settings „Membri/Roluri" gate pe `user.manage`. Backend-ul rămâne autoritatea.
+
+### Teste
+`db_tests.sql` TEST 93: admin↔admin blocat, admin acordă manager/nu admin, owner intangibil, manager doar base în proprietățile lui, `PROPERTY_FORBIDDEN`, manager nu gestionează membru cu acces complet, vizibilitate proprietăți scoped; TEST 90e `ELEVATED_NOT_ALLOWED`. **251 PASS**.

@@ -3226,4 +3226,562 @@ begin
 end $$;
 reset role;
 
+-- ============================================================
+-- Sprint 6.3 — Member Management, Custom Roles & Profiles
+-- ============================================================
+-- conturi cu profil dar (încă) fără membership în Org A
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000b1', 'newhire@test.ro'),
+  ('00000000-0000-0000-0000-0000000000b9', 'nonmember@test.ro');
+
+-- ---------- TEST 85: profiles (trigger + RLS) ----------
+do $$ begin
+  if (select count(*) from profiles where user_id='00000000-0000-0000-0000-0000000000b1') = 1
+     and (select count(*) from profiles where user_id='00000000-0000-0000-0000-0000000000a5') = 1 then
+    raise notice 'TEST 85a PASS: trigger creează profil la signup (+ backfill)';
+  else raise exception 'TEST 85a FAIL'; end if;
+end $$;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_same int; v_foreign int;
+begin
+  select count(*) into v_same from profiles where user_id='00000000-0000-0000-0000-0000000000a5'; -- coleg org A
+  select count(*) into v_foreign from profiles where user_id='00000000-0000-0000-0000-00000000000b'; -- owner-b (org B)
+  if v_same = 1 and v_foreign = 0 then
+    raise notice 'TEST 85b PASS: profil coleg vizibil, profil din altă org invizibil';
+  else raise exception 'TEST 85b FAIL: same=% foreign=%', v_same, v_foreign; end if;
+  -- update profil străin → respins
+  begin
+    update profiles set full_name='hack' where user_id='00000000-0000-0000-0000-0000000000a5';
+    if not found then raise notice 'TEST 85c PASS: update profil străin blocat (0 rânduri/RLS)';
+    else raise exception 'TEST 85c FAIL: a actualizat profil străin'; end if;
+  exception when insufficient_privilege then raise notice 'TEST 85c PASS: update profil străin => 42501';
+  end;
+  update profiles set full_name='Owner A' where user_id='00000000-0000-0000-0000-00000000000a';
+end $$;
+reset role;
+
+-- ---------- TEST 86: add_member ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_m uuid; v_role uuid; v_g_before int; v_g_after int;
+begin
+  select count(*) into v_g_before from guests;
+  -- 86a: email cu MAJUSCULE → match case-insensitiv; rol Reception
+  v_m := public.add_member('10000000-0000-0000-0000-000000000001', 'NewHire@Test.ro',
+           array[(select id from roles where slug='reception' and org_id is null)]);
+  select role_id into v_role from member_roles where member_id = v_m;
+  if v_role = (select id from roles where slug='reception' and org_id is null) then
+    raise notice 'TEST 86a PASS: add_member (email normalizat) + rol Reception';
+  else raise exception 'TEST 86a FAIL'; end if;
+  -- 86f: lane — niciun guest atins
+  select count(*) into v_g_after from guests;
+  if v_g_before = v_g_after then raise notice 'TEST 86f PASS: add_member nu atinge `guests` (lane staff)';
+  else raise exception 'TEST 86f FAIL: guests % → %', v_g_before, v_g_after; end if;
+  -- 86b: email inexistent
+  begin
+    perform public.add_member('10000000-0000-0000-0000-000000000001', 'ghost@test.ro', '{}');
+    raise exception 'TEST 86b FAIL';
+  exception when others then
+    if sqlerrm like '%USER_NOT_FOUND%' then raise notice 'TEST 86b PASS: email inexistent => USER_NOT_FOUND';
+    else raise; end if;
+  end;
+  -- 86c: deja membru
+  begin
+    perform public.add_member('10000000-0000-0000-0000-000000000001', 'newhire@test.ro', '{}');
+    raise exception 'TEST 86c FAIL';
+  exception when others then
+    if sqlerrm like '%ALREADY_MEMBER%' then raise notice 'TEST 86c PASS: deja membru => ALREADY_MEMBER';
+    else raise; end if;
+  end;
+  -- 86g: rol custom din altă org
+  begin
+    perform public.add_member('10000000-0000-0000-0000-000000000001', 'nonmember@test.ro',
+            array['79000000-0000-0000-0000-0000000000b1'::uuid]);
+    raise exception 'TEST 86g FAIL';
+  exception when others then
+    if sqlerrm like '%ROLE_ORG_MISMATCH%' then raise notice 'TEST 86g PASS: rol din altă org => ROLE_ORG_MISMATCH';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+-- 86e: reception nu poate add_member
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ begin
+  begin
+    perform public.add_member('10000000-0000-0000-0000-000000000001', 'nonmember@test.ro', '{}');
+    raise exception 'TEST 86e FAIL';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 86e PASS: reception add_member => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 87: set_member_roles / set_member_property_access ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_m uuid;
+begin
+  select id into v_m from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000b1' and org_id='10000000-0000-0000-0000-000000000001';
+  -- 87a: înlocuiește Reception cu Finance
+  perform public.set_member_roles(v_m, array[(select id from roles where slug='finance' and org_id is null)]);
+  -- 87c: proprietate din altă org → respins (Org B nu are proprietăți; folosim una validă din altă org? testăm un id inexistent ca proxy de mismatch)
+  begin
+    perform public.set_member_property_access(v_m, array['20000000-0000-0000-0000-0000000000ff'::uuid]);
+    raise exception 'TEST 87c FAIL';
+  exception when others then
+    if sqlerrm like '%PROPERTY_ORG_MISMATCH%' then raise notice 'TEST 87c PASS: proprietate străină => PROPERTY_ORG_MISMATCH';
+    else raise; end if;
+  end;
+  -- 87b: restrânge la propB (Hotel Secret, în Org A)
+  perform public.set_member_property_access(v_m, array['20000000-0000-0000-0000-000000000002'::uuid]);
+end $$;
+reset role;
+-- verificăm efectul rolurilor + scoping ca newhire
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000b1","role":"authenticated"}';
+do $$
+declare v_orgA uuid := '10000000-0000-0000-0000-000000000001';
+begin
+  if app.has_permission(v_orgA, null, 'payment.refund')          -- din Finance (nou)
+     and not app.has_permission(v_orgA, null, 'booking.create')  -- Reception înlocuit
+     and not app.has_permission(v_orgA, '20000000-0000-0000-0000-000000000001', 'payment.refund') -- fără acces propA
+  then
+    raise notice 'TEST 87 PASS: roluri înlocuite (finance, nu reception) + scoping pe propB';
+  else raise exception 'TEST 87 FAIL'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 88: remove_member ----------
+-- rulăm ca MANAGER (user.manage, dar ≠ owner) → testează CANNOT_REMOVE_OWNER
+-- fără a se confunda cu garda de self-removal
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$
+declare v_owner_m uuid; v_m uuid; v_roles int;
+begin
+  -- 88a: owner-ul nu poate fi eliminat
+  select id into v_owner_m from organization_members
+  where user_id='00000000-0000-0000-0000-00000000000a' and org_id='10000000-0000-0000-0000-000000000001';
+  begin
+    perform public.remove_member(v_owner_m);
+    raise exception 'TEST 88a FAIL';
+  exception when others then
+    if sqlerrm like '%CANNOT_REMOVE_OWNER%' then raise notice 'TEST 88a PASS: owner => CANNOT_REMOVE_OWNER';
+    else raise; end if;
+  end;
+  -- 88b: membru normal → OK + cascade
+  select id into v_m from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000b1' and org_id='10000000-0000-0000-0000-000000000001';
+  perform public.remove_member(v_m);
+  select count(*) into v_roles from member_roles where member_id = v_m;
+  if not exists (select 1 from organization_members where id=v_m) and v_roles = 0 then
+    raise notice 'TEST 88b PASS: membru eliminat + cascade member_roles';
+  else raise exception 'TEST 88b FAIL'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 89: transfer_ownership ----------
+-- 89a: non-owner (manager) → FORBIDDEN
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ begin
+  begin
+    perform public.transfer_ownership('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000a5');
+    raise exception 'TEST 89a FAIL';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 89a PASS: non-owner transfer => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+-- 89b/c: owner-a
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$ begin
+  -- 89b: țintă care nu e membru
+  begin
+    perform public.transfer_ownership('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000b9');
+    raise exception 'TEST 89b FAIL';
+  exception when others then
+    if sqlerrm like '%NOT_A_MEMBER%' then raise notice 'TEST 89b PASS: țintă non-membru => NOT_A_MEMBER';
+    else raise; end if;
+  end;
+  -- 89c: transfer valid către reception ...0a5
+  perform public.transfer_ownership('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000a5');
+  if (select owner_user_id from organizations where id='10000000-0000-0000-0000-000000000001')
+       = '00000000-0000-0000-0000-0000000000a5'
+     and exists (select 1 from member_roles mr
+       join organization_members m on m.id=mr.member_id
+       where m.user_id='00000000-0000-0000-0000-0000000000a5'
+         and mr.role_id=(select id from roles where slug='administrator' and org_id is null))
+  then raise notice 'TEST 89c PASS: ownership transferat + rol Administrator acordat';
+  else raise exception 'TEST 89c FAIL'; end if;
+end $$;
+reset role;
+-- noul owner (...0a5) bypass-ează; verificăm
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ begin
+  if app.has_permission('10000000-0000-0000-0000-000000000001', null, 'organization.billing') then
+    raise notice 'TEST 89d PASS: noul owner bypass-ează (organization.billing)';
+  else raise exception 'TEST 89d FAIL'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 90: roluri custom ----------
+-- owner-a păstrează rolul Administrator (deci role.manage) chiar fără ownership
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_role uuid; v_cnt int;
+begin
+  -- 90a: creare rol custom
+  v_role := public.create_role('10000000-0000-0000-0000-000000000001', 'Night Auditor',
+              array['booking.view','payment.view']);
+  select count(*) into v_cnt from role_permissions where role_id=v_role;
+  if v_cnt = 2 then raise notice 'TEST 90a PASS: rol custom + 2 permisiuni';
+  else raise exception 'TEST 90a FAIL: % permisiuni', v_cnt; end if;
+  -- 90b: nume duplicat
+  begin
+    perform public.create_role('10000000-0000-0000-0000-000000000001', 'Night Auditor', '{}');
+    raise exception 'TEST 90b FAIL';
+  exception when others then
+    if sqlerrm like '%ROLE_EXISTS%' then raise notice 'TEST 90b PASS: slug duplicat => ROLE_EXISTS';
+    else raise; end if;
+  end;
+  -- 90c: permisiune inexistentă
+  begin
+    perform public.create_role('10000000-0000-0000-0000-000000000001', 'Bad Role', array['fake.perm']);
+    raise exception 'TEST 90c FAIL';
+  exception when foreign_key_violation then raise notice 'TEST 90c PASS: permisiune inventată => FK violation';
+  end;
+  -- 90d: update pe rol de sistem
+  begin
+    perform public.update_role((select id from roles where slug='administrator' and org_id is null), 'X', '{}');
+    raise exception 'TEST 90d FAIL';
+  exception when others then
+    if sqlerrm like '%ROLE_IS_SYSTEM%' then raise notice 'TEST 90d PASS: editare rol sistem => ROLE_IS_SYSTEM';
+    else raise; end if;
+  end;
+  -- 90f: atribuire (prin RPC) + ștergere → cascade pe member_roles
+  declare v_m uuid;
+  begin
+    select id into v_m from organization_members
+    where user_id='00000000-0000-0000-0000-0000000000a1' and org_id='10000000-0000-0000-0000-000000000001';
+    perform public.set_member_roles(v_m, array[v_role]);
+    perform public.delete_role(v_role);
+    if not exists (select 1 from member_roles where role_id=v_role)
+       and not exists (select 1 from roles where id=v_role) then
+      raise notice 'TEST 90f PASS: delete_role custom → cascade member_roles, fără orfani';
+    else raise exception 'TEST 90f FAIL'; end if;
+  end;
+end $$;
+reset role;
+-- 90e: manager (user.manage) POATE crea rol de bază; dar NU cu permisiuni elevate
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ begin
+  -- rol de bază → OK
+  perform public.create_role('10000000-0000-0000-0000-000000000001', 'Night Base', array['booking.view']);
+  raise notice 'TEST 90e PASS: manager creează rol de bază (user.manage)';
+  -- rol cu permisiune elevată → respins
+  begin
+    perform public.create_role('10000000-0000-0000-0000-000000000001', 'Fake Admin', array['user.manage']);
+    raise exception 'TEST 90e FAIL: rol custom cu permisiune elevată acceptat';
+  exception when others then
+    if sqlerrm like '%ELEVATED_NOT_ALLOWED%' then raise notice 'TEST 90e PASS: permisiune elevată în rol custom => ELEVATED_NOT_ALLOWED';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 91: get_org_members ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_total int; v_owner int;
+begin
+  select count(*) into v_total from public.get_org_members('10000000-0000-0000-0000-000000000001');
+  select count(*) into v_owner from public.get_org_members('10000000-0000-0000-0000-000000000001') where is_owner;
+  if v_total >= 1 and v_owner = 1 then
+    raise notice 'TEST 91a PASS: get_org_members listează echipa (% membri, 1 owner)', v_total;
+  else raise exception 'TEST 91a FAIL: total=% owner=%', v_total, v_owner; end if;
+end $$;
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$ declare v int; begin
+  select count(*) into v from public.get_org_members('10000000-0000-0000-0000-000000000001');
+  if v = 0 then raise notice 'TEST 91b PASS: non-membru nu vede echipa altei org';
+  else raise exception 'TEST 91b FAIL: % rânduri', v; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 92: gărzi anti-escaladare (subset + self) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$
+declare v_self uuid;
+begin
+  -- 92a: manager nu poate acorda rol Administrator (tier mai mare decât al lui)
+  begin
+    perform public.add_member('10000000-0000-0000-0000-000000000001', 'nonmember@test.ro',
+      array[(select id from roles where slug='administrator' and org_id is null)]);
+    raise exception 'TEST 92a FAIL: manager a acordat Administrator';
+  exception when others then
+    if sqlerrm like '%ROLE_EXCEEDS_YOURS%' then raise notice 'TEST 92a PASS: manager → Administrator => ROLE_EXCEEDS_YOURS';
+    else raise; end if;
+  end;
+  -- 92b: manager poate acorda Reception (subset al permisiunilor lui)
+  perform public.add_member('10000000-0000-0000-0000-000000000001', 'nonmember@test.ro',
+    array[(select id from roles where slug='reception' and org_id is null)]);
+  raise notice 'TEST 92b PASS: manager → Reception (subset) OK';
+  -- 92c: nu-și poate edita propriile roluri
+  select id into v_self from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000a4' and org_id='10000000-0000-0000-0000-000000000001';
+  begin
+    perform public.set_member_roles(v_self, '{}');
+    raise exception 'TEST 92c FAIL: manager și-a editat propriile roluri';
+  exception when others then
+    if sqlerrm like '%CANNOT_EDIT_SELF%' then raise notice 'TEST 92c PASS: self set_member_roles => CANNOT_EDIT_SELF';
+    else raise; end if;
+  end;
+  -- 92d: nu se poate auto-elimina
+  begin
+    perform public.remove_member(v_self);
+    raise exception 'TEST 92d FAIL: manager s-a auto-eliminat';
+  exception when others then
+    if sqlerrm like '%CANNOT_REMOVE_SELF%' then raise notice 'TEST 92d PASS: self remove_member => CANNOT_REMOVE_SELF';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ============================================================
+-- Sprint 6.3.2 — Autoritate prin tier-uri
+-- ============================================================
+-- al doilea admin (pt. admin↔admin), un reception scoped la propB,
+-- și restrângem managerul ...0a4 la propB
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000c1', 'admin2@test.ro'),
+  ('00000000-0000-0000-0000-0000000000c2', 'recB2@test.ro'),
+  ('00000000-0000-0000-0000-0000000000c4', 'wannabe@test.ro');
+insert into organization_members (org_id, user_id, role) values
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000c1', 'staff'),
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000c2', 'staff');
+update member_roles set role_id = (select id from roles where slug='administrator' and org_id is null)
+  where member_id = (select id from organization_members
+                     where user_id='00000000-0000-0000-0000-0000000000c1' and org_id='10000000-0000-0000-0000-000000000001');
+insert into member_property_access (member_id, property_id)
+  select id, '20000000-0000-0000-0000-000000000002' from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000c2' and org_id='10000000-0000-0000-0000-000000000001';
+insert into member_property_access (member_id, property_id)
+  select id, '20000000-0000-0000-0000-000000000002' from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000a4' and org_id='10000000-0000-0000-0000-000000000001';
+
+-- owner-a e ADMIN (tier 2): rolul administrator din enum owner, dar ownership a fost
+-- transferat lui ...0a5 în TEST 89c → owner-a nu mai e owner structural
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_admin2 uuid; v_owner_m uuid;
+begin
+  -- 93a: admin nu poate gestiona alt admin
+  select id into v_admin2 from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000c1' and org_id='10000000-0000-0000-0000-000000000001';
+  begin
+    perform public.set_member_roles(v_admin2, '{}');
+    raise exception 'TEST 93a FAIL: admin a gestionat alt admin';
+  exception when others then
+    if sqlerrm like '%NOT_AUTHORIZED_OVER_MEMBER%' then raise notice 'TEST 93a PASS: admin↔admin => NOT_AUTHORIZED_OVER_MEMBER';
+    else raise; end if;
+  end;
+  -- 93b: admin acordă manager (OK) dar nu administrator (ROLE_EXCEEDS_YOURS)
+  perform public.add_member('10000000-0000-0000-0000-000000000001', 'wannabe@test.ro',
+    array[(select id from roles where slug='manager' and org_id is null)]);
+  raise notice 'TEST 93b PASS: admin acordă rol Manager';
+  begin
+    perform public.set_member_roles(
+      (select id from organization_members where user_id='00000000-0000-0000-0000-0000000000c4'
+         and org_id='10000000-0000-0000-0000-000000000001'),
+      array[(select id from roles where slug='administrator' and org_id is null)]);
+    raise exception 'TEST 93b FAIL: admin a acordat Administrator';
+  exception when others then
+    if sqlerrm like '%ROLE_EXCEEDS_YOURS%' then raise notice 'TEST 93b PASS: admin → Administrator => ROLE_EXCEEDS_YOURS';
+    else raise; end if;
+  end;
+  -- 93c: owner-ul structural (...0a5) e intangibil pentru admin
+  select id into v_owner_m from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000a5' and org_id='10000000-0000-0000-0000-000000000001';
+  begin
+    perform public.set_member_roles(v_owner_m, '{}');
+    raise exception 'TEST 93c FAIL: admin a modificat owner-ul';
+  exception when others then
+    if sqlerrm like '%NOT_AUTHORIZED_OVER_MEMBER%' then raise notice 'TEST 93c PASS: owner intangibil pentru admin';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- manager ...0a4 (restrâns la propB)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$
+declare v_recB2 uuid; v_full uuid;
+begin
+  select id into v_recB2 from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000c2' and org_id='10000000-0000-0000-0000-000000000001';
+  -- 93d: manager poate gestiona un base scoped la propB, dar NU-i dă acces la propA
+  perform public.set_member_roles(v_recB2, array[(select id from roles where slug='housekeeping' and org_id is null)]);
+  raise notice 'TEST 93d PASS: manager gestionează base din proprietatea lui';
+  begin
+    perform public.set_member_property_access(v_recB2, array['20000000-0000-0000-0000-000000000001'::uuid]);
+    raise exception 'TEST 93d FAIL: manager a dat acces la propA';
+  exception when others then
+    if sqlerrm like '%PROPERTY_FORBIDDEN%' then raise notice 'TEST 93d PASS: manager → acces propA => PROPERTY_FORBIDDEN';
+    else raise; end if;
+  end;
+  -- 93e: manager NU poate gestiona un base cu acces complet (vede propA)
+  select id into v_full from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000b9' and org_id='10000000-0000-0000-0000-000000000001';
+  begin
+    perform public.set_member_roles(v_full, '{}');
+    raise exception 'TEST 93e FAIL: manager a gestionat un membru cu acces complet';
+  exception when others then
+    if sqlerrm like '%NOT_AUTHORIZED_OVER_MEMBER%' then raise notice 'TEST 93e PASS: manager nu gestionează membru cu acces complet';
+    else raise; end if;
+  end;
+  -- 93f: manager restrâns nu VEDE propA (RLS pe properties)
+  if (select count(*) from properties where id='20000000-0000-0000-0000-000000000001') = 0
+     and (select count(*) from properties where id='20000000-0000-0000-0000-000000000002') = 1 then
+    raise notice 'TEST 93f PASS: manager restrâns vede doar propB, nu propA';
+  else raise exception 'TEST 93f FAIL: vizibilitate proprietăți greșită'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 94: creare proprietăți — admin DA, manager NU ----------
+-- 94a: manager nu mai are property.create
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ begin
+  begin
+    insert into properties (org_id, name, slug, currency)
+    values ('10000000-0000-0000-0000-000000000001','Mgr Prop','mgr-prop-x','RON');
+    raise exception 'TEST 94a FAIL: manager a creat o proprietate';
+  exception when insufficient_privilege then
+    raise notice 'TEST 94a PASS: manager nu creează proprietăți (42501)';
+  end;
+end $$;
+reset role;
+-- 94b: admin (owner-a, tier 2) poate crea + vedea
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$ declare v_id uuid; begin
+  insert into properties (org_id, name, slug, currency)
+  values ('10000000-0000-0000-0000-000000000001','Admin Prop','admin-prop-x','RON')
+  returning id into v_id;
+  if exists (select 1 from properties where id = v_id) then
+    raise notice 'TEST 94b PASS: admin creează + vede proprietatea';
+  else raise exception 'TEST 94b FAIL: admin nu vede proprietatea creată'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 95: „toate proprietățile" nu ocolește restricția actorului ----------
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000c5', 'newbase@test.ro');
+-- manager ...0a4 e restrâns la propB (din TEST 93)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$
+declare v_m uuid; v_props uuid[];
+begin
+  -- 95a: membrul adăugat de un actor restrâns MOȘTENEȘTE scope-ul (propB), nu acces complet
+  v_m := public.add_member('10000000-0000-0000-0000-000000000001', 'newbase@test.ro',
+    array[(select id from roles where slug='housekeeping' and org_id is null)]);
+  select array_agg(property_id) into v_props from member_property_access where member_id = v_m;
+  if v_props = array['20000000-0000-0000-0000-000000000002'::uuid] then
+    raise notice 'TEST 95a PASS: membru nou moștenește scope-ul actorului (propB), nu acces complet';
+  else raise exception 'TEST 95a FAIL: scope nou = %', v_props; end if;
+  -- 95b: actor restrâns NU poate acorda „toate" (listă goală)
+  begin
+    perform public.set_member_property_access(v_m, '{}');
+    raise exception 'TEST 95b FAIL: actor restrâns a acordat „toate"';
+  exception when others then
+    if sqlerrm like '%PROPERTY_FORBIDDEN%' then raise notice 'TEST 95b PASS: „toate" de la actor restrâns => PROPERTY_FORBIDDEN';
+    else raise; end if;
+  end;
+  -- 95c: poate seta un subset al proprietăților lui (propB)
+  perform public.set_member_property_access(v_m, array['20000000-0000-0000-0000-000000000002'::uuid]);
+  raise notice 'TEST 95c PASS: actor restrâns acordă subset propriu (propB)';
+end $$;
+reset role;
+-- 95d: actor NERESTRICȚIONAT (admin owner-a) POATE acorda „toate"
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_m uuid;
+begin
+  select id into v_m from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000c5' and org_id='10000000-0000-0000-0000-000000000001';
+  perform public.set_member_property_access(v_m, '{}');
+  if not exists (select 1 from member_property_access where member_id = v_m) then
+    raise notice 'TEST 95d PASS: admin nerestricționat acordă „toate" (acces complet)';
+  else raise exception 'TEST 95d FAIL'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 96: ADMIN restrâns — blocare server-side (bypass UI imposibil) ----------
+-- scenariul exact: administrator cu acces la o singură proprietate (propB) NU poate,
+-- apelând RPC-ul DIRECT (fără interfață), să acorde „toate" sau propA.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000c6', 'radmin@test.ro'),
+  ('00000000-0000-0000-0000-0000000000c7', 'target7@test.ro');
+insert into organization_members (org_id, user_id, role) values
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000c6', 'staff');
+update member_roles set role_id = (select id from roles where slug='administrator' and org_id is null)
+  where member_id = (select id from organization_members
+                     where user_id='00000000-0000-0000-0000-0000000000c6' and org_id='10000000-0000-0000-0000-000000000001');
+insert into member_property_access (member_id, property_id)
+  select id, '20000000-0000-0000-0000-000000000002' from organization_members
+  where user_id='00000000-0000-0000-0000-0000000000c6' and org_id='10000000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c6","role":"authenticated"}';
+do $$
+declare v_m uuid; v_props uuid[];
+begin
+  -- 96a: membru adăugat de admin restrâns moștenește propB (nu acces complet)
+  v_m := public.add_member('10000000-0000-0000-0000-000000000001', 'target7@test.ro',
+    array[(select id from roles where slug='reception' and org_id is null)]);
+  select array_agg(property_id) into v_props from member_property_access where member_id = v_m;
+  if v_props = array['20000000-0000-0000-0000-000000000002'::uuid] then
+    raise notice 'TEST 96a PASS: admin restrâns → membru nou moștenește propB';
+  else raise exception 'TEST 96a FAIL: %', v_props; end if;
+  -- 96b: APEL DIRECT RPC cu „toate" (listă goală) → blocat server-side
+  begin
+    perform public.set_member_property_access(v_m, '{}');
+    raise exception 'TEST 96b FAIL: admin restrâns a acordat „toate" prin RPC direct';
+  exception when others then
+    if sqlerrm like '%PROPERTY_FORBIDDEN%' then
+      raise notice 'TEST 96b PASS: „toate" prin RPC direct (fără UI) => PROPERTY_FORBIDDEN';
+    else raise; end if;
+  end;
+  -- 96c: APEL DIRECT cu propA (pe care n-o are) → blocat server-side
+  begin
+    perform public.set_member_property_access(v_m, array['20000000-0000-0000-0000-000000000001'::uuid]);
+    raise exception 'TEST 96c FAIL: admin restrâns a acordat propA prin RPC direct';
+  exception when others then
+    if sqlerrm like '%PROPERTY_FORBIDDEN%' then
+      raise notice 'TEST 96c PASS: propA inaccesibilă prin RPC direct => PROPERTY_FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
 rollback;

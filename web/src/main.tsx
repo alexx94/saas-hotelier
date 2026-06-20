@@ -3,12 +3,20 @@ import { createRoot } from "react-dom/client"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider, createRouter } from "@tanstack/react-router"
 import { routeTree } from "./routeTree.gen"
+import { supabase } from "./lib/supabase"
 import "./index.css"
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: 30_000, retry: 1 },
   },
+})
+
+// La schimbarea contului (logout / login alt user) golim TOT cache-ul TanStack
+// ca permisiunile/rolurile contului anterior să nu persiste (altfel tab-uri/
+// butoane rămase din rolul vechi până la hard refresh).
+supabase.auth.onAuthStateChange((event) => {
+  if (event === "SIGNED_OUT") queryClient.clear()
 })
 
 const router = createRouter({

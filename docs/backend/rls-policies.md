@@ -22,7 +22,8 @@
 | `permissions` (RBAC) | orice autentificat (catalog) | ❌ seed-only | ❌ | ❌ |
 | `roles` (RBAC) | roluri sistem (toți) + roluri org propriu | ❌ în 6.1 (custom → 6.3) | ❌ | ❌ |
 | `role_permissions` (RBAC) | dacă rolul e vizibil | ❌ în 6.1 | ❌ | ❌ |
-| `member_roles` (RBAC) | membrii org-ului | trigger sync (6.1); direct → 6.3 | trigger | trigger |
+| `member_roles` (RBAC) | membrii org-ului | RPC-uri (6.3) / trigger sync | RPC | RPC |
+| `profiles` (6.3) | al meu sau coleg de org (`app.shares_org`) | trigger signup | doar al meu | ❌ |
 
 > Tabelele RBAC (`permissions/roles/role_permissions/member_roles`) sunt fundație Sprint 6.1 — vezi [rbac.md](rbac.md). `anon` nu are acces la niciunul.
 

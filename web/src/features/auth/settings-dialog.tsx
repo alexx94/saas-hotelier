@@ -1,12 +1,17 @@
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
 import { useLocation, useNavigate } from "@tanstack/react-router"
-import { User } from "lucide-react"
+import { Shield, User, Users } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
+import { useHasPermission } from "@/features/auth/permissions"
+import { useMyProfile, useUpdateMyProfile } from "@/features/auth/profile"
+import { MembersSection } from "@/features/members/members-section"
+import { RolesSection } from "@/features/roles/roles-section"
 import { Button } from "@/components/ui/button"
 import {
   Dialog, DialogContent, DialogTitle,
@@ -34,12 +39,14 @@ function parseSettingsHash(hash: string): { open: boolean; section: string } {
 
 // ─── secțiuni (scalabil) ──────────────────────────────────────────────────────
 
-type SectionId = "account"
+type SectionId = "account" | "members" | "roles"
 
-const SECTIONS: { id: SectionId; label: string; icon: React.ElementType }[] = [
+type Section = { id: SectionId; label: string; icon: React.ElementType; permission?: string }
+
+const SECTIONS: Section[] = [
   { id: "account", label: t("settings.account"), icon: User },
-  // { id: "payments", label: "Plăți", icon: CreditCard },
-  // { id: "notifications", label: "Notificări", icon: Bell },
+  { id: "members", label: t("settings.members"), icon: Users, permission: "user.manage" },
+  { id: "roles", label: t("settings.roles"), icon: Shield, permission: "user.manage" },
 ]
 
 // ─── secțiunea Cont ───────────────────────────────────────────────────────────
@@ -54,6 +61,35 @@ const pwSchema = z
     path: ["confirm"],
   })
 type PwValues = z.infer<typeof pwSchema>
+
+function NameField() {
+  const { data: profile } = useMyProfile()
+  const update = useUpdateMyProfile()
+  const [name, setName] = useState("")
+  const [dirty, setDirty] = useState(false)
+  const value = dirty ? name : (profile?.full_name ?? "")
+
+  function save() {
+    update.mutate(value, {
+      onSuccess: () => { toast.success(t("settings.name_saved")); setDirty(false) },
+      onError: () => toast.error(t("common.error")),
+    })
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label>{t("settings.name")}</Label>
+      <div className="flex gap-2">
+        <Input
+          value={value}
+          placeholder={t("settings.name_placeholder")}
+          onChange={(e) => { setName(e.target.value); setDirty(true) }}
+        />
+        <Button onClick={save} disabled={!dirty || update.isPending}>{t("common.save")}</Button>
+      </div>
+    </div>
+  )
+}
 
 function AccountSection({ email }: { email: string | null }) {
   const form = useForm<PwValues>({
@@ -79,6 +115,8 @@ function AccountSection({ email }: { email: string | null }) {
           Gestionează datele contului tău.
         </p>
       </div>
+
+      <NameField />
 
       <div className="space-y-1.5">
         <Label>{t("auth.email")}</Label>
@@ -136,7 +174,14 @@ export function SettingsDialog({ email }: { email: string | null }) {
   const navigate = useNavigate()
   const { open, section } = parseSettingsHash(hash)
 
-  const activeSection: SectionId = SECTIONS.some((s) => s.id === section)
+  // secțiunile de management sunt vizibile doar cu permisiunea aferentă
+  const canMembers = useHasPermission("user.manage").allowed
+  const canRoles = useHasPermission("user.manage").allowed
+  const sections = SECTIONS.filter((s) =>
+    s.id === "members" ? canMembers : s.id === "roles" ? canRoles : true
+  )
+
+  const activeSection: SectionId = sections.some((s) => s.id === section)
     ? (section as SectionId)
     : "account"
 
@@ -151,16 +196,16 @@ export function SettingsDialog({ email }: { email: string | null }) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) close() }}>
-      <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden sm:max-w-2xl">
+      <DialogContent className="max-w-[56rem] p-0 gap-0 overflow-hidden sm:max-w-[56rem]">
         <DialogTitle className="sr-only">{t("nav.settings")}</DialogTitle>
 
-        <div className="flex flex-col sm:flex-row h-[28rem] max-h-[90vh]">
+        <div className="flex flex-col sm:flex-row h-[80vh] max-h-[720px]">
           {/* Sidebar — icons pe mobil, text pe sm+ */}
-          <aside className="flex flex-row gap-1 border-b p-2 sm:flex-col sm:w-44 sm:border-b-0 sm:border-r sm:p-3 shrink-0">
+          <aside className="flex flex-row gap-1 border-b p-2 sm:flex-col sm:w-52 sm:border-b-0 sm:border-r sm:p-3 shrink-0">
             <div className="hidden sm:block px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide select-none">
               {t("nav.settings")}
             </div>
-            {SECTIONS.map((s) => (
+            {sections.map((s) => (
               <button
                 key={s.id}
                 onClick={() => goToSection(s.id)}
@@ -177,9 +222,12 @@ export function SettingsDialog({ email }: { email: string | null }) {
             ))}
           </aside>
 
-          {/* Conținut secțiune */}
-          <div className="flex-1 overflow-y-auto p-5 sm:p-6">
+          {/* Conținut secțiune — pt mărit ca header-ul (cu butoanele lui din dreapta)
+              să înceapă SUB butonul de închidere (X), fără suprapunere */}
+          <div className="flex-1 overflow-y-auto px-5 pb-6 pt-12 sm:px-8 sm:pt-14">
             {activeSection === "account" && <AccountSection email={email} />}
+            {activeSection === "members" && canMembers && <MembersSection />}
+            {activeSection === "roles" && canRoles && <RolesSection />}
           </div>
         </div>
       </DialogContent>

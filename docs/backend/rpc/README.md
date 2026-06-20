@@ -25,6 +25,9 @@
 | `get_stay_constraints` | reguli rezervare | DEFINER | membri cu acces pe proprietate | [reservation-rules.md](reservation-rules.md) |
 | `get_dashboard_stats` | panou (analytics) | DEFINER | membri cu acces pe proprietate | [dashboard.md](dashboard.md) |
 | `get_my_permissions` | RBAC (permisiuni) | DEFINER | authenticated (org proprie) | [rbac.md](../rbac.md) |
+| `add_member` / `set_member_roles` / `set_member_property_access` / `remove_member` / `transfer_ownership` | management membri | DEFINER | `user.manage` / owner | [members.md](members.md) |
+| `create_role` / `update_role` / `delete_role` | roluri custom | DEFINER | `role.manage` | [members.md](members.md) |
+| `get_org_members` | management membri | DEFINER | membru al org-ului | [members.md](members.md) |
 | `public_preview_promo` | promoții | DEFINER | **anon** + authenticated | [promotions.md](promotions.md) |
 | `public_get_availability` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |
 | `public_create_booking` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |

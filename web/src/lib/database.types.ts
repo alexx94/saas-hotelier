@@ -593,20 +593,47 @@ export type Database = {
         Row: {
           description: string
           domain: string
+          is_elevated: boolean
           key: string
           sort_order: number
         }
         Insert: {
           description: string
           domain: string
+          is_elevated?: boolean
           key: string
           sort_order?: number
         }
         Update: {
           description?: string
           domain?: string
+          is_elevated?: boolean
           key?: string
           sort_order?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          full_name: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -1283,6 +1310,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_member: {
+        Args: { p_email: string; p_org_id: string; p_role_ids: string[] }
+        Returns: string
+      }
       block_unit: {
         Args: {
           p_end: string
@@ -1332,6 +1363,11 @@ export type Database = {
         Args: { p_name: string; p_slug: string }
         Returns: string
       }
+      create_role: {
+        Args: { p_name: string; p_org_id: string; p_permission_keys: string[] }
+        Returns: string
+      }
+      delete_role: { Args: { p_role_id: string }; Returns: undefined }
       find_or_create_guest: {
         Args: {
           p_email?: string
@@ -1388,6 +1424,18 @@ export type Database = {
         }[]
       }
       get_my_permissions: { Args: { p_org_id: string }; Returns: string[] }
+      get_org_members: {
+        Args: { p_org_id: string }
+        Returns: {
+          email: string
+          full_name: string
+          is_owner: boolean
+          member_id: string
+          property_ids: string[]
+          role_ids: string[]
+          user_id: string
+        }[]
+      }
       get_rate_calendar: {
         Args: { p_from: string; p_property_id: string; p_to: string }
         Returns: {
@@ -1491,6 +1539,19 @@ export type Database = {
         Returns: string
       }
       remove_block: { Args: { p_block_id: string }; Returns: undefined }
+      remove_member: { Args: { p_member_id: string }; Returns: undefined }
+      set_member_property_access: {
+        Args: { p_member_id: string; p_property_ids: string[] }
+        Returns: undefined
+      }
+      set_member_roles: {
+        Args: { p_member_id: string; p_role_ids: string[] }
+        Returns: undefined
+      }
+      transfer_ownership: {
+        Args: { p_new_user_id: string; p_org_id: string }
+        Returns: undefined
+      }
       update_booking_dates: {
         Args: {
           p_booking_id: string
@@ -1498,6 +1559,10 @@ export type Database = {
           p_check_out: string
           p_override?: boolean
         }
+        Returns: undefined
+      }
+      update_role: {
+        Args: { p_name: string; p_permission_keys: string[]; p_role_id: string }
         Returns: undefined
       }
       validate_booking: {

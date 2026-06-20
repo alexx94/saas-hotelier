@@ -43,6 +43,13 @@ Sursa de adevăr pentru ce gate pune fiecare acțiune. Aplicat deja (✅) sau de
 
 > Pattern: importă `Can` din `@/features/auth/can`, înfășoară butonul/trigger-ul. Pentru elemente care trebuie să rămână vizibile dar dezactivate, folosește `useHasPermission` + `disabled`.
 
+## Management membri & roluri (Sprint 6.3)
+
+- `#settings/members` (gate `user.manage`) — `features/members/`: listă membri (`get_org_members`), adăugare cont existent după email, atribuire roluri multiple, acces per-proprietate (segmentat **Toate** vs **Anumite**), transfer ownership, eliminare. Rolurile afișate pentru acordare sunt filtrate la cele **acordabile** (`useGrantableRole`: permisiunile rolului ⊆ ale tale) — oglindește regula subset din backend.
+- `#settings/roles` (gate `role.manage`) — `features/roles/`: roluri de sistem (read-only) + custom (creare/editare/ștergere), editor de permisiuni grupate pe domeniu; fiecare rol se poate **extinde** ca să-i vezi permisiunile (catalogul se încarcă lazy, doar la prima extindere).
+- **Self-protection** (UI, oglindește backend-ul): pentru propriul cont rolurile sunt read-only, iar remove/transfer sunt ascunse (`CANNOT_EDIT_SELF`/`CANNOT_REMOVE_SELF`).
+- **Confirmare cu tastat** (`components/typed-confirm-dialog.tsx`, stil GitHub): eliminarea unui membru și transferul de ownership cer tastarea emailului — pregătit pentru fluxuri ireversibile (ex. email API la transfer).
+
 ## De ce gate-urile NU înlocuiesc backend-ul
 
 Permisiunile vin dintr-un RPC; un client modificat le poate ignora. De aceea fiecare acțiune e dublată de enforcement în DB (RLS / `has_permission` în RPC). Gate-ul UI = mai puțin „forbidden" surpriză pentru user; securitatea reală e în DB. Vezi matricea de teste din [../backend/rbac.md](../backend/rbac.md) (TEST 80–84).
