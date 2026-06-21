@@ -3,7 +3,8 @@ import { fetchProperty } from "@/features/properties/api"
 import { propertyKeys, useProperties, useProperty } from "@/features/properties/hooks"
 import { PropertyProvider } from "@/features/properties/context"
 import { OrgProvider } from "@/features/organizations/context"
-import { useMyOrganizations } from "@/features/organizations/hooks"
+import { orgKeys, useMyOrganizations } from "@/features/organizations/hooks"
+import { fetchMyOrganizations } from "@/features/organizations/api"
 import { AppShell } from "@/components/app-shell"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -13,6 +14,15 @@ import { Skeleton } from "@/components/ui/skeleton"
 // întoarce rândul (RLS îl ascunde → „nu a fost găsită"), redirect la /org.
 export const Route = createFileRoute("/_app/property/$propertyId")({
   beforeLoad: async ({ context, params }) => {
+    // orgs nu depinde de property → pornit în paralel, nu după property (altfel
+    // navigarea ar aștepta suma celor două round-trip-uri în loc de maximul lor).
+    // Trebuie precărcat aici (ca la /org/$orgId): altfel, la o navigare directă pe
+    // acest URL, OrgProvider primește orgs=[] în primul render și currentOrg
+    // devine undefined (OrgSwitcher citește currentOrg.name).
+    const orgsPromise = context.queryClient.ensureQueryData({
+      queryKey: orgKeys.all,
+      queryFn: fetchMyOrganizations,
+    })
     // fetchProperty aruncă dacă rândul nu există / e ascuns de RLS (lipsă acces).
     // Datele rămân în cache pentru layout (useProperty). „Nu a fost găsită" =
     // lipsă de acces → selector de organizație (nu știm din ce org face parte).
@@ -24,6 +34,7 @@ export const Route = createFileRoute("/_app/property/$propertyId")({
     } catch {
       throw redirect({ to: "/org" })
     }
+    await orgsPromise
   },
   component: PropertyLayout,
 })

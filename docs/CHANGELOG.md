@@ -5,6 +5,29 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 6.4.1 — Bugfix-uri post-restructurare URL org/proprietate (21 iun 2026)
+
+### Bugfix — dialogul „Adaugă membru" nu oferea selecția de proprietăți pentru actori restrânși
+`AddMemberDialog` era montat necondiționat în `MembersSection` (spre diferență de `MemberEditor`, montat condiționat). La primul render, înainte ca `useMembers` să se încarce, `actorRestricted` era `false` pentru toată lumea → `useState(actorRestricted ? "selected" : "all")` îngheța `accessMode` pe `"all"` pentru restul sesiunii (lazy initializer, nu se resincronizează la schimbarea props). Pentru un actor restrâns, toggle-ul „toate/selectate" e ascuns intenționat (nu poate acorda „toate"), deci nu avea nicio cale să comute pe `"selected"` — lista de proprietăți nu apărea niciodată. Pentru owner funcționa „din întâmplare" (toggle-ul vizibil permitea suprascrierea manuală). Fix: montare condiționată de `addOpen` (`web/src/features/members/members-section.tsx`), la fel ca `MemberEditor` — componenta se reinițializează corect la fiecare deschidere.
+
+### Refactor — `PropertyAccessFields` (eliminare duplicare)
+Blocul „Acces proprietăți" (toggle toate/selectate + chip-uri proprietăți + eroare opțională) era duplicat identic în `AddMemberDialog` și `MemberEditor`. Extras într-un component local reutilizabil `PropertyAccessFields` (`web/src/features/members/members-section.tsx`) — aceeași logică de scoping, parametrizat (`disabled`, `error`).
+
+### Verificare server-side — gărzi anti-escaladare pe acces proprietăți (fără cod nou)
+Cu ocazia bugfix-ului de mai sus, s-a verificat explicit (nu doar UI) că backend-ul respinge orice bypass al restricției de acces, indiferent ce trimite frontend-ul — rulat efectiv `db_tests.sql` (`supabase db reset` + execuție în containerul Postgres): **266 PASS, 0 FAIL**. Acoperire confirmată (testele existau deja din migrația `20260620130000`, TEST 97, vezi Sprint 6.4):
+- actor restrâns cere `"toate"` la invitare → `PROPERTY_FORBIDDEN` (TEST 95b/97f)
+- actor restrâns hardcodează o proprietate la care nu are el acces → `PROPERTY_FORBIDDEN` (TEST 93d/96c/97e)
+- proprietate dintr-o altă organizație → `PROPERTY_ORG_MISMATCH` (TEST 87c/97c)
+- actor invită cu un rol mai mare decât al lui → `ROLE_EXCEEDS_YOURS` (TEST 92a/93b)
+
+### Bugfix — crash „Cannot read properties of undefined (reading 'name')" pe rutele `/property/$propertyId`
+Ruta `/org/$orgId` precarcă lista de organizații în `beforeLoad` (`ensureQueryData`) înainte de render, garantând că `OrgProvider` are mereu `currentOrg` definit. Ruta `/property/$propertyId` precarcă doar `property`, nu și `orgs` — la o navigare directă pe acest URL (refresh, link direct, fără să treci prin `/org`), `useMyOrganizations()` era încă în zbor la primul render, `OrgProvider` primea `orgs=[]`, `currentOrg = orgs.find(...) ?? orgs[0]` devenea `undefined`, iar `OrgSwitcher` citea `currentOrg.name` → crash. Fix (`web/src/routes/_app/property/$propertyId/route.tsx`): `ensureQueryData` pe `orgKeys.all` în `beforeLoad`, pornit **în paralel** cu fetch-ul de `property` (nu după — sunt independente; secvențial ar dubla latența de navigare la suma celor două round-trip-uri în loc de maximul lor), cu `await` final după ce garda de acces pe proprietate a trecut.
+
+### Verificare
+`npx tsc --noEmit` → 0 erori. `npx eslint` → 0 erori noi (singura eroare rămasă, `react-refresh/only-export-components` pe fișierul de rută, e preexistentă — pattern standard la toate rutele file-based care exportă și `Route` și componenta).
+
+---
+
 ## Sprint 6.3.2/6.3.3 — Autoritate, ierarhie clară & bugfix-uri (19 iun 2026)
 
 ### Autoritate prin permisiuni „elevate" + tier-uri (`20260619120000`)

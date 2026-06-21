@@ -5,6 +5,7 @@ import { useCurrentOrg } from "@/features/organizations/context"
 import { useSession } from "@/features/auth/hooks"
 import { useRoles } from "@/features/roles/hooks"
 import { useProperties } from "@/features/properties/hooks"
+import type { Property } from "@/features/properties/api"
 import { useAuthority } from "./authority"
 import {
   useAddMember, useMembers, useRemoveMember, useSetMemberAccess,
@@ -143,10 +144,12 @@ export function MembersSection() {
         </>
       )}
 
-      <AddMemberDialog
-        open={addOpen} onOpenChange={setAddOpen}
-        isOwner={iAmOwner} actorRestricted={actorRestricted}
-      />
+      {addOpen && (
+        <AddMemberDialog
+          open={addOpen} onOpenChange={setAddOpen}
+          isOwner={iAmOwner} actorRestricted={actorRestricted}
+        />
+      )}
       {editing && (
         <MemberEditor member={editing} isOwner={iAmOwner} actorRestricted={actorRestricted} open
           onOpenChange={(o) => !o && setEditing(null)} />
@@ -233,36 +236,12 @@ function AddMemberDialog({
           </div>
 
           {/* Acces proprietăți cerut din start (oglindă a editorului de acces) */}
-          <div className="space-y-2">
-            <Label>{t("members.access")}</Label>
-            <p className="text-xs text-muted-foreground">{t("members.access_hint")}</p>
-            {!actorRestricted && (
-              <div className="grid gap-2 sm:grid-cols-2">
-                <AccessOption
-                  active={accessMode === "all"}
-                  title={t("members.access_all")} desc={t("members.access_all_desc")}
-                  onClick={() => setAccessMode("all")}
-                />
-                <AccessOption
-                  active={accessMode === "selected"}
-                  title={t("members.access_selected")} desc={t("members.access_selected_desc")}
-                  onClick={() => setAccessMode("selected")}
-                />
-              </div>
-            )}
-            {accessMode === "selected" && (
-              <div className="flex flex-wrap gap-1.5 rounded-md border p-2.5">
-                {(properties ?? []).map((p) => (
-                  <Chip key={p.id} active={propIds.includes(p.id)} onClick={() => toggleProp(p.id)}>
-                    {p.name}
-                  </Chip>
-                ))}
-              </div>
-            )}
-            {missingProps && (
-              <p className="text-xs text-destructive">{t("members.access_pick_one")}</p>
-            )}
-          </div>
+          <PropertyAccessFields
+            properties={properties} actorRestricted={actorRestricted}
+            accessMode={accessMode} onAccessModeChange={setAccessMode}
+            propIds={propIds} onToggleProp={toggleProp}
+            error={missingProps ? t("members.access_pick_one") : undefined}
+          />
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
@@ -355,34 +334,12 @@ function MemberEditor({
 
           {/* Acces proprietăți — segmentat: Toate vs Anumite. Un actor restrâns
               la anumite proprietăți nu poate acorda „toate" (oglindă a backend-ului). */}
-          <div className="space-y-2">
-            <Label>{t("members.access")}</Label>
-            <p className="text-xs text-muted-foreground">{t("members.access_hint")}</p>
-            {!actorRestricted && (
-              <div className="grid gap-2 sm:grid-cols-2">
-                <AccessOption
-                  active={accessMode === "all"} disabled={isSelf}
-                  title={t("members.access_all")} desc={t("members.access_all_desc")}
-                  onClick={() => setAccessMode("all")}
-                />
-                <AccessOption
-                  active={accessMode === "selected"} disabled={isSelf}
-                  title={t("members.access_selected")} desc={t("members.access_selected_desc")}
-                  onClick={() => setAccessMode("selected")}
-                />
-              </div>
-            )}
-            {accessMode === "selected" && (
-              <div className="flex flex-wrap gap-1.5 rounded-md border p-2.5">
-                {(properties ?? []).map((p) => (
-                  <Chip key={p.id} active={propIds.includes(p.id)} disabled={isSelf}
-                    onClick={() => !isSelf && toggle(propIds, setPropIds, p.id)}>
-                    {p.name}
-                  </Chip>
-                ))}
-              </div>
-            )}
-          </div>
+          <PropertyAccessFields
+            properties={properties} actorRestricted={actorRestricted}
+            accessMode={accessMode} onAccessModeChange={setAccessMode}
+            propIds={propIds} onToggleProp={(id) => toggle(propIds, setPropIds, id)}
+            disabled={isSelf}
+          />
 
           {!isSelf && !member.is_owner && (
             <>
@@ -430,6 +387,54 @@ function MemberEditor({
         })}
       />
     </>
+  )
+}
+
+// secțiune „Acces proprietăți" (toggle toate/selectate + chip-uri) — partajată
+// între AddMemberDialog și MemberEditor, aceeași logică de scoping.
+function PropertyAccessFields({
+  properties, actorRestricted, accessMode, onAccessModeChange,
+  propIds, onToggleProp, disabled, error,
+}: {
+  properties: Property[] | undefined
+  actorRestricted: boolean
+  accessMode: "all" | "selected"
+  onAccessModeChange: (m: "all" | "selected") => void
+  propIds: string[]
+  onToggleProp: (id: string) => void
+  disabled?: boolean
+  error?: string
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>{t("members.access")}</Label>
+      <p className="text-xs text-muted-foreground">{t("members.access_hint")}</p>
+      {!actorRestricted && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <AccessOption
+            active={accessMode === "all"} disabled={disabled}
+            title={t("members.access_all")} desc={t("members.access_all_desc")}
+            onClick={() => onAccessModeChange("all")}
+          />
+          <AccessOption
+            active={accessMode === "selected"} disabled={disabled}
+            title={t("members.access_selected")} desc={t("members.access_selected_desc")}
+            onClick={() => onAccessModeChange("selected")}
+          />
+        </div>
+      )}
+      {accessMode === "selected" && (
+        <div className="flex flex-wrap gap-1.5 rounded-md border p-2.5">
+          {(properties ?? []).map((p) => (
+            <Chip key={p.id} active={propIds.includes(p.id)} disabled={disabled}
+              onClick={() => onToggleProp(p.id)}>
+              {p.name}
+            </Chip>
+          ))}
+        </div>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
   )
 }
 
