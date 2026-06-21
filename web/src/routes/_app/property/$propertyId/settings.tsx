@@ -43,7 +43,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 
-export const Route = createFileRoute("/_app/app/properties/$propertyId")({
+export const Route = createFileRoute("/_app/property/$propertyId/settings")({
   component: PropertyDetailPage,
 })
 
@@ -443,7 +443,7 @@ function PropertyDetailPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="icon" className="shrink-0" asChild>
-            <Link to="/app/properties"><ArrowLeft className="h-4 w-4" /></Link>
+            <Link to="/org/$orgId" params={{ orgId: property.org_id }}><ArrowLeft className="h-4 w-4" /></Link>
           </Button>
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold sm:text-2xl">{property.name}</h1>

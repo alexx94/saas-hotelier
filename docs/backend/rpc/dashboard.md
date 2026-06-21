@@ -32,6 +32,18 @@
 
 **Teste**: `db_tests.sql` TEST 78 (invariant numitor, delta sosire/ocupare la o rezervare de azi, excludere la anulare, izolare cross-org).
 
+## `get_org_dashboard_stats(p_org_id) returns table(...)`
+
+**Scop**: „vizualizare în ansamblu" pentru home-ul organizației (`/org/$orgId`) — agregă aceleași metrici peste **toate proprietățile accesibile** ale org-ului, refolosind `get_dashboard_stats` per proprietate (sursă unică de adevăr; fiecare în tz-ul ei). Întoarce coloanele de mai sus + `property_count`. Ocuparea se **recalculează** din totaluri (nu se mediază procentele).
+
+| | |
+|---|---|
+| Migrație | `20260620120000` |
+| Security | DEFINER, `stable` (`set search_path = ''`) |
+| Grants | `authenticated` ✅ · `anon`/PUBLIC ❌ |
+| Autorizare | membru al org (`app.user_org_ids()`) **și nerestrâns** la proprietăți (`app.actor_property_restricted` → `FORBIDDEN`). Rolurile legate de anumite proprietăți (manager/base) nu văd agregatul pe org — vezi [`rbac.md §10`](../rbac.md). |
+| Frontend | `features/dashboard/api.ts` → `fetchOrgDashboardStats()`, hook `useOrgDashboardStats(orgId, enabled)`, folosit în `dashboard-org-overview.tsx`. UI gate (owner/admin) în `routes/_app/org/$orgId/index.tsx`; RPC-ul îl dublează server-side. |
+
 ## Scalabilitate & contract de ștergere
 
 Dashboard-ul e **aditiv și autonom** — gândit ca un MVP de înlocuit complet la redesign. Ce trebuie știut:

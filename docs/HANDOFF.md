@@ -48,7 +48,8 @@ web/src/
     properties/
       api.ts
       hooks.ts
-      property-select.tsx
+      context.tsx     ← PropertyProvider + useCurrentProperty() (proprietatea curentă din URL)
+      property-switcher.tsx ← comutator proprietate în sidebar (navighează)
     unit-types/         ← gestionarea camerelor (Sprint 3)
       api.ts
       hooks.ts
@@ -90,7 +91,8 @@ web/src/
     organizations/
       api.ts
       hooks.ts
-      context.tsx     ← OrgProvider + useCurrentOrg()
+      context.tsx     ← OrgProvider + useCurrentOrg() (org curentă din URL /org/$orgId)
+      org-switcher.tsx ← comutator organizație în sidebar (navighează la /org/$orgId)
     auth/
       hooks.ts        ← requireSession()
       permissions.ts  ← usePermissions / useHasPermission (RBAC, Sprint 6.2)
@@ -99,23 +101,28 @@ web/src/
       settings-dialog.tsx ← dialog setări cu hash routing
   routes/             ← file-based TanStack Router
     __root.tsx
-    _app.tsx          ← layout autentificat (sidebar, nav, UserMenu)
-    _app/app/
-      index.tsx       ← Dashboard
+    _app.tsx          ← shell autentificat (doar garda de sesiune + Outlet)
+    _app/org/
+      index.tsx       ← /org panou „organizațiile tale" (mereu accesibil; NU auto-intră / NU forțează onboarding; empty-state = creează una). Back-nav subtil din OrgSwitcher → „Toate organizațiile"
+      $orgId/
+        route.tsx     ← layout org: gardă membership + OrgProvider + <AppShell>
+        index.tsx     ← home org: grilă proprietăți (+ creare) + vizualizare în ansamblu (owner/admin)
+    _app/property/$propertyId/   ← URL scurt: DOAR propertyId (org dedus din property.org_id)
+      route.tsx       ← gardă acces (fetchProperty; RLS ascunde → redirect /org) + OrgProvider + PropertyProvider + <AppShell>
+      index.tsx       ← Dashboard (per-proprietate)
       calendar.tsx
+      settings.tsx    ← config proprietate (tipuri camere, prețuri, reguli, promoții, publish)
       bookings/
         index.tsx
         $bookingId.tsx
       guests/
         index.tsx
         $guestId.tsx
-      properties/
-        index.tsx
-        $propertyId.tsx
+    # AppShell (sidebar partajat) = components/app-shell.tsx; OrgSwitcher → /org/$orgId, PropertySwitcher → /property/$propertyId
     login.tsx
     signup.tsx
     onboarding.tsx
-    p.$slug.tsx       ← pagina publică de rezervare
+    p.$slug.tsx       ← pagina publică de rezervare (lane guest, neatinsă)
   components/ui/      ← shadcn/ui (nu modifica direct dacă nu e necesar)
   lib/
     supabase.ts

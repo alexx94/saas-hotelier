@@ -18,9 +18,14 @@ export async function fetchOrgMembers(orgId: string): Promise<OrgMember[]> {
   return (data ?? []) as OrgMember[]
 }
 
-export async function addMember(orgId: string, email: string, roleIds: string[]): Promise<void> {
+// propertyIds: subset explicit de proprietăți SAU [] = „toate" (acces complet,
+// permis doar dacă invitatorul nu e restrâns). Backend-ul (add_member) validează
+// fiecare proprietate ca accesibilă invitatorului (PROPERTY_FORBIDDEN).
+export async function addMember(
+  orgId: string, email: string, roleIds: string[], propertyIds: string[]
+): Promise<void> {
   const { error } = await supabase.rpc("add_member", {
-    p_org_id: orgId, p_email: email, p_role_ids: roleIds,
+    p_org_id: orgId, p_email: email, p_role_ids: roleIds, p_property_ids: propertyIds,
   })
   if (error) throw error
 }

@@ -27,7 +27,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 
-export const Route = createFileRoute("/_app/app/guests/$guestId")({
+export const Route = createFileRoute("/_app/property/$propertyId/guests/$guestId")({
   component: GuestProfilePage,
 })
 
@@ -40,7 +40,7 @@ const editSchema = z.object({
 type EditValues = z.infer<typeof editSchema>
 
 function GuestProfilePage() {
-  const { guestId } = Route.useParams()
+  const { propertyId, guestId } = Route.useParams()
   const navigate = useNavigate()
   const { currentOrg } = useCurrentOrg()
   const { data: guest, isLoading } = useGuest(guestId)
@@ -95,7 +95,7 @@ function GuestProfilePage() {
     try {
       await deleteGuest.mutateAsync(guestId)
       toast.success(t("guests.deleted"))
-      navigate({ to: "/app/guests" })
+      navigate({ to: "/property/$propertyId/guests", params: { propertyId } })
     } catch (err) {
       // 23503 = foreign_key_violation: are rezervări — ștergerea e interzisă
       const code = (err as { code?: string } | null)?.code
@@ -119,7 +119,11 @@ function GuestProfilePage() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" asChild className="h-8 w-8 shrink-0">
-            <Link to="/app/guests" title={t("common.back")}>
+            <Link
+              to="/property/$propertyId/guests"
+              params={{ propertyId }}
+              title={t("common.back")}
+            >
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
@@ -208,8 +212,8 @@ function GuestProfilePage() {
                   <TableRow key={b.id}>
                     <TableCell className="font-medium">
                       <Link
-                        to="/app/bookings/$bookingId"
-                        params={{ bookingId: b.id }}
+                        to="/property/$propertyId/bookings/$bookingId"
+                        params={{ propertyId, bookingId: b.id }}
                         className="hover:underline"
                       >
                         {b.properties?.name ?? "—"}

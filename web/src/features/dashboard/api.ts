@@ -24,3 +24,18 @@ export async function fetchDashboardStats(propertyId: string): Promise<Dashboard
   // RPC întoarce un singur rând
   return (data as DashboardStats[])[0]
 }
+
+// „Vizualizare în ansamblu" pe org: agregat peste toate proprietățile accesibile
+// (RPC get_org_dashboard_stats). Gate server-side pe owner/admin nerestrânși —
+// rolurile legate de proprietăți primesc FORBIDDEN (nu apelăm pentru ele în UI).
+export type OrgDashboardStats = DashboardStats & {
+  property_count: number
+}
+
+export async function fetchOrgDashboardStats(orgId: string): Promise<OrgDashboardStats> {
+  const { data, error } = await supabase.rpc("get_org_dashboard_stats", {
+    p_org_id: orgId,
+  })
+  if (error) throw error
+  return (data as OrgDashboardStats[])[0]
+}

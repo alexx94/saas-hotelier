@@ -43,11 +43,23 @@ export const ro = {
   "nav.bookings": "Rezervări",
   "nav.properties": "Proprietăți",
   "nav.guests": "Oaspeți",
+  "nav.property_settings": "Setări proprietate",
+  "nav.all_properties": "Toate proprietățile",
+  "nav.all_organizations": "Toate organizațiile",
+
+  // organizație (selector + roluri membership)
+  "org.select_title": "Organizațiile tale",
+  "org.select_subtitle": "Alege o organizație în care să continui.",
+  "org.role.owner": "Proprietar",
+  "org.role.member": "Membru",
+  "org.create": "Creează organizație",
+  "org.empty": "Nu faci parte din nicio organizație încă.",
 
   // proprietăți
   "properties.title": "Proprietăți",
   "properties.add": "Adaugă proprietate",
   "properties.empty": "Nu ai nicio proprietate încă.",
+  "properties.select_placeholder": "Alege o proprietate",
   "properties.name": "Numele proprietății",
   "properties.slug": "Identificator URL (pagina publică)",
   "properties.type": "Tip",
@@ -286,6 +298,7 @@ export const ro = {
   "members.access_all_desc": "Acces la toate proprietățile organizației, inclusiv cele viitoare.",
   "members.access_selected": "Doar anumite proprietăți",
   "members.access_selected_desc": "Acces doar la proprietățile bifate mai jos.",
+  "members.access_pick_one": "Alege cel puțin o proprietate.",
   "members.roles_self": "Nu îți poți modifica propriile roluri.",
   "members.roles_grantable_hint": "Poți acorda doar roluri ale căror permisiuni le ai și tu.",
   "members.type_to_confirm": "Tastează {x} pentru a confirma",
@@ -457,7 +470,10 @@ export const ro = {
   "dashboard.bookings_month": "Rezervări luna aceasta",
   "dashboard.bookings_year": "Rezervări anul acesta",
   "dashboard.cancellations_month": "Anulări luna aceasta",
+  "dashboard.cancellations_short": "anulări",
   "dashboard.rooms": "camere",
+  "dashboard.org_overview": "Vizualizare în ansamblu",
+  "dashboard.org_properties": "Proprietăți",
 
   // capacitate & ocupare (Sprint 4.5)
   "unit_types.occupancy": "Capacitate",

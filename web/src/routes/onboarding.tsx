@@ -35,8 +35,8 @@ function OnboardingPage() {
 
   async function onSubmit(values: FormValues) {
     try {
-      await createOrg.mutateAsync(values)
-      navigate({ to: "/app" })
+      const orgId = await createOrg.mutateAsync(values)
+      navigate({ to: "/org/$orgId", params: { orgId } })
     } catch {
       toast.error(t("common.error"))
     }

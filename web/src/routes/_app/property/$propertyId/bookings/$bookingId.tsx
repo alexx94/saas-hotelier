@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 
-export const Route = createFileRoute("/_app/app/bookings/$bookingId")({
+export const Route = createFileRoute("/_app/property/$propertyId/bookings/$bookingId")({
   component: BookingDetailPage,
 })
 
@@ -33,7 +33,7 @@ const SOURCE_LABEL: Record<string, TranslationKey> = {
 }
 
 function BookingDetailPage() {
-  const { bookingId } = Route.useParams()
+  const { propertyId, bookingId } = Route.useParams()
   const { currentOrg } = useCurrentOrg()
   const { data: booking, isLoading } = useBooking(bookingId)
   const linkGuest = useLinkBookingGuest()
@@ -85,7 +85,11 @@ function BookingDetailPage() {
     <div className="space-y-4 md:space-y-6">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" asChild className="h-8 w-8 shrink-0">
-          <Link to="/app/bookings" title={t("common.back")}>
+          <Link
+            to="/property/$propertyId/bookings"
+            params={{ propertyId }}
+            title={t("common.back")}
+          >
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
@@ -159,8 +163,8 @@ function BookingDetailPage() {
                 </p>
                 {booking.guests && booking.guest_id ? (
                   <Link
-                    to="/app/guests/$guestId"
-                    params={{ guestId: booking.guest_id }}
+                    to="/property/$propertyId/guests/$guestId"
+                    params={{ propertyId, guestId: booking.guest_id }}
                     className="flex items-center gap-2 font-medium hover:underline"
                   >
                     <UserRound className="h-3.5 w-3.5 text-muted-foreground" />

@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { Ban, CalendarClock, ChevronLeft, ChevronRight, Plus, Sparkles, User, X } from "lucide-react"
-import {
-  PropertySelect, usePropertySelection,
-} from "@/features/properties/property-select"
+import { useCurrentProperty } from "@/features/properties/context"
 import {
   useBlocksInRange, useBookingsInRange, useUnits,
 } from "@/features/bookings/hooks"
@@ -41,7 +39,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
-export const Route = createFileRoute("/_app/app/calendar")({
+export const Route = createFileRoute("/_app/property/$propertyId/calendar")({
   component: CalendarPage,
 })
 
@@ -489,7 +487,7 @@ function CalendarLegend() {
 // ─── pagina calendar ──────────────────────────────────────────────────────────
 
 function CalendarPage() {
-  const { properties, property, setPropertyId } = usePropertySelection()
+  const { currentProperty: property } = useCurrentProperty()
   const [month, setMonth] = useState(() => {
     const now = new Date()
     return new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1))
@@ -621,14 +619,8 @@ function CalendarPage() {
             </Button>
           </div>
         </div>
-        {/* Rând 2: selector proprietate + navigare lună */}
-        <div className="flex items-center gap-2">
-          <PropertySelect
-            properties={properties}
-            value={property?.id}
-            onChange={setPropertyId}
-            triggerClassName="flex-1 w-full sm:w-56 sm:flex-none"
-          />
+        {/* Rând 2: navigare lună */}
+        <div className="flex items-center justify-end gap-2">
           <div className="flex items-center gap-1 shrink-0">
             <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => shiftMonth(-1)}>
               <ChevronLeft className="h-4 w-4" />

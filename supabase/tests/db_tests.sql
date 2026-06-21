@@ -3784,4 +3784,91 @@ begin
 end $$;
 reset role;
 
+-- ---------- TEST 97: add_member cu selecție EXPLICITĂ de proprietăți ----------
+-- Acoperă fluxul „cere proprietățile la invitare": subset valid, „toate", și
+-- încercarea de a hardcoda o proprietate inaccesibilă actorului.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000d1', 'exp-subset@test.ro'),
+  ('00000000-0000-0000-0000-0000000000d2', 'exp-all@test.ro'),
+  ('00000000-0000-0000-0000-0000000000d3', 'exp-hardcode@test.ro'),
+  ('00000000-0000-0000-0000-0000000000d4', 'exp-restr-ok@test.ro'),
+  ('00000000-0000-0000-0000-0000000000d5', 'exp-restr-all@test.ro');
+
+-- 97a/97b: actor NERESTRICȚIONAT (owner-a) acordă explicit
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare v_m uuid; v_props uuid[];
+begin
+  -- 97a: subset explicit [propA] → exact acea proprietate
+  v_m := public.add_member('10000000-0000-0000-0000-000000000001', 'exp-subset@test.ro',
+    array[(select id from roles where slug='housekeeping' and org_id is null)],
+    array['20000000-0000-0000-0000-000000000001'::uuid]);
+  select array_agg(property_id) into v_props from member_property_access where member_id = v_m;
+  if v_props = array['20000000-0000-0000-0000-000000000001'::uuid] then
+    raise notice 'TEST 97a PASS: selecție explicită → doar proprietatea aleasă (propA)';
+  else raise exception 'TEST 97a FAIL: scope = %', v_props; end if;
+
+  -- 97b: „toate" (listă goală) de la actor nerestrâns → acces complet (fără rânduri mpa)
+  v_m := public.add_member('10000000-0000-0000-0000-000000000001', 'exp-all@test.ro',
+    array[(select id from roles where slug='housekeeping' and org_id is null)], '{}');
+  if not exists (select 1 from member_property_access where member_id = v_m) then
+    raise notice 'TEST 97b PASS: „toate" de la actor nerestrâns → acces complet';
+  else raise exception 'TEST 97b FAIL: a creat rânduri mpa pentru „toate"'; end if;
+
+  -- 97c: „hardcode" o proprietate la care nici actorul nu... (aici owner are tot,
+  -- deci testăm cu o proprietate din ALTĂ org → PROPERTY_ORG_MISMATCH)
+  begin
+    perform public.add_member('10000000-0000-0000-0000-000000000001', 'exp-hardcode@test.ro',
+      array[(select id from roles where slug='housekeeping' and org_id is null)],
+      array['20000000-0000-0000-0000-0000000000ff'::uuid]);
+    raise exception 'TEST 97c FAIL: a acceptat proprietate din altă org';
+  exception when others then
+    if sqlerrm like '%PROPERTY_ORG_MISMATCH%' then
+      raise notice 'TEST 97c PASS: proprietate din altă org la invitare => PROPERTY_ORG_MISMATCH';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- 97d/97e: actor RESTRÂNS (manager ...0a4, doar propB) — hardcode propA = inaccesibilă
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$
+declare v_m uuid; v_props uuid[];
+begin
+  -- 97d: subset propriu (propB) → permis, exact propB
+  v_m := public.add_member('10000000-0000-0000-0000-000000000001', 'exp-restr-ok@test.ro',
+    array[(select id from roles where slug='housekeeping' and org_id is null)],
+    array['20000000-0000-0000-0000-000000000002'::uuid]);
+  select array_agg(property_id) into v_props from member_property_access where member_id = v_m;
+  if v_props = array['20000000-0000-0000-0000-000000000002'::uuid] then
+    raise notice 'TEST 97d PASS: actor restrâns acordă explicit subsetul propriu (propB)';
+  else raise exception 'TEST 97d FAIL: scope = %', v_props; end if;
+
+  -- 97e-1: hardcode propA (la care actorul restrâns NU are acces) → PROPERTY_FORBIDDEN
+  begin
+    perform public.add_member('10000000-0000-0000-0000-000000000001', 'exp-hardcode@test.ro',
+      array[(select id from roles where slug='housekeeping' and org_id is null)],
+      array['20000000-0000-0000-0000-000000000001'::uuid]);
+    raise exception 'TEST 97e FAIL: actor restrâns a hardcodat propA';
+  exception when others then
+    if sqlerrm like '%PROPERTY_FORBIDDEN%' then
+      raise notice 'TEST 97e PASS: hardcode propA de la actor restrâns => PROPERTY_FORBIDDEN';
+    else raise; end if;
+  end;
+
+  -- 97e-2: „toate" (listă goală) de la actor restrâns → PROPERTY_FORBIDDEN
+  begin
+    perform public.add_member('10000000-0000-0000-0000-000000000001', 'exp-restr-all@test.ro',
+      array[(select id from roles where slug='housekeeping' and org_id is null)], '{}');
+    raise exception 'TEST 97f FAIL: actor restrâns a acordat „toate" la invitare';
+  exception when others then
+    if sqlerrm like '%PROPERTY_FORBIDDEN%' then
+      raise notice 'TEST 97f PASS: „toate" la invitare de la actor restrâns => PROPERTY_FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
 rollback;

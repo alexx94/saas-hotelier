@@ -143,7 +143,10 @@ export function MembersSection() {
         </>
       )}
 
-      <AddMemberDialog open={addOpen} onOpenChange={setAddOpen} isOwner={iAmOwner} />
+      <AddMemberDialog
+        open={addOpen} onOpenChange={setAddOpen}
+        isOwner={iAmOwner} actorRestricted={actorRestricted}
+      />
       {editing && (
         <MemberEditor member={editing} isOwner={iAmOwner} actorRestricted={actorRestricted} open
           onOpenChange={(o) => !o && setEditing(null)} />
@@ -153,27 +156,49 @@ export function MembersSection() {
 }
 
 function AddMemberDialog({
-  open, onOpenChange, isOwner,
-}: { open: boolean; onOpenChange: (o: boolean) => void; isOwner: boolean }) {
+  open, onOpenChange, isOwner, actorRestricted,
+}: {
+  open: boolean; onOpenChange: (o: boolean) => void
+  isOwner: boolean; actorRestricted: boolean
+}) {
   const { currentOrg } = useCurrentOrg()
   const { data: roles } = useRoles()
   const { canGrantRole } = useAuthority(isOwner)
   const grantable = (roles ?? []).filter(canGrantRole)
+  const { data: properties } = useProperties(currentOrg.id)
   const add = useAddMember(currentOrg.id)
   const [email, setEmail] = useState("")
   const [roleIds, setRoleIds] = useState<string[]>([])
+  // acces cerut din start: „toate" (gol) sau subset bifat. Un actor restrâns nu
+  // poate acorda „toate" → pornește pe „selected" și nu i se oferă opțiunea.
+  const [accessMode, setAccessMode] = useState<"all" | "selected">(
+    actorRestricted ? "selected" : "all"
+  )
+  const [propIds, setPropIds] = useState<string[]>([])
 
   function toggle(id: string) {
     setRoleIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))
   }
+  function toggleProp(id: string) {
+    setPropIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))
+  }
+
+  // „selected" cu nimic bifat ar fi ambiguu (gol = „toate") → cerem cel puțin una
+  const missingProps = accessMode === "selected" && propIds.length === 0
+
+  function reset() {
+    setEmail(""); setRoleIds([]); setPropIds([])
+    setAccessMode(actorRestricted ? "selected" : "all")
+  }
 
   function submit() {
+    const propertyIds = accessMode === "all" ? [] : propIds
     add.mutate(
-      { email: email.trim(), roleIds },
+      { email: email.trim(), roleIds, propertyIds },
       {
         onSuccess: () => {
           toast.success(t("members.added"))
-          setEmail(""); setRoleIds([]); onOpenChange(false)
+          reset(); onOpenChange(false)
         },
         onError: (e) => toast.error(rbacErrorMessage(e)),
       }
@@ -206,10 +231,42 @@ function AddMemberDialog({
             </div>
             <p className="text-xs text-muted-foreground">{t("members.roles_grantable_hint")}</p>
           </div>
+
+          {/* Acces proprietăți cerut din start (oglindă a editorului de acces) */}
+          <div className="space-y-2">
+            <Label>{t("members.access")}</Label>
+            <p className="text-xs text-muted-foreground">{t("members.access_hint")}</p>
+            {!actorRestricted && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <AccessOption
+                  active={accessMode === "all"}
+                  title={t("members.access_all")} desc={t("members.access_all_desc")}
+                  onClick={() => setAccessMode("all")}
+                />
+                <AccessOption
+                  active={accessMode === "selected"}
+                  title={t("members.access_selected")} desc={t("members.access_selected_desc")}
+                  onClick={() => setAccessMode("selected")}
+                />
+              </div>
+            )}
+            {accessMode === "selected" && (
+              <div className="flex flex-wrap gap-1.5 rounded-md border p-2.5">
+                {(properties ?? []).map((p) => (
+                  <Chip key={p.id} active={propIds.includes(p.id)} onClick={() => toggleProp(p.id)}>
+                    {p.name}
+                  </Chip>
+                ))}
+              </div>
+            )}
+            {missingProps && (
+              <p className="text-xs text-destructive">{t("members.access_pick_one")}</p>
+            )}
+          </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
-          <Button onClick={submit} disabled={!email.trim() || add.isPending}>
+          <Button onClick={submit} disabled={!email.trim() || missingProps || add.isPending}>
             {t("members.add")}
           </Button>
         </DialogFooter>

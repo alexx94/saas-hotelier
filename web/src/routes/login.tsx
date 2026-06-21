@@ -32,7 +32,7 @@ function LoginPage() {
       toast.error(t("auth.invalid_credentials"))
       return
     }
-    navigate({ to: "/app" })
+    navigate({ to: "/org" })
   }
 
   return (

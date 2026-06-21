@@ -15,14 +15,17 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PSlugRouteImport } from './routes/p.$slug'
-import { Route as AppAppIndexRouteImport } from './routes/_app/app/index'
-import { Route as AppAppCalendarRouteImport } from './routes/_app/app/calendar'
-import { Route as AppAppPropertiesIndexRouteImport } from './routes/_app/app/properties/index'
-import { Route as AppAppGuestsIndexRouteImport } from './routes/_app/app/guests/index'
-import { Route as AppAppBookingsIndexRouteImport } from './routes/_app/app/bookings/index'
-import { Route as AppAppPropertiesPropertyIdRouteImport } from './routes/_app/app/properties/$propertyId'
-import { Route as AppAppGuestsGuestIdRouteImport } from './routes/_app/app/guests/$guestId'
-import { Route as AppAppBookingsBookingIdRouteImport } from './routes/_app/app/bookings/$bookingId'
+import { Route as AppOrgIndexRouteImport } from './routes/_app/org/index'
+import { Route as AppPropertyPropertyIdRouteRouteImport } from './routes/_app/property/$propertyId/route'
+import { Route as AppOrgOrgIdRouteRouteImport } from './routes/_app/org/$orgId/route'
+import { Route as AppPropertyPropertyIdIndexRouteImport } from './routes/_app/property/$propertyId/index'
+import { Route as AppOrgOrgIdIndexRouteImport } from './routes/_app/org/$orgId/index'
+import { Route as AppPropertyPropertyIdSettingsRouteImport } from './routes/_app/property/$propertyId/settings'
+import { Route as AppPropertyPropertyIdCalendarRouteImport } from './routes/_app/property/$propertyId/calendar'
+import { Route as AppPropertyPropertyIdGuestsIndexRouteImport } from './routes/_app/property/$propertyId/guests/index'
+import { Route as AppPropertyPropertyIdBookingsIndexRouteImport } from './routes/_app/property/$propertyId/bookings/index'
+import { Route as AppPropertyPropertyIdGuestsGuestIdRouteImport } from './routes/_app/property/$propertyId/guests/$guestId'
+import { Route as AppPropertyPropertyIdBookingsBookingIdRouteImport } from './routes/_app/property/$propertyId/bookings/$bookingId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -53,47 +56,69 @@ const PSlugRoute = PSlugRouteImport.update({
   path: '/p/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AppAppIndexRoute = AppAppIndexRouteImport.update({
-  id: '/app/',
-  path: '/app/',
+const AppOrgIndexRoute = AppOrgIndexRouteImport.update({
+  id: '/org/',
+  path: '/org/',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAppCalendarRoute = AppAppCalendarRouteImport.update({
-  id: '/app/calendar',
-  path: '/app/calendar',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAppPropertiesIndexRoute = AppAppPropertiesIndexRouteImport.update({
-  id: '/app/properties/',
-  path: '/app/properties/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAppGuestsIndexRoute = AppAppGuestsIndexRouteImport.update({
-  id: '/app/guests/',
-  path: '/app/guests/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAppBookingsIndexRoute = AppAppBookingsIndexRouteImport.update({
-  id: '/app/bookings/',
-  path: '/app/bookings/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAppPropertiesPropertyIdRoute =
-  AppAppPropertiesPropertyIdRouteImport.update({
-    id: '/app/properties/$propertyId',
-    path: '/app/properties/$propertyId',
+const AppPropertyPropertyIdRouteRoute =
+  AppPropertyPropertyIdRouteRouteImport.update({
+    id: '/property/$propertyId',
+    path: '/property/$propertyId',
     getParentRoute: () => AppRoute,
   } as any)
-const AppAppGuestsGuestIdRoute = AppAppGuestsGuestIdRouteImport.update({
-  id: '/app/guests/$guestId',
-  path: '/app/guests/$guestId',
+const AppOrgOrgIdRouteRoute = AppOrgOrgIdRouteRouteImport.update({
+  id: '/org/$orgId',
+  path: '/org/$orgId',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAppBookingsBookingIdRoute = AppAppBookingsBookingIdRouteImport.update({
-  id: '/app/bookings/$bookingId',
-  path: '/app/bookings/$bookingId',
-  getParentRoute: () => AppRoute,
+const AppPropertyPropertyIdIndexRoute =
+  AppPropertyPropertyIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
+const AppOrgOrgIdIndexRoute = AppOrgOrgIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppOrgOrgIdRouteRoute,
 } as any)
+const AppPropertyPropertyIdSettingsRoute =
+  AppPropertyPropertyIdSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
+const AppPropertyPropertyIdCalendarRoute =
+  AppPropertyPropertyIdCalendarRouteImport.update({
+    id: '/calendar',
+    path: '/calendar',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
+const AppPropertyPropertyIdGuestsIndexRoute =
+  AppPropertyPropertyIdGuestsIndexRouteImport.update({
+    id: '/guests/',
+    path: '/guests/',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
+const AppPropertyPropertyIdBookingsIndexRoute =
+  AppPropertyPropertyIdBookingsIndexRouteImport.update({
+    id: '/bookings/',
+    path: '/bookings/',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
+const AppPropertyPropertyIdGuestsGuestIdRoute =
+  AppPropertyPropertyIdGuestsGuestIdRouteImport.update({
+    id: '/guests/$guestId',
+    path: '/guests/$guestId',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
+const AppPropertyPropertyIdBookingsBookingIdRoute =
+  AppPropertyPropertyIdBookingsBookingIdRouteImport.update({
+    id: '/bookings/$bookingId',
+    path: '/bookings/$bookingId',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -101,14 +126,17 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRoute
   '/signup': typeof SignupRoute
   '/p/$slug': typeof PSlugRoute
-  '/app/calendar': typeof AppAppCalendarRoute
-  '/app/': typeof AppAppIndexRoute
-  '/app/bookings/$bookingId': typeof AppAppBookingsBookingIdRoute
-  '/app/guests/$guestId': typeof AppAppGuestsGuestIdRoute
-  '/app/properties/$propertyId': typeof AppAppPropertiesPropertyIdRoute
-  '/app/bookings/': typeof AppAppBookingsIndexRoute
-  '/app/guests/': typeof AppAppGuestsIndexRoute
-  '/app/properties/': typeof AppAppPropertiesIndexRoute
+  '/org/$orgId': typeof AppOrgOrgIdRouteRouteWithChildren
+  '/property/$propertyId': typeof AppPropertyPropertyIdRouteRouteWithChildren
+  '/org/': typeof AppOrgIndexRoute
+  '/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
+  '/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
+  '/org/$orgId/': typeof AppOrgOrgIdIndexRoute
+  '/property/$propertyId/': typeof AppPropertyPropertyIdIndexRoute
+  '/property/$propertyId/bookings/$bookingId': typeof AppPropertyPropertyIdBookingsBookingIdRoute
+  '/property/$propertyId/guests/$guestId': typeof AppPropertyPropertyIdGuestsGuestIdRoute
+  '/property/$propertyId/bookings/': typeof AppPropertyPropertyIdBookingsIndexRoute
+  '/property/$propertyId/guests/': typeof AppPropertyPropertyIdGuestsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -116,14 +144,15 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/signup': typeof SignupRoute
   '/p/$slug': typeof PSlugRoute
-  '/app/calendar': typeof AppAppCalendarRoute
-  '/app': typeof AppAppIndexRoute
-  '/app/bookings/$bookingId': typeof AppAppBookingsBookingIdRoute
-  '/app/guests/$guestId': typeof AppAppGuestsGuestIdRoute
-  '/app/properties/$propertyId': typeof AppAppPropertiesPropertyIdRoute
-  '/app/bookings': typeof AppAppBookingsIndexRoute
-  '/app/guests': typeof AppAppGuestsIndexRoute
-  '/app/properties': typeof AppAppPropertiesIndexRoute
+  '/org': typeof AppOrgIndexRoute
+  '/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
+  '/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
+  '/org/$orgId': typeof AppOrgOrgIdIndexRoute
+  '/property/$propertyId': typeof AppPropertyPropertyIdIndexRoute
+  '/property/$propertyId/bookings/$bookingId': typeof AppPropertyPropertyIdBookingsBookingIdRoute
+  '/property/$propertyId/guests/$guestId': typeof AppPropertyPropertyIdGuestsGuestIdRoute
+  '/property/$propertyId/bookings': typeof AppPropertyPropertyIdBookingsIndexRoute
+  '/property/$propertyId/guests': typeof AppPropertyPropertyIdGuestsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -133,14 +162,17 @@ export interface FileRoutesById {
   '/onboarding': typeof OnboardingRoute
   '/signup': typeof SignupRoute
   '/p/$slug': typeof PSlugRoute
-  '/_app/app/calendar': typeof AppAppCalendarRoute
-  '/_app/app/': typeof AppAppIndexRoute
-  '/_app/app/bookings/$bookingId': typeof AppAppBookingsBookingIdRoute
-  '/_app/app/guests/$guestId': typeof AppAppGuestsGuestIdRoute
-  '/_app/app/properties/$propertyId': typeof AppAppPropertiesPropertyIdRoute
-  '/_app/app/bookings/': typeof AppAppBookingsIndexRoute
-  '/_app/app/guests/': typeof AppAppGuestsIndexRoute
-  '/_app/app/properties/': typeof AppAppPropertiesIndexRoute
+  '/_app/org/$orgId': typeof AppOrgOrgIdRouteRouteWithChildren
+  '/_app/property/$propertyId': typeof AppPropertyPropertyIdRouteRouteWithChildren
+  '/_app/org/': typeof AppOrgIndexRoute
+  '/_app/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
+  '/_app/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
+  '/_app/org/$orgId/': typeof AppOrgOrgIdIndexRoute
+  '/_app/property/$propertyId/': typeof AppPropertyPropertyIdIndexRoute
+  '/_app/property/$propertyId/bookings/$bookingId': typeof AppPropertyPropertyIdBookingsBookingIdRoute
+  '/_app/property/$propertyId/guests/$guestId': typeof AppPropertyPropertyIdGuestsGuestIdRoute
+  '/_app/property/$propertyId/bookings/': typeof AppPropertyPropertyIdBookingsIndexRoute
+  '/_app/property/$propertyId/guests/': typeof AppPropertyPropertyIdGuestsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -150,14 +182,17 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/signup'
     | '/p/$slug'
-    | '/app/calendar'
-    | '/app/'
-    | '/app/bookings/$bookingId'
-    | '/app/guests/$guestId'
-    | '/app/properties/$propertyId'
-    | '/app/bookings/'
-    | '/app/guests/'
-    | '/app/properties/'
+    | '/org/$orgId'
+    | '/property/$propertyId'
+    | '/org/'
+    | '/property/$propertyId/calendar'
+    | '/property/$propertyId/settings'
+    | '/org/$orgId/'
+    | '/property/$propertyId/'
+    | '/property/$propertyId/bookings/$bookingId'
+    | '/property/$propertyId/guests/$guestId'
+    | '/property/$propertyId/bookings/'
+    | '/property/$propertyId/guests/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -165,14 +200,15 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/signup'
     | '/p/$slug'
-    | '/app/calendar'
-    | '/app'
-    | '/app/bookings/$bookingId'
-    | '/app/guests/$guestId'
-    | '/app/properties/$propertyId'
-    | '/app/bookings'
-    | '/app/guests'
-    | '/app/properties'
+    | '/org'
+    | '/property/$propertyId/calendar'
+    | '/property/$propertyId/settings'
+    | '/org/$orgId'
+    | '/property/$propertyId'
+    | '/property/$propertyId/bookings/$bookingId'
+    | '/property/$propertyId/guests/$guestId'
+    | '/property/$propertyId/bookings'
+    | '/property/$propertyId/guests'
   id:
     | '__root__'
     | '/'
@@ -181,14 +217,17 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/signup'
     | '/p/$slug'
-    | '/_app/app/calendar'
-    | '/_app/app/'
-    | '/_app/app/bookings/$bookingId'
-    | '/_app/app/guests/$guestId'
-    | '/_app/app/properties/$propertyId'
-    | '/_app/app/bookings/'
-    | '/_app/app/guests/'
-    | '/_app/app/properties/'
+    | '/_app/org/$orgId'
+    | '/_app/property/$propertyId'
+    | '/_app/org/'
+    | '/_app/property/$propertyId/calendar'
+    | '/_app/property/$propertyId/settings'
+    | '/_app/org/$orgId/'
+    | '/_app/property/$propertyId/'
+    | '/_app/property/$propertyId/bookings/$bookingId'
+    | '/_app/property/$propertyId/guests/$guestId'
+    | '/_app/property/$propertyId/bookings/'
+    | '/_app/property/$propertyId/guests/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -244,85 +283,137 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app/app/': {
-      id: '/_app/app/'
-      path: '/app'
-      fullPath: '/app/'
-      preLoaderRoute: typeof AppAppIndexRouteImport
+    '/_app/org/': {
+      id: '/_app/org/'
+      path: '/org'
+      fullPath: '/org/'
+      preLoaderRoute: typeof AppOrgIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/app/calendar': {
-      id: '/_app/app/calendar'
-      path: '/app/calendar'
-      fullPath: '/app/calendar'
-      preLoaderRoute: typeof AppAppCalendarRouteImport
+    '/_app/property/$propertyId': {
+      id: '/_app/property/$propertyId'
+      path: '/property/$propertyId'
+      fullPath: '/property/$propertyId'
+      preLoaderRoute: typeof AppPropertyPropertyIdRouteRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/app/properties/': {
-      id: '/_app/app/properties/'
-      path: '/app/properties'
-      fullPath: '/app/properties/'
-      preLoaderRoute: typeof AppAppPropertiesIndexRouteImport
+    '/_app/org/$orgId': {
+      id: '/_app/org/$orgId'
+      path: '/org/$orgId'
+      fullPath: '/org/$orgId'
+      preLoaderRoute: typeof AppOrgOrgIdRouteRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/app/guests/': {
-      id: '/_app/app/guests/'
-      path: '/app/guests'
-      fullPath: '/app/guests/'
-      preLoaderRoute: typeof AppAppGuestsIndexRouteImport
-      parentRoute: typeof AppRoute
+    '/_app/property/$propertyId/': {
+      id: '/_app/property/$propertyId/'
+      path: '/'
+      fullPath: '/property/$propertyId/'
+      preLoaderRoute: typeof AppPropertyPropertyIdIndexRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
     }
-    '/_app/app/bookings/': {
-      id: '/_app/app/bookings/'
-      path: '/app/bookings'
-      fullPath: '/app/bookings/'
-      preLoaderRoute: typeof AppAppBookingsIndexRouteImport
-      parentRoute: typeof AppRoute
+    '/_app/org/$orgId/': {
+      id: '/_app/org/$orgId/'
+      path: '/'
+      fullPath: '/org/$orgId/'
+      preLoaderRoute: typeof AppOrgOrgIdIndexRouteImport
+      parentRoute: typeof AppOrgOrgIdRouteRoute
     }
-    '/_app/app/properties/$propertyId': {
-      id: '/_app/app/properties/$propertyId'
-      path: '/app/properties/$propertyId'
-      fullPath: '/app/properties/$propertyId'
-      preLoaderRoute: typeof AppAppPropertiesPropertyIdRouteImport
-      parentRoute: typeof AppRoute
+    '/_app/property/$propertyId/settings': {
+      id: '/_app/property/$propertyId/settings'
+      path: '/settings'
+      fullPath: '/property/$propertyId/settings'
+      preLoaderRoute: typeof AppPropertyPropertyIdSettingsRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
     }
-    '/_app/app/guests/$guestId': {
-      id: '/_app/app/guests/$guestId'
-      path: '/app/guests/$guestId'
-      fullPath: '/app/guests/$guestId'
-      preLoaderRoute: typeof AppAppGuestsGuestIdRouteImport
-      parentRoute: typeof AppRoute
+    '/_app/property/$propertyId/calendar': {
+      id: '/_app/property/$propertyId/calendar'
+      path: '/calendar'
+      fullPath: '/property/$propertyId/calendar'
+      preLoaderRoute: typeof AppPropertyPropertyIdCalendarRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
     }
-    '/_app/app/bookings/$bookingId': {
-      id: '/_app/app/bookings/$bookingId'
-      path: '/app/bookings/$bookingId'
-      fullPath: '/app/bookings/$bookingId'
-      preLoaderRoute: typeof AppAppBookingsBookingIdRouteImport
-      parentRoute: typeof AppRoute
+    '/_app/property/$propertyId/guests/': {
+      id: '/_app/property/$propertyId/guests/'
+      path: '/guests'
+      fullPath: '/property/$propertyId/guests/'
+      preLoaderRoute: typeof AppPropertyPropertyIdGuestsIndexRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
+    }
+    '/_app/property/$propertyId/bookings/': {
+      id: '/_app/property/$propertyId/bookings/'
+      path: '/bookings'
+      fullPath: '/property/$propertyId/bookings/'
+      preLoaderRoute: typeof AppPropertyPropertyIdBookingsIndexRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
+    }
+    '/_app/property/$propertyId/guests/$guestId': {
+      id: '/_app/property/$propertyId/guests/$guestId'
+      path: '/guests/$guestId'
+      fullPath: '/property/$propertyId/guests/$guestId'
+      preLoaderRoute: typeof AppPropertyPropertyIdGuestsGuestIdRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
+    }
+    '/_app/property/$propertyId/bookings/$bookingId': {
+      id: '/_app/property/$propertyId/bookings/$bookingId'
+      path: '/bookings/$bookingId'
+      fullPath: '/property/$propertyId/bookings/$bookingId'
+      preLoaderRoute: typeof AppPropertyPropertyIdBookingsBookingIdRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
     }
   }
 }
 
+interface AppOrgOrgIdRouteRouteChildren {
+  AppOrgOrgIdIndexRoute: typeof AppOrgOrgIdIndexRoute
+}
+
+const AppOrgOrgIdRouteRouteChildren: AppOrgOrgIdRouteRouteChildren = {
+  AppOrgOrgIdIndexRoute: AppOrgOrgIdIndexRoute,
+}
+
+const AppOrgOrgIdRouteRouteWithChildren =
+  AppOrgOrgIdRouteRoute._addFileChildren(AppOrgOrgIdRouteRouteChildren)
+
+interface AppPropertyPropertyIdRouteRouteChildren {
+  AppPropertyPropertyIdCalendarRoute: typeof AppPropertyPropertyIdCalendarRoute
+  AppPropertyPropertyIdSettingsRoute: typeof AppPropertyPropertyIdSettingsRoute
+  AppPropertyPropertyIdIndexRoute: typeof AppPropertyPropertyIdIndexRoute
+  AppPropertyPropertyIdBookingsBookingIdRoute: typeof AppPropertyPropertyIdBookingsBookingIdRoute
+  AppPropertyPropertyIdGuestsGuestIdRoute: typeof AppPropertyPropertyIdGuestsGuestIdRoute
+  AppPropertyPropertyIdBookingsIndexRoute: typeof AppPropertyPropertyIdBookingsIndexRoute
+  AppPropertyPropertyIdGuestsIndexRoute: typeof AppPropertyPropertyIdGuestsIndexRoute
+}
+
+const AppPropertyPropertyIdRouteRouteChildren: AppPropertyPropertyIdRouteRouteChildren =
+  {
+    AppPropertyPropertyIdCalendarRoute: AppPropertyPropertyIdCalendarRoute,
+    AppPropertyPropertyIdSettingsRoute: AppPropertyPropertyIdSettingsRoute,
+    AppPropertyPropertyIdIndexRoute: AppPropertyPropertyIdIndexRoute,
+    AppPropertyPropertyIdBookingsBookingIdRoute:
+      AppPropertyPropertyIdBookingsBookingIdRoute,
+    AppPropertyPropertyIdGuestsGuestIdRoute:
+      AppPropertyPropertyIdGuestsGuestIdRoute,
+    AppPropertyPropertyIdBookingsIndexRoute:
+      AppPropertyPropertyIdBookingsIndexRoute,
+    AppPropertyPropertyIdGuestsIndexRoute:
+      AppPropertyPropertyIdGuestsIndexRoute,
+  }
+
+const AppPropertyPropertyIdRouteRouteWithChildren =
+  AppPropertyPropertyIdRouteRoute._addFileChildren(
+    AppPropertyPropertyIdRouteRouteChildren,
+  )
+
 interface AppRouteChildren {
-  AppAppCalendarRoute: typeof AppAppCalendarRoute
-  AppAppIndexRoute: typeof AppAppIndexRoute
-  AppAppBookingsBookingIdRoute: typeof AppAppBookingsBookingIdRoute
-  AppAppGuestsGuestIdRoute: typeof AppAppGuestsGuestIdRoute
-  AppAppPropertiesPropertyIdRoute: typeof AppAppPropertiesPropertyIdRoute
-  AppAppBookingsIndexRoute: typeof AppAppBookingsIndexRoute
-  AppAppGuestsIndexRoute: typeof AppAppGuestsIndexRoute
-  AppAppPropertiesIndexRoute: typeof AppAppPropertiesIndexRoute
+  AppOrgOrgIdRouteRoute: typeof AppOrgOrgIdRouteRouteWithChildren
+  AppPropertyPropertyIdRouteRoute: typeof AppPropertyPropertyIdRouteRouteWithChildren
+  AppOrgIndexRoute: typeof AppOrgIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppAppCalendarRoute: AppAppCalendarRoute,
-  AppAppIndexRoute: AppAppIndexRoute,
-  AppAppBookingsBookingIdRoute: AppAppBookingsBookingIdRoute,
-  AppAppGuestsGuestIdRoute: AppAppGuestsGuestIdRoute,
-  AppAppPropertiesPropertyIdRoute: AppAppPropertiesPropertyIdRoute,
-  AppAppBookingsIndexRoute: AppAppBookingsIndexRoute,
-  AppAppGuestsIndexRoute: AppAppGuestsIndexRoute,
-  AppAppPropertiesIndexRoute: AppAppPropertiesIndexRoute,
+  AppOrgOrgIdRouteRoute: AppOrgOrgIdRouteRouteWithChildren,
+  AppPropertyPropertyIdRouteRoute: AppPropertyPropertyIdRouteRouteWithChildren,
+  AppOrgIndexRoute: AppOrgIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

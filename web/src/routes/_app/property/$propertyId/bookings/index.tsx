@@ -2,9 +2,7 @@ import { useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { toast } from "sonner"
 import { CalendarDays, History, MoveRight, Plus, Undo2 } from "lucide-react"
-import {
-  PropertySelect, usePropertySelection,
-} from "@/features/properties/property-select"
+import { useCurrentProperty } from "@/features/properties/context"
 import { useBookings, useUpdateBookingStatus } from "@/features/bookings/hooks"
 import { BookingFormDialog } from "@/features/bookings/booking-form-dialog"
 import { ReassignDialog } from "@/features/bookings/reassign-dialog"
@@ -41,7 +39,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 
-export const Route = createFileRoute("/_app/app/bookings/")({
+export const Route = createFileRoute("/_app/property/$propertyId/bookings/")({
   component: BookingsPage,
 })
 
@@ -49,9 +47,10 @@ const REASSIGNABLE = new Set(["pending", "confirmed", "checked_in"])
 const DATE_EDITABLE = new Set(["pending", "confirmed", "checked_in"])
 
 function BookingsPage() {
-  const { properties, property, setPropertyId } = usePropertySelection()
+  const { propertyId } = Route.useParams()
+  const { currentProperty: property } = useCurrentProperty()
   const pagination = usePagination()
-  const { data, isLoading } = useBookings(property?.id, { page: pagination.page })
+  const { data, isLoading } = useBookings(property.id, { page: pagination.page })
   const bookings = data?.items
   const updateStatus = useUpdateBookingStatus()
 
@@ -90,32 +89,19 @@ function BookingsPage() {
     <div className="space-y-4 md:space-y-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <h1 className="text-xl font-semibold md:text-2xl">{t("bookings.title")}</h1>
-        <div className="flex items-center gap-2">
-          <PropertySelect
-            properties={properties}
-            value={property?.id}
-            onChange={(id) => {
-              pagination.reset()
-              setPropertyId(id)
-            }}
-            triggerClassName="flex-1 w-full sm:w-56 sm:flex-none"
-          />
-          <Can permission="booking.create">
-            <Button onClick={() => setCreateOpen(true)} disabled={!property} className="shrink-0">
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">{t("bookings.add")}</span>
-            </Button>
-          </Can>
-        </div>
+        <Can permission="booking.create">
+          <Button onClick={() => setCreateOpen(true)} className="shrink-0">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">{t("bookings.add")}</span>
+          </Button>
+        </Can>
       </div>
 
-      {property && (
-        <BookingFormDialog
-          propertyId={property.id}
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-        />
-      )}
+      <BookingFormDialog
+        propertyId={property.id}
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+      />
 
       <ReassignDialog
         booking={reassignBooking}
@@ -195,8 +181,8 @@ function BookingsPage() {
                         t("status.blocked")
                       ) : (
                         <Link
-                          to="/app/bookings/$bookingId"
-                          params={{ bookingId: b.id }}
+                          to="/property/$propertyId/bookings/$bookingId"
+                          params={{ propertyId, bookingId: b.id }}
                           className="hover:underline"
                           title={t("bookings.view_details")}
                         >

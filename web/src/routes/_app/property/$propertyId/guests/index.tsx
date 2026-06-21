@@ -22,7 +22,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 
-export const Route = createFileRoute("/_app/app/guests/")({
+export const Route = createFileRoute("/_app/property/$propertyId/guests/")({
   component: GuestsPage,
 })
 
@@ -34,6 +34,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 function GuestsPage() {
+  const { propertyId } = Route.useParams()
   const { currentOrg } = useCurrentOrg()
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
@@ -147,8 +148,8 @@ function GuestsPage() {
                 <TableRow key={g.id}>
                   <TableCell className="font-medium">
                     <Link
-                      to="/app/guests/$guestId"
-                      params={{ guestId: g.id }}
+                      to="/property/$propertyId/guests/$guestId"
+                      params={{ propertyId, guestId: g.id }}
                       className="hover:underline"
                     >
                       {g.full_name}

@@ -28,8 +28,9 @@ export function useMembers(orgId: string | undefined) {
 export function useAddMember(orgId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ email, roleIds }: { email: string; roleIds: string[] }) =>
-      addMember(orgId, email, roleIds),
+    mutationFn: ({ email, roleIds, propertyIds }: {
+      email: string; roleIds: string[]; propertyIds: string[]
+    }) => addMember(orgId, email, roleIds, propertyIds),
     onSuccess: () => invalidateMemberData(qc),
   })
 }

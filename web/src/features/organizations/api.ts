@@ -8,9 +8,17 @@ export type Organization = {
 }
 
 export async function fetchMyOrganizations(): Promise<Organization[]> {
+  // RLS pe organization_members lasă vizibili TOȚI membrii org-urilor tale (pt.
+  // management) → fără filtru ai primi un rând per membru (org-uri duplicate).
+  // Filtrăm pe propriul user ca să rămână strict membership-urile tale.
+  const { data: auth } = await supabase.auth.getUser()
+  const userId = auth.user?.id
+  if (!userId) return []
+
   const { data, error } = await supabase
     .from("organization_members")
     .select("role, organizations(id, name, slug)")
+    .eq("user_id", userId)
   if (error) throw error
   return (data ?? []).flatMap((m) =>
     m.organizations

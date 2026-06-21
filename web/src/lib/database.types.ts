@@ -1,4 +1,3 @@
-Connecting to db 5432
 export type Json =
   | string
   | number
@@ -1311,7 +1310,12 @@ export type Database = {
     }
     Functions: {
       add_member: {
-        Args: { p_email: string; p_org_id: string; p_role_ids: string[] }
+        Args: {
+          p_email: string
+          p_org_id: string
+          p_property_ids?: string[]
+          p_role_ids: string[]
+        }
         Returns: string
       }
       block_unit: {
@@ -1424,6 +1428,22 @@ export type Database = {
         }[]
       }
       get_my_permissions: { Args: { p_org_id: string }; Returns: string[] }
+      get_org_dashboard_stats: {
+        Args: { p_org_id: string }
+        Returns: {
+          arrivals_today: number
+          available_units: number
+          bookings_month: number
+          bookings_year: number
+          cancellations_month: number
+          departures_today: number
+          in_house_guests: number
+          occupancy_pct: number
+          occupied_units: number
+          property_count: number
+          total_units: number
+        }[]
+      }
       get_org_members: {
         Args: { p_org_id: string }
         Returns: {
@@ -1714,5 +1734,3 @@ export const Constants = {
   },
 } as const
 
-A new version of Supabase CLI is available: v2.107.0 (currently installed v2.95.4)
-We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
