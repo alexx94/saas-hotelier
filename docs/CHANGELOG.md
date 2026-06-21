@@ -5,6 +5,77 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 7.1 — Activity Feed: permisiune, filtre, cache & UX (22 iun 2026)
+
+Rafinare a panoului „Activitate" livrat în Sprint 7, pe patru probleme concrete identificate la revizuire.
+
+### Permisiune — reutilizarea `audit.view` (nu permisiune nouă)
+
+Citirea jurnalului de audit (`entity_events` + `get_activity_feed`) era accesibilă oricărui membru cu acces la proprietate, ca restul entităților operaționale. Asta nu era corect: jurnalul de audit e o capabilitate elevată (owner/admin), distinctă de a vedea entitatea în sine. Sprint 6.1 definise deja `audit.view` în catalogul de permisiuni, dar nimic nu o apela încă (`app.has_permission` aditiv, neapelat pentru audit). Soluția a fost **reutilizarea ei**, nu inventarea unei permisiuni noi:
+- Politica RLS pe `entity_events` a trecut de pe `can_access_property` pe `app.has_permission(org_id, property_id, 'audit.view')`.
+- `get_activity_feed` verifică explicit `audit.view` în primele linii (`raise exception 'FORBIDDEN'` dacă nu), la fel ca gărzile din `create_booking`/`record_payment` etc.
+- Frontend: nav „Activitate" + toate butoanele „Istoric" (proprietate/oaspete/regulă preț/promoție) sunt gate-uite cu `<Can permission="audit.view">`; pagina `/activity` are fallback grațios (mesaj, nu pagină goală/crash) când userul n-are voie.
+- Teste noi: administrator are `audit.view` și poate citi feed-ul; manager nu are `audit.view` → `FORBIDDEN` pe RPC și 0 rânduri la SELECT direct (RLS).
+
+Exemplul concret de scalabilitate cerut: dacă se adaugă alte permisiuni similare în viitor (ex. acces la export, la rapoarte financiare), pattern-ul e identic — niciun cod nou de autorizare, doar un nou apelant al `app.has_permission`.
+
+### Filtre + index pentru `get_activity_feed`
+
+RPC-ul inițial nu avea filtrare — feed-ul aducea tot, nefiltrat, pentru orice volum de evenimente. Adăugat:
+- Parametri noi `p_entity_types text[]`, `p_event_types text[]`, `p_date_from timestamptz`, `p_date_to timestamptz`, opționali (`default null`).
+- Filtrele se aplică **în interiorul** fiecărei ramuri UNION (nu pe rezultatul combinat), ca Postgres să poată folosi indexul pe fiecare sursă în parte, nu doar pe rezultatul final.
+- Index nou `entity_events_property_type_idx (property_id, entity_type, created_at desc)` — acoperă filtrarea pe tip + sortarea cronologică fără sort separat.
+- Frontend: `MultiSelectFilter` (dropdown cu checkbox-uri, vezi mai jos) pentru tipuri de entitate și tipuri de eveniment, plus input-uri dată de la/până la; toate trec prin query key-ul `useActivityFeed`, deci schimbarea filtrelor invalidează corect cache-ul fără cod suplimentar.
+
+### Cache — refetch determinist, nu doar invalidare manuală
+
+Cache-ul TanStack Query implicit (`staleTime` global, nu zero pe acest query specific) putea arăta date vechi după o acțiune într-un alt tab/sesiune, fără un semnal clar de invalidare (feed-ul agregă 8+ entități diferite — invalidare punctuală pe fiecare mutație ar fi fost fragilă și ușor de omis la entități noi). Soluție: `useActivityFeed` setează explicit `staleTime: 0` + `refetchOnWindowFocus: true`, plus un buton de refresh manual (icon `RefreshCw`, spin la fetch) pentru control direct al userului. Dublă plasă de siguranță, cost zero (feed-ul nu e pe calea critică de scriere).
+
+### UX — buton „Afișează mai mult" cu lățime naturală
+
+Butonul de încărcare a paginii următoare avea `w-full` (ocupa toată lățimea panoului, inconsecvent cu restul butoanelor din aplicație). Fix: eliminat `w-full`, butonul e centrat într-un `<div className="flex justify-center pt-1">` — lățimea lui rămâne cât conținutul.
+
+### Refactor — `MultiSelectFilter` extras ca componentă reutilizabilă
+
+Dropdown-ul cu checkbox-uri pentru filtre (construit pe `DropdownMenu`/`DropdownMenuCheckboxItem` din shadcn/ui) a fost extras în `components/multi-select-filter.tsx` — nu e specific activity feed-ului, primește `label`/`options`/`selected`/`onToggle` ca props. Plasat în `components/` (nu `components/ui/`), aceeași convenție ca `confirm-dialog.tsx`/`pagination.tsx`: compus din primitive shadcn, dar e cod propriu al aplicației, reutilizabil pentru orice filtru multi-select viitor (ex. filtrare rezervări pe status, camere pe tip).
+
+### Teste
+
+`db_tests.sql`: TEST 99 (politică RLS pe `entity_events` — cross-org FORBIDDEN, izolare), TEST 100 (administrator vs manager pe `audit.view`), TEST 101 (filtre entity_types/event_types/interval dată). Total **289 PASS, 0 FAIL**.
+
+Doc completă: [`docs/backend/rpc/audit.md`](backend/rpc/audit.md).
+
+---
+
+## Sprint 7 — Audit & Event System (22 iun 2026)
+
+Extinde audit trail-ul existent (Sprint 3: `unit_events`/`unit_type_events`/`booking_events`, fiecare cu tabel + trigger dedicat) la restul entităților operaționale, plus un feed unificat cronologic per proprietate.
+
+### Decizie de arhitectură — tabel generic, nu N tabele noi
+
+Entitățile rămase fără audit (`properties`, `guests`, `payments`, `rate_rules`, `promotions`, `stay_rules`, `arrival_rules`, `closures`) ar fi cerut, cu pattern-ul Sprint 3, 8 tabele `*_events` + 8 funcții de trigger aproape identice. În schimb: **un singur tabel `entity_events`** (`entity_type`, `entity_id`, `org_id`, `property_id`, `event_type`, `actor_user_id`, `actor_email`, `changes` jsonb, `created_at`) + **o singură funcție de trigger genrică `app.audit_entity()`**, parametrizată prin `tg_argv` (entity_type, lista de coloane excluse din diff, cum se derivă `property_id`/`org_id` din rând). Decizie explicită pentru scalabilitate pe termen lung: orice entitate nouă de auditat în viitor = un singur `CREATE TRIGGER ... EXECUTE FUNCTION app.audit_entity(...)`, zero cod SQL nou. `room_blocks` a fost verificat și exclus — avea deja audit prin trigger-ul pre-existent `app.audit_room_block` (scrie în `unit_events`, surfacing corect în feed prin ramura UNION existentă).
+
+Evenimente acoperite per entitate: `created`/`updated`/`archived`/`restored`/`deleted` (generic) — diff-ul exclude coloane „de zgomot" per tabel (ex. `updated_at` pe `rate_rules`, populat de `clock_timestamp()` la fiecare update, nu un schimb real de date).
+
+### `get_activity_feed` — feed unificat
+
+RPC nou `get_activity_feed(p_property_id, p_limit, p_offset)`: `UNION ALL` peste `unit_events`/`unit_type_events`/`booking_events`/`entity_events`, normalizat la o formă comună (`id, entity_type, event_type, actor_email, changes, created_at`), sortat `created_at desc, id desc`, paginat offset (pattern „Afișează mai mult" ca restul istoricurilor din aplicație).
+
+### Frontend
+
+- `features/audit/` — `api.ts` (`fetchActivityFeed`, `fetchEntityEvents`), `hooks.ts` (`useActivityFeed` infinite query), `activity-feed.tsx` (panou), `activity-feed-config.ts` (`ACTIVITY_FEED_CONFIG`: registry per `entity_type` → label-uri + câmpuri pentru diff, reutilizează registrele existente din fiecare feature), `entity-history-dialog.tsx` (wrapper generic peste `EventHistoryDialog` existent din Sprint 3, parametrizat).
+- Pagină nouă `/property/$propertyId/activity` + nav „Activitate” în sidebar.
+- Butoane „Istoric” adăugate la: setări proprietate, profil oaspete, rând regulă de preț (`RateRulesDialog`), rând promoție (`PromotionsDialog`) — toate folosesc același `EntityHistoryDialog` generic.
+- Registre de câmpuri extrase per entitate (`property-fields.ts`, `guest-fields.ts`, `payment-fields.ts`, `rate-rule-fields.ts`, `promotion-fields.ts`, `rule-fields.ts`), urmând același pattern ca `FIELDS` din `event-diff.tsx` (Sprint 3) — extensie, nu reinventare.
+
+### Teste
+
+`db_tests.sql`: TEST 98 — create/update/archive/restore/delete pe fiecare din cele 8 entități noi + no-op update guard (un update care nu schimbă nimic nu generează intrare de audit) + verificare incluziune în `get_activity_feed`.
+
+Doc completă (model de date, trigger generic, RLS, RPC, frontend, teste): [`docs/backend/rpc/audit.md`](backend/rpc/audit.md).
+
+---
+
 ## Sprint 6.4.1 — Bugfix-uri post-restructurare URL org/proprietate (21 iun 2026)
 
 ### Bugfix — dialogul „Adaugă membru" nu oferea selecția de proprietăți pentru actori restrânși

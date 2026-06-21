@@ -352,6 +352,63 @@ export type Database = {
           },
         ]
       }
+      entity_events: {
+        Row: {
+          actor_email: string | null
+          actor_id: string | null
+          created_at: string
+          entity_id: string
+          entity_type: string
+          event_type: string
+          id: string
+          new_data: Json | null
+          old_data: Json | null
+          org_id: string
+          property_id: string | null
+        }
+        Insert: {
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          event_type: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          org_id: string
+          property_id?: string | null
+        }
+        Update: {
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          event_type?: string
+          id?: string
+          new_data?: Json | null
+          old_data?: Json | null
+          org_id?: string
+          property_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "entity_events_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "entity_events_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       guests: {
         Row: {
           created_at: string
@@ -1389,6 +1446,30 @@ export type Database = {
           p_unit_type_id: string
         }
         Returns: number
+      }
+      get_activity_feed: {
+        Args: {
+          p_date_from?: string
+          p_date_to?: string
+          p_entity_types?: string[]
+          p_event_types?: string[]
+          p_limit?: number
+          p_offset?: number
+          p_property_id: string
+        }
+        Returns: {
+          actor_email: string
+          actor_id: string
+          created_at: string
+          entity_id: string
+          entity_type: string
+          event_type: string
+          id: string
+          new_data: Json
+          old_data: Json
+          org_id: string
+          property_id: string
+        }[]
       }
       get_available_units: {
         Args: {

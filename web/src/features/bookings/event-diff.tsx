@@ -1,8 +1,4 @@
-import { statusLabel } from "./status-badge"
-import { formatDateShort } from "./date-utils"
-import type { BookingStatus } from "./api"
-import { paymentStatusLabel } from "@/features/payments/payment-status"
-import type { PaymentStatus } from "@/features/payments/api"
+import { BOOKING_FIELDS } from "./booking-fields"
 import { t, type TranslationKey } from "@/lib/i18n"
 
 // Registru de câmpuri afișabile din old_data/new_data (audit).
@@ -12,21 +8,6 @@ export type EventFieldRegistry = Record<
   string,
   { label: TranslationKey; format?: (v: unknown) => string }
 >
-
-const BOOKING_FIELDS: EventFieldRegistry = {
-  unit: { label: "bookings.unit" },
-  guest: { label: "bookings.guest" },
-  status: { label: "bookings.status", format: (v) => statusLabel(v as BookingStatus) },
-  check_in: { label: "bookings.check_in", format: (v) => formatDateShort(String(v)) },
-  check_out: { label: "bookings.check_out", format: (v) => formatDateShort(String(v)) },
-  guests_count: { label: "bookings.guests_count" },
-  total_amount: { label: "bookings.total" },
-  payment_status: {
-    label: "payments.payment",
-    format: (v) => paymentStatusLabel(v as PaymentStatus),
-  },
-  notes: { label: "bookings.notes" },
-}
 
 function fmt(fields: EventFieldRegistry, key: string, value: unknown): string {
   const format = fields[key]?.format

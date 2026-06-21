@@ -22,6 +22,7 @@ import { Route as AppPropertyPropertyIdIndexRouteImport } from './routes/_app/pr
 import { Route as AppOrgOrgIdIndexRouteImport } from './routes/_app/org/$orgId/index'
 import { Route as AppPropertyPropertyIdSettingsRouteImport } from './routes/_app/property/$propertyId/settings'
 import { Route as AppPropertyPropertyIdCalendarRouteImport } from './routes/_app/property/$propertyId/calendar'
+import { Route as AppPropertyPropertyIdActivityRouteImport } from './routes/_app/property/$propertyId/activity'
 import { Route as AppPropertyPropertyIdGuestsIndexRouteImport } from './routes/_app/property/$propertyId/guests/index'
 import { Route as AppPropertyPropertyIdBookingsIndexRouteImport } from './routes/_app/property/$propertyId/bookings/index'
 import { Route as AppPropertyPropertyIdGuestsGuestIdRouteImport } from './routes/_app/property/$propertyId/guests/$guestId'
@@ -95,6 +96,12 @@ const AppPropertyPropertyIdCalendarRoute =
     path: '/calendar',
     getParentRoute: () => AppPropertyPropertyIdRouteRoute,
   } as any)
+const AppPropertyPropertyIdActivityRoute =
+  AppPropertyPropertyIdActivityRouteImport.update({
+    id: '/activity',
+    path: '/activity',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
 const AppPropertyPropertyIdGuestsIndexRoute =
   AppPropertyPropertyIdGuestsIndexRouteImport.update({
     id: '/guests/',
@@ -129,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/org/$orgId': typeof AppOrgOrgIdRouteRouteWithChildren
   '/property/$propertyId': typeof AppPropertyPropertyIdRouteRouteWithChildren
   '/org/': typeof AppOrgIndexRoute
+  '/property/$propertyId/activity': typeof AppPropertyPropertyIdActivityRoute
   '/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
   '/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
   '/org/$orgId/': typeof AppOrgOrgIdIndexRoute
@@ -145,6 +153,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/p/$slug': typeof PSlugRoute
   '/org': typeof AppOrgIndexRoute
+  '/property/$propertyId/activity': typeof AppPropertyPropertyIdActivityRoute
   '/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
   '/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
   '/org/$orgId': typeof AppOrgOrgIdIndexRoute
@@ -165,6 +174,7 @@ export interface FileRoutesById {
   '/_app/org/$orgId': typeof AppOrgOrgIdRouteRouteWithChildren
   '/_app/property/$propertyId': typeof AppPropertyPropertyIdRouteRouteWithChildren
   '/_app/org/': typeof AppOrgIndexRoute
+  '/_app/property/$propertyId/activity': typeof AppPropertyPropertyIdActivityRoute
   '/_app/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
   '/_app/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
   '/_app/org/$orgId/': typeof AppOrgOrgIdIndexRoute
@@ -185,6 +195,7 @@ export interface FileRouteTypes {
     | '/org/$orgId'
     | '/property/$propertyId'
     | '/org/'
+    | '/property/$propertyId/activity'
     | '/property/$propertyId/calendar'
     | '/property/$propertyId/settings'
     | '/org/$orgId/'
@@ -201,6 +212,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/p/$slug'
     | '/org'
+    | '/property/$propertyId/activity'
     | '/property/$propertyId/calendar'
     | '/property/$propertyId/settings'
     | '/org/$orgId'
@@ -220,6 +232,7 @@ export interface FileRouteTypes {
     | '/_app/org/$orgId'
     | '/_app/property/$propertyId'
     | '/_app/org/'
+    | '/_app/property/$propertyId/activity'
     | '/_app/property/$propertyId/calendar'
     | '/_app/property/$propertyId/settings'
     | '/_app/org/$orgId/'
@@ -332,6 +345,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPropertyPropertyIdCalendarRouteImport
       parentRoute: typeof AppPropertyPropertyIdRouteRoute
     }
+    '/_app/property/$propertyId/activity': {
+      id: '/_app/property/$propertyId/activity'
+      path: '/activity'
+      fullPath: '/property/$propertyId/activity'
+      preLoaderRoute: typeof AppPropertyPropertyIdActivityRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
+    }
     '/_app/property/$propertyId/guests/': {
       id: '/_app/property/$propertyId/guests/'
       path: '/guests'
@@ -375,6 +395,7 @@ const AppOrgOrgIdRouteRouteWithChildren =
   AppOrgOrgIdRouteRoute._addFileChildren(AppOrgOrgIdRouteRouteChildren)
 
 interface AppPropertyPropertyIdRouteRouteChildren {
+  AppPropertyPropertyIdActivityRoute: typeof AppPropertyPropertyIdActivityRoute
   AppPropertyPropertyIdCalendarRoute: typeof AppPropertyPropertyIdCalendarRoute
   AppPropertyPropertyIdSettingsRoute: typeof AppPropertyPropertyIdSettingsRoute
   AppPropertyPropertyIdIndexRoute: typeof AppPropertyPropertyIdIndexRoute
@@ -386,6 +407,7 @@ interface AppPropertyPropertyIdRouteRouteChildren {
 
 const AppPropertyPropertyIdRouteRouteChildren: AppPropertyPropertyIdRouteRouteChildren =
   {
+    AppPropertyPropertyIdActivityRoute: AppPropertyPropertyIdActivityRoute,
     AppPropertyPropertyIdCalendarRoute: AppPropertyPropertyIdCalendarRoute,
     AppPropertyPropertyIdSettingsRoute: AppPropertyPropertyIdSettingsRoute,
     AppPropertyPropertyIdIndexRoute: AppPropertyPropertyIdIndexRoute,

@@ -4,11 +4,14 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
-import { ArrowLeft, CalendarDays, Mail, Pencil, Phone, Trash2 } from "lucide-react"
+import { ArrowLeft, CalendarDays, History, Mail, Pencil, Phone, Trash2 } from "lucide-react"
 import { useCurrentOrg } from "@/features/organizations/context"
 import {
   useDeleteGuest, useGuest, useGuestBookings, useGuestStats, useUpdateGuest,
 } from "@/features/guests/hooks"
+import { GUEST_EVENT_LABEL, GUEST_FIELDS } from "@/features/guests/guest-fields"
+import { EntityHistoryDialog } from "@/features/audit/entity-history-dialog"
+import { Can } from "@/features/auth/can"
 import { StatusBadge } from "@/features/bookings/status-badge"
 import type { BookingStatus } from "@/features/bookings/api"
 import { PaginationControls } from "@/components/pagination"
@@ -56,6 +59,7 @@ function GuestProfilePage() {
 
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const form = useForm<EditValues>({ resolver: zodResolver(editSchema) })
 
@@ -134,6 +138,11 @@ function GuestProfilePage() {
             <Pencil className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">{t("guests.edit")}</span>
           </Button>
+          <Can permission="audit.view">
+            <Button variant="ghost" size="icon" title={t("history.title")} onClick={() => setHistoryOpen(true)}>
+              <History className="h-4 w-4" />
+            </Button>
+          </Can>
           <Button
             variant="outline"
             className="text-destructive"
@@ -294,6 +303,15 @@ function GuestProfilePage() {
         title={t("common.confirm_delete")}
         description={t("guests.delete_confirm")}
         onConfirm={onDelete}
+      />
+
+      <EntityHistoryDialog
+        entityType="guest"
+        entityId={historyOpen ? guestId : null}
+        title={`${t("history.title")}: ${guest.full_name}`}
+        labels={GUEST_EVENT_LABEL}
+        fields={GUEST_FIELDS}
+        onClose={() => setHistoryOpen(false)}
       />
     </div>
   )

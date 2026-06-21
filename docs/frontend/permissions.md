@@ -40,6 +40,7 @@ Sursa de adevăr pentru ce gate pune fiecare acțiune. Aplicat deja (✅) sau de
 | Reguli sejur / închideri / sosire-plecare | `rules.manage` | de aplicat (dialogs) |
 | Oaspeți — creare/editare/ștergere | `guest.create` / `guest.edit` / `guest.delete` | de aplicat (`guests/`) |
 | Manager Override (toggle în formular rezervare) | `booking.override` | de aplicat |
+| Nav „Activitate" + butoane Istoric (proprietate/oaspete/regulă preț/promoție) | `audit.view` | ✅ `app-shell.tsx` (nav), `activity.tsx` (pagină, cu fallback grațios), `settings.tsx`/`guests/$guestId.tsx`/`rate-rules-dialog.tsx`/`promotions-dialog.tsx` (Sprint 7) |
 
 > Pattern: importă `Can` din `@/features/auth/can`, înfășoară butonul/trigger-ul. Pentru elemente care trebuie să rămână vizibile dar dezactivate, folosește `useHasPermission` + `disabled`.
 

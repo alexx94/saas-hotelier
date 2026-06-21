@@ -19,6 +19,7 @@
 | `unit_events` | `can_access_property` (prin unit) | ❌ (exclusiv trigger `units_audit` / `room_blocks_audit`) | ❌ | ❌ |
 | `unit_type_events` | `can_access_property` (prin tip) | ❌ (exclusiv trigger `unit_types_audit`) | ❌ | ❌ |
 | `room_blocks` | `can_access_property` | `can_access_property` (validare în trigger) | `can_access_property` | `can_access_property` |
+| `entity_events` (Sprint 7) | `app.has_permission(org, property, 'audit.view')` — **nu** `can_access_property` | ❌ (exclusiv trigger `audit_entity`) | ❌ | ❌ |
 | `permissions` (RBAC) | orice autentificat (catalog) | ❌ seed-only | ❌ | ❌ |
 | `roles` (RBAC) | roluri sistem (toți) + roluri org propriu | ❌ în 6.1 (custom → 6.3) | ❌ | ❌ |
 | `role_permissions` (RBAC) | dacă rolul e vizibil | ❌ în 6.1 | ❌ | ❌ |
@@ -43,8 +44,9 @@ Orice coloană nouă pe aceste tabele este **invizibilă pentru anon** până la
 1. **Izolare cross-tenant** — totul trece prin `app.user_org_ids()` (org-urile userului) sau `app.can_access_property()` (org + restricții per-proprietate prin `member_property_access`). Testat: `db_tests.sql` testele 7–9.
 2. **UPDATE are întotdeauna și WITH CHECK** — altfel un user ar putea muta rândul într-o stare pe care nu o mai controlează (ex. alt `org_id`). Fixat pe `bookings` în migrația 4.
 3. **Fără escaladare de rol** — politicile pe `organization_members` compară rolul *rândului scris*, nu doar rolul apelantului (migrația 7, testul 17).
-4. **Tabelele de audit nu se scriu din API** — `booking_events`, `unit_events`, `unit_type_events` doar prin triggers (DEFINER); RLS-ul lor are exclusiv SELECT.
+4. **Tabelele de audit nu se scriu din API** — `booking_events`, `unit_events`, `unit_type_events`, `entity_events` doar prin triggers (DEFINER); RLS-ul lor are exclusiv SELECT.
 5. **`room_blocks` derivă `org_id`/`property_id` din cameră în trigger** — clientul nu le poate falsifica; politica autorizează, trigger-ul normalizează și validează (suprapuneri, cameră activă).
+6. **`entity_events` e singurul tabel de audit gated pe permisiune** (`audit.view`), nu pe simpla apartenență/acces la proprietate ca restul — citirea jurnalului de audit e o capabilitate elevată (owner/admin), distinctă de a vedea entitatea în sine. Vezi [rpc/audit.md](rpc/audit.md).
 
 ## Capcană de reținut
 

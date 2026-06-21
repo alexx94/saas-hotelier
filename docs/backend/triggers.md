@@ -17,6 +17,7 @@
 | `room_blocks_audit` | room_blocks | AFTER INS/UPD/DEL | `app.audit_room_block` | block created/updated/removed → `unit_events` |
 | `room_blocks_set_updated_at` | room_blocks | BEFORE UPDATE | `app.set_updated_at` | `updated_at = now()` automat |
 | `guests_normalize` | guests | BEFORE INSERT/UPDATE | `app.normalize_guest_row` | normalizare email/telefon/nume |
+| `properties_audit` / `guests_audit` / `payments_audit` / `rate_rules_audit` / `promotions_audit` / `stay_rules_audit` / `arrival_rules_audit` / `closures_audit` | properties / guests / payments / rate_rules / promotions / stay_rules / arrival_rules / closures | AFTER INS/UPD/DEL (payments/arrival_rules/closures: doar INS/DEL) | `app.audit_entity` (generic, parametrizat) | scrie istoricul în `entity_events` — vezi [rpc/audit.md](rpc/audit.md) |
 
 ## Detalii
 
@@ -47,6 +48,9 @@ SECURITY DEFINER; scrie `block_created`/`block_updated`/`block_removed` în `uni
 
 ### `app.normalize_guest_row` (migrația 7)
 `full_name` → trim; `email` → `lower(trim())`, gol → NULL; `phone` → trim, gol → NULL. Garantează că indexul unic pe `(org_id, email)` funcționează fără expresii — orice insert, pe orice cale, e normalizat înainte de constraint.
+
+### `app.audit_entity` (migrația `20260621120000` — Sprint 7)
+Generic, atașat pe 8 tabele diferite via `tg_argv` (`entity_type`, coloana de „activ" opțională, coloanele excluse din diff). Diff-ul nu mai e un `if` per câmp ca la `audit_unit_type`: `to_jsonb(NEW/OLD) - coloane_excluse`, deci un câmp nou pe tabelul sursă apare automat în `old_data`/`new_data` fără modificare de trigger. Update fără schimbare relevantă (diff stripat identic) → nu produce eveniment. `property_id` e auto-referențial pentru `entity_type='property'`, `NULL` pentru entități org-wide (`guest`). SECURITY DEFINER + `set search_path = ''`, ca toate trigger-ele de audit. Detalii complete + RLS + RPC-ul de feed unificat: [rpc/audit.md](rpc/audit.md).
 
 ## ⚠️ Lecția `search_path` (de respectat la orice trigger nou)
 

@@ -3871,4 +3871,253 @@ begin
 end $$;
 reset role;
 
+-- ============================================================
+-- Sprint 7 — entity_events (audit generic) + get_activity_feed
+-- ============================================================
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare
+  v_rule_id uuid;
+  v_promo_id uuid;
+  v_event record;
+  v_count int;
+begin
+  -- 98a: creare proprietate => entity_events 'created'
+  insert into properties (id, org_id, name, slug, is_published)
+  values ('20000000-0000-0000-0000-0000000000aa', '10000000-0000-0000-0000-000000000001',
+          'Pensiune Test', 'pensiune-test-98', false);
+  select * into v_event from entity_events
+    where entity_type = 'property' and entity_id = '20000000-0000-0000-0000-0000000000aa';
+  if v_event.event_type = 'created' and v_event.new_data->>'name' = 'Pensiune Test' then
+    raise notice 'TEST 98a PASS: creare proprietate => entity_events(created)';
+  else raise exception 'TEST 98a FAIL: %', v_event; end if;
+
+  -- 98b: update proprietate => 'updated' cu diff corect, property_id = id-ul propriu
+  update properties set name = 'Pensiune Actualizată' where id = '20000000-0000-0000-0000-0000000000aa';
+  select * into v_event from entity_events
+    where entity_type = 'property' and entity_id = '20000000-0000-0000-0000-0000000000aa'
+      and event_type = 'updated';
+  if v_event.old_data->>'name' = 'Pensiune Test'
+     and v_event.new_data->>'name' = 'Pensiune Actualizată'
+     and v_event.property_id = '20000000-0000-0000-0000-0000000000aa' then
+    raise notice 'TEST 98b PASS: update proprietate => diff corect + property_id auto-referențial';
+  else raise exception 'TEST 98b FAIL: %', v_event; end if;
+
+  -- 98c: creare oaspete => entity_events 'created', property_id NULL (entitate org-wide)
+  insert into guests (id, org_id, full_name, email)
+  values ('50000000-0000-0000-0000-0000000000aa', '10000000-0000-0000-0000-000000000001',
+          'Oaspete Test 98', 'oaspete98@test.ro');
+  select * into v_event from entity_events
+    where entity_type = 'guest' and entity_id = '50000000-0000-0000-0000-0000000000aa';
+  if v_event.event_type = 'created' and v_event.property_id is null then
+    raise notice 'TEST 98c PASS: creare oaspete => entity_events(created), property_id NULL';
+  else raise exception 'TEST 98c FAIL: %', v_event; end if;
+
+  -- 98d/e/f: rate_rule — created → updated (preț) → deleted (old_data păstrează ultima valoare)
+  insert into rate_rules (org_id, property_id, unit_type_id, kind, name, start_date, end_date, price)
+  values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
+          '30000000-0000-0000-0000-000000000001', 'season', 'Test98', '2027-01-01', '2027-01-31', 100)
+  returning id into v_rule_id;
+  if exists (select 1 from entity_events where entity_type = 'rate_rule' and entity_id = v_rule_id and event_type = 'created') then
+    raise notice 'TEST 98d PASS: creare rate_rule => entity_events(created)';
+  else raise exception 'TEST 98d FAIL'; end if;
+
+  update rate_rules set price = 250 where id = v_rule_id;
+  select * into v_event from entity_events
+    where entity_type = 'rate_rule' and entity_id = v_rule_id and event_type = 'updated';
+  if (v_event.old_data->>'price')::numeric = 100 and (v_event.new_data->>'price')::numeric = 250 then
+    raise notice 'TEST 98e PASS: update rate_rule => diff preț (100 → 250)';
+  else raise exception 'TEST 98e FAIL: %', v_event; end if;
+
+  delete from rate_rules where id = v_rule_id;
+  select * into v_event from entity_events
+    where entity_type = 'rate_rule' and entity_id = v_rule_id and event_type = 'deleted';
+  if (v_event.old_data->>'price')::numeric = 250 then
+    raise notice 'TEST 98f PASS: delete rate_rule => entity_events(deleted) cu ultima valoare';
+  else raise exception 'TEST 98f FAIL: %', v_event; end if;
+
+  -- 98g/h/i: promoție — created → archived (is_active false) → restored (is_active true)
+  insert into promotions (org_id, property_id, name, discount_type, discount_value, is_active)
+  values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
+          'Test98', 'percent', 10, true)
+  returning id into v_promo_id;
+  if exists (select 1 from entity_events where entity_type = 'promotion' and entity_id = v_promo_id and event_type = 'created') then
+    raise notice 'TEST 98g PASS: creare promoție => entity_events(created)';
+  else raise exception 'TEST 98g FAIL'; end if;
+
+  update promotions set is_active = false where id = v_promo_id;
+  if exists (select 1 from entity_events where entity_type = 'promotion' and entity_id = v_promo_id and event_type = 'archived') then
+    raise notice 'TEST 98h PASS: is_active true→false => entity_events(archived)';
+  else raise exception 'TEST 98h FAIL'; end if;
+
+  update promotions set is_active = true where id = v_promo_id;
+  if exists (select 1 from entity_events where entity_type = 'promotion' and entity_id = v_promo_id and event_type = 'restored') then
+    raise notice 'TEST 98i PASS: is_active false→true => entity_events(restored)';
+  else raise exception 'TEST 98i FAIL'; end if;
+
+  -- 98j: no-op update (touch updated_at fără schimbare reală) => NU generează eveniment nou
+  select count(*) into v_count from entity_events where entity_type = 'promotion' and entity_id = v_promo_id;
+  update promotions set name = name where id = v_promo_id;  -- doar updated_at se schimbă (trigger touch)
+  if (select count(*) from entity_events where entity_type = 'promotion' and entity_id = v_promo_id) = v_count then
+    raise notice 'TEST 98j PASS: update no-op (doar updated_at) => fără eveniment nou';
+  else raise exception 'TEST 98j FAIL: a generat eveniment pentru un update fără schimbare reală'; end if;
+
+  -- 98k: get_activity_feed include evenimentele de mai sus. Limită mare (nu 50) —
+  -- în această tranzacție unică now() e înghețat la începutul tranzacției, deci
+  -- created_at e identic pe mii de rânduri din testele anterioare; cu un LIMIT mic,
+  -- "order by created_at desc, id desc" ar alege arbitrar 50 din ele (tiebreak pe
+  -- uuid aleator) — flaky, nu o eroare reală de query.
+  if exists (
+    select 1 from public.get_activity_feed('20000000-0000-0000-0000-000000000001', 100000, 0)
+    where entity_type = 'rate_rule' and entity_id = v_rule_id and event_type = 'created'
+  ) then
+    raise notice 'TEST 98k PASS: get_activity_feed include evenimentele entity_events ale proprietății';
+  else raise exception 'TEST 98k FAIL: rate_rule creat nu apare în activity feed'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 99: izolare RLS pe entity_events + get_activity_feed ----------
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$
+declare v_count int;
+begin
+  -- 99a: owner B (alt org, fără acces la propA) => get_activity_feed ridică FORBIDDEN
+  begin
+    perform public.get_activity_feed('20000000-0000-0000-0000-000000000001', 20, 0);
+    raise exception 'TEST 99a FAIL: owner B a putut citi activity feed-ul propA (altă org)';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then
+      raise notice 'TEST 99a PASS: get_activity_feed pe proprietate din altă org => FORBIDDEN';
+    else raise; end if;
+  end;
+
+  -- 99b: owner B nu vede direct rândurile entity_events ale org A (RLS pe select)
+  select count(*) into v_count from entity_events where property_id = '20000000-0000-0000-0000-000000000001';
+  if v_count = 0 then
+    raise notice 'TEST 99b PASS: select direct pe entity_events ale org A => 0 rânduri (RLS)';
+  else raise exception 'TEST 99b FAIL: owner B a văzut % rânduri din org A', v_count; end if;
+
+  -- 99c: insert direct în entity_events (bypass trigger) => respins, fără politică de insert
+  begin
+    insert into entity_events (org_id, property_id, entity_type, entity_id, event_type)
+    values ('10000000-0000-0000-0000-000000000002', null, 'property', gen_random_uuid(), 'created');
+    raise exception 'TEST 99c FAIL: insert direct în entity_events a fost permis';
+  exception when others then
+    raise notice 'TEST 99c PASS: insert direct în entity_events respins (scris doar prin trigger): %', sqlerrm;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 100: audit.view — permisiune reutilizată (Sprint 6.1), cablată acum ----------
+-- audit.view e elevată: owner (structural) + administrator o au; manager și
+-- rolurile de bază NU (role_redesign.sql) — exact ce verificăm aici.
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000e1', 'admin-audit@test.ro'),
+  ('00000000-0000-0000-0000-0000000000e2', 'mgr-audit@test.ro');
+insert into organization_members (org_id, user_id, role) values
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000e1', 'staff'),
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000e2', 'manager');
+update member_roles set role_id = (select id from roles where slug='administrator' and org_id is null)
+  where member_id = (select id from organization_members
+                      where user_id='00000000-0000-0000-0000-0000000000e1'
+                        and org_id='10000000-0000-0000-0000-000000000001');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000e1","role":"authenticated"}';
+do $$
+declare v_count int;
+begin
+  -- 100a: administrator are audit.view (din role_redesign: tot, mai puțin billing)
+  if exists (select 1 from public.get_my_permissions('10000000-0000-0000-0000-000000000001') where get_my_permissions = 'audit.view') then
+    raise notice 'TEST 100a PASS: administrator are audit.view';
+  else raise exception 'TEST 100a FAIL: administrator ar trebui să aibă audit.view'; end if;
+
+  -- 100b: administrator poate citi feed-ul + entity_events direct
+  select count(*) into v_count from public.get_activity_feed('20000000-0000-0000-0000-000000000001', 50, 0);
+  if v_count > 0 then
+    raise notice 'TEST 100b PASS: administrator citește get_activity_feed (% rânduri)', v_count;
+  else raise exception 'TEST 100b FAIL: administrator nu vede nimic în feed'; end if;
+end $$;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000e2","role":"authenticated"}';
+do $$
+declare v_count int;
+begin
+  -- 100c: manager NU are audit.view (exclus explicit în role_redesign.sql)
+  if not exists (select 1 from public.get_my_permissions('10000000-0000-0000-0000-000000000001') where get_my_permissions = 'audit.view') then
+    raise notice 'TEST 100c PASS: manager NU are audit.view';
+  else raise exception 'TEST 100c FAIL: manager nu ar trebui să aibă audit.view'; end if;
+
+  -- 100d: manager => get_activity_feed respinge cu FORBIDDEN (nu doar listă goală)
+  begin
+    perform public.get_activity_feed('20000000-0000-0000-0000-000000000001', 50, 0);
+    raise exception 'TEST 100d FAIL: manager a putut citi activity feed-ul';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then
+      raise notice 'TEST 100d PASS: manager => get_activity_feed FORBIDDEN (fără audit.view)';
+    else raise; end if;
+  end;
+
+  -- 100e: manager nu vede direct entity_events (RLS pe has_permission, nu doar can_access_property)
+  select count(*) into v_count from entity_events where property_id = '20000000-0000-0000-0000-000000000001';
+  if v_count = 0 then
+    raise notice 'TEST 100e PASS: manager (acces la proprietate, dar fără audit.view) => 0 rânduri pe entity_events';
+  else raise exception 'TEST 100e FAIL: manager a văzut % rânduri pe entity_events fără audit.view', v_count; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 101: filtre get_activity_feed (entity_type / event_type / interval) ----------
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$
+declare
+  v_total int;
+  v_filtered int;
+  v_distinct_types int;
+begin
+  select count(*) into v_total from public.get_activity_feed('20000000-0000-0000-0000-000000000001', 100000, 0);
+
+  -- 101a: filtrul pe entity_types restrânge strict la tipurile cerute
+  select count(distinct entity_type) into v_distinct_types
+    from public.get_activity_feed('20000000-0000-0000-0000-000000000001', 100000, 0, array['rate_rule']);
+  select count(*) into v_filtered
+    from public.get_activity_feed('20000000-0000-0000-0000-000000000001', 100000, 0, array['rate_rule']);
+  if v_distinct_types = 1 and v_filtered > 0 and v_filtered < v_total then
+    raise notice 'TEST 101a PASS: filtrul entity_types=[rate_rule] => doar rate_rule (% din % rânduri)', v_filtered, v_total;
+  else raise exception 'TEST 101a FAIL: distinct_types=%, filtered=%, total=%', v_distinct_types, v_filtered, v_total; end if;
+
+  -- 101b: filtrul pe event_types restrânge strict la tipurile de eveniment cerute
+  if not exists (
+    select 1 from public.get_activity_feed('20000000-0000-0000-0000-000000000001', 100000, 0, null, array['created'])
+    where event_type <> 'created'
+  ) then
+    raise notice 'TEST 101b PASS: filtrul event_types=[created] => doar evenimente created';
+  else raise exception 'TEST 101b FAIL: filtrul event_types a lăsat evenimente de alt tip'; end if;
+
+  -- 101c: interval de dată în viitor (fără evenimente reale) => 0 rânduri
+  select count(*) into v_filtered from public.get_activity_feed(
+    '20000000-0000-0000-0000-000000000001', 100000, 0, null, null, '2099-01-01'::timestamptz, '2099-12-31'::timestamptz
+  );
+  if v_filtered = 0 then
+    raise notice 'TEST 101c PASS: interval de dată fără evenimente => 0 rânduri';
+  else raise exception 'TEST 101c FAIL: interval din 2099 a întors % rânduri', v_filtered; end if;
+
+  -- 101d: interval acoperind tot (de la 2000) => identic cu fără filtru de dată
+  select count(*) into v_filtered from public.get_activity_feed(
+    '20000000-0000-0000-0000-000000000001', 100000, 0, null, null, '2000-01-01'::timestamptz, null
+  );
+  if v_filtered = v_total then
+    raise notice 'TEST 101d PASS: interval larg (de la 2000) => identic cu fără filtru (% rânduri)', v_total;
+  else raise exception 'TEST 101d FAIL: filtered=%, total=%', v_filtered, v_total; end if;
+end $$;
+reset role;
+
 rollback;

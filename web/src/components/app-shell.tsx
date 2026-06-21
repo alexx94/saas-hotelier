@@ -2,7 +2,7 @@ import { useState } from "react"
 import type { ReactNode } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import {
-  BookOpenCheck, Building2, CalendarDays, LayoutDashboard, Menu, Settings2,
+  Activity, BookOpenCheck, Building2, CalendarDays, LayoutDashboard, Menu, Settings2,
   Users, X,
 } from "lucide-react"
 import { OrgSwitcher } from "@/features/organizations/org-switcher"
@@ -27,6 +27,7 @@ const propertyNav = [
   { to: "/property/$propertyId/calendar", label: t("nav.calendar"), icon: CalendarDays, permission: "calendar.view" },
   { to: "/property/$propertyId/bookings", label: t("nav.bookings"), icon: BookOpenCheck, permission: "booking.view" },
   { to: "/property/$propertyId/guests", label: t("nav.guests"), icon: Users, permission: "guest.view" },
+  { to: "/property/$propertyId/activity", label: t("nav.activity"), icon: Activity, permission: "audit.view" },
   { to: "/property/$propertyId/settings", label: t("nav.property_settings"), icon: Settings2, permission: "property.view" },
 ] as const
 

@@ -2,21 +2,11 @@ import { format } from "date-fns"
 import { History } from "lucide-react"
 import { useBookingEvents } from "./hooks"
 import { EventDiff } from "./event-diff"
+import { BOOKING_EVENT_LABEL as EVENT_LABEL } from "./booking-fields"
 import { dedupeById } from "@/lib/pagination"
 import { t } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { TranslationKey } from "@/lib/i18n"
-
-const EVENT_LABEL: Record<string, TranslationKey> = {
-  created: "bookings.event.created",
-  status_changed: "bookings.event.status_changed",
-  reassigned: "bookings.event.reassigned",
-  dates_changed: "bookings.event.dates_changed",
-  guest_changed: "bookings.event.guest_changed",
-  payment_status: "bookings.event.payment_status",
-  updated: "bookings.event.updated",
-}
 
 type Props = { bookingId: string }
 

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { toast } from "sonner"
-import { Pencil, Plus, Tag, Ticket, Trash2, X } from "lucide-react"
+import { History, Pencil, Plus, Tag, Ticket, Trash2, X } from "lucide-react"
 import {
   useCreatePromotion, useDeletePromotion, usePromotions, useUpdatePromotion,
   useUpdatePromotionWithRules,
@@ -9,6 +9,9 @@ import {
   isDuplicateCodeError, isPromotionInUseError, isPromotionLockedError,
   RULE_TYPES, type DiscountType, type PromotionWithRules, type RuleType,
 } from "./api"
+import { PROMOTION_EVENT_LABEL, PROMOTION_FIELDS } from "./promotion-fields"
+import { EntityHistoryDialog } from "@/features/audit/entity-history-dialog"
+import { Can } from "@/features/auth/can"
 
 // input doar cu cifre (numere naturale, fără virgule) — pentru valoare reducere,
 // limită de utilizări și valorile condițiilor
@@ -59,7 +62,7 @@ const EMPTY: FormState = {
 }
 
 function PromotionRow({
-  promo, currency, scopeLabel, busy, editing, onEdit, onToggle, onDelete,
+  promo, currency, scopeLabel, busy, editing, onEdit, onToggle, onDelete, onHistory,
 }: {
   promo: PromotionWithRules
   currency: string
@@ -69,6 +72,7 @@ function PromotionRow({
   onEdit: () => void
   onToggle: () => void
   onDelete: () => void
+  onHistory: () => void
 }) {
   const discount = promo.discount_type === "percent"
     ? `−${Number(promo.discount_value)}%`
@@ -99,6 +103,11 @@ function PromotionRow({
           >
             {promo.is_active ? t("promotions.active") : t("promotions.inactive")}
           </Button>
+          <Can permission="audit.view">
+            <Button variant="ghost" size="icon" className="h-7 w-7" title={t("history.title")} onClick={onHistory}>
+              <History className="h-3.5 w-3.5" />
+            </Button>
+          </Can>
           <Button variant="ghost" size="icon" className="h-7 w-7" title={t("promotions.edit")} onClick={onEdit}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -122,6 +131,7 @@ export function PromotionsDialog({ open, orgId, propertyId, currency, unitTypes,
   const [form, setForm] = useState<FormState>(EMPTY)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [historyId, setHistoryId] = useState<string | null>(null)
 
   const promotions = dedupeById(promotionsQuery.data?.pages.flatMap((p) => p.items) ?? [])
   // identitatea financiară (cod + tip + valoare) e blocată după ce promoția a fost
@@ -386,6 +396,7 @@ export function PromotionsDialog({ open, orgId, propertyId, currency, unitTypes,
                 onEdit={() => startEdit(p)}
                 onToggle={() => onToggle(p)}
                 onDelete={() => setDeleteId(p.id)}
+                onHistory={() => setHistoryId(p.id)}
               />
             ))}
             {promotionsQuery.hasNextPage && (
@@ -408,6 +419,15 @@ export function PromotionsDialog({ open, orgId, propertyId, currency, unitTypes,
           confirmLabel={t("common.delete")}
           destructive
           onConfirm={() => deleteId && onDelete(deleteId)}
+        />
+
+        <EntityHistoryDialog
+          entityType="promotion"
+          entityId={historyId}
+          title={t("history.title")}
+          labels={PROMOTION_EVENT_LABEL}
+          fields={PROMOTION_FIELDS}
+          onClose={() => setHistoryId(null)}
         />
       </DialogContent>
     </Dialog>

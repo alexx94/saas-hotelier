@@ -8,6 +8,8 @@ export const ro = {
   "common.search": "Caută",
   "common.loading": "Se încarcă...",
   "common.actions": "Acțiuni",
+  "common.yes": "Da",
+  "common.no": "Nu",
   "common.name": "Nume",
   "common.error": "A apărut o eroare",
   "common.confirm_delete": "Sigur vrei să ștergi?",
@@ -499,6 +501,7 @@ export const ro = {
 
   // pricing engine — sezoane + override-uri (Sprint 4.5)
   "pricing.manage": "Prețuri",
+  "pricing.rule_kind": "Tip regulă",
   "pricing.kind.season": "Sezon",
   "pricing.kind.override": "Tarif preferențial",
   "pricing.kind.base": "Preț de bază",
@@ -725,6 +728,86 @@ export const ro = {
   // zile săptămână (DOW Postgres: 0=Duminică … 6=Sâmbătă)
   "dow.0": "Du", "dow.1": "Lu", "dow.2": "Ma", "dow.3": "Mi",
   "dow.4": "Jo", "dow.5": "Vi", "dow.6": "Sâ",
+
+  // ===== Sprint 7 — audit extins (entity_events) + activity feed =====
+  "nav.activity": "Activitate",
+  "activity.title": "Activitate",
+  "activity.subtitle": "Toate acțiunile recente din această proprietate, în ordine cronologică.",
+  "activity.empty": "Nicio activitate încă.",
+  "history.title": "Istoric",
+
+  "property.event.created": "Proprietate creată",
+  "property.event.updated": "Proprietate actualizată",
+  "property.event.deleted": "Proprietate ștearsă",
+
+  "guest.event.created": "Oaspete creat",
+  "guest.event.updated": "Profil actualizat",
+  "guest.event.deleted": "Oaspete șters",
+
+  "payment.event.created": "Plată înregistrată",
+  "payment.event.deleted": "Plată ștearsă",
+  "payments.kind.payment": "Plată",
+  "payments.kind.refund": "Rambursare",
+
+  "pricing.rule.event.created": "Regulă de preț creată",
+  "pricing.rule.event.updated": "Regulă de preț actualizată",
+  "pricing.rule.event.deleted": "Regulă de preț ștearsă",
+
+  "promotions.event.created": "Promoție creată",
+  "promotions.event.updated": "Promoție actualizată",
+  "promotions.event.archived": "Promoție dezactivată",
+  "promotions.event.restored": "Promoție reactivată",
+  "promotions.event.deleted": "Promoție ștearsă",
+
+  "stay_rules.event.created": "Regulă de durată creată",
+  "stay_rules.event.updated": "Regulă de durată actualizată",
+  "stay_rules.event.deleted": "Regulă de durată ștearsă",
+
+  "arrival_rules.event.created": "Restricție de sosire/plecare creată",
+  "arrival_rules.event.deleted": "Restricție de sosire/plecare eliminată",
+
+  "closures.event.created": "Închidere creată",
+  "closures.event.deleted": "Închidere eliminată",
+
+  // etichete entitate, pentru feed-ul de activitate (un rând generic per tip)
+  "entity.property": "Proprietate",
+  "entity.guest": "Oaspete",
+  "entity.payment": "Plată",
+  "entity.rate_rule": "Regulă de preț",
+  "entity.promotion": "Promoție",
+  "entity.stay_rule": "Regulă de durată",
+  "entity.arrival_rule": "Restricție sosire/plecare",
+  "entity.closure": "Închidere",
+  "entity.booking": "Rezervare",
+  "entity.unit": "Cameră",
+  "entity.unit_type": "Tip de cameră",
+
+  // filtre + refresh pe pagina Activitate
+  "activity.refresh": "Reîmprospătează",
+  "activity.no_access": "Nu ai acces la jurnalul de audit al acestei proprietăți.",
+  "activity.filter.entity_type": "Tip",
+  "activity.filter.event_type": "Eveniment",
+  "activity.filter.date_from": "De la",
+  "activity.filter.date_to": "Până la",
+  "activity.filter.all": "Toate",
+  "activity.filter.clear": "Resetează filtrele",
+  "activity.filter.selected": "selectate",
+
+  // etichete generice per event_type (independente de entitate, pt. filtrul flat)
+  "activity.event_type.created": "Creat",
+  "activity.event_type.updated": "Actualizat",
+  "activity.event_type.archived": "Arhivat",
+  "activity.event_type.restored": "Reactivat",
+  "activity.event_type.deleted": "Șters",
+  "activity.event_type.status_changed": "Status schimbat",
+  "activity.event_type.reassigned": "Cameră schimbată",
+  "activity.event_type.dates_changed": "Date schimbate",
+  "activity.event_type.guest_changed": "Oaspete schimbat",
+  "activity.event_type.payment_status": "Plată schimbată",
+  "activity.event_type.renamed": "Redenumit",
+  "activity.event_type.block_created": "Blocaj creat",
+  "activity.event_type.block_updated": "Blocaj actualizat",
+  "activity.event_type.block_removed": "Blocaj eliminat",
 } as const
 
 export type TranslationKey = keyof typeof ro

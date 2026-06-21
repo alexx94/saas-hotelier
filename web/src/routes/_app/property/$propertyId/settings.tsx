@@ -16,6 +16,8 @@ import type { UnitType } from "@/features/unit-types/api"
 import { Can } from "@/features/auth/can"
 import { UnitRows } from "@/features/unit-types/unit-rows"
 import { UnitTypeHistoryDialog } from "@/features/unit-types/unit-type-history-dialog"
+import { EntityHistoryDialog } from "@/features/audit/entity-history-dialog"
+import { PROPERTY_EVENT_LABEL, PROPERTY_FIELDS } from "@/features/properties/property-fields"
 import { parseRoomNumbering } from "@/features/unit-types/room-numbering"
 import { RateRulesDialog } from "@/features/pricing/rate-rules-dialog"
 import { StayRulesDialog } from "@/features/reservation-rules/stay-rules-dialog"
@@ -327,6 +329,7 @@ function PropertyDetailPage() {
   const [closuresOpen, setClosuresOpen] = useState(false)
   const [arrivalRulesOpen, setArrivalRulesOpen] = useState(false)
   const [promotionsOpen, setPromotionsOpen] = useState(false)
+  const [propertyHistoryOpen, setPropertyHistoryOpen] = useState(false)
   // weekend_days e gestionat ca state (toggle-uri), nu prin RHF
   const [createDays, setCreateDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
   const [editDays, setEditDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
@@ -488,6 +491,15 @@ function PropertyDetailPage() {
               {property.is_published ? t("properties.unpublish") : t("properties.publish")}
             </Button>
           </Can>
+          <Can permission="audit.view">
+            <Button
+              variant="ghost" size="icon" className="h-8 w-8"
+              title={t("history.title")}
+              onClick={() => setPropertyHistoryOpen(true)}
+            >
+              <History className="h-4 w-4" />
+            </Button>
+          </Can>
         </div>
       </div>
 
@@ -633,6 +645,16 @@ function PropertyDetailPage() {
         propertyId={property.id}
         unitTypes={unitTypes ?? []}
         onClose={() => setArrivalRulesOpen(false)}
+      />
+
+      {/* istoric proprietate (creare/editare/ștergere) */}
+      <EntityHistoryDialog
+        entityType="property"
+        entityId={propertyHistoryOpen ? property.id : null}
+        title={`${t("history.title")}: ${property.name}`}
+        labels={PROPERTY_EVENT_LABEL}
+        fields={PROPERTY_FIELDS}
+        onClose={() => setPropertyHistoryOpen(false)}
       />
 
       {/* dialog promoții și reduceri (cod sau automate + condiții) */}

@@ -4,7 +4,7 @@
 
 ---
 
-## Starea curentă a proiectului (21 iun 2026 — Sprint 6.4.1 complet)
+## Starea curentă a proiectului (22 iun 2026 — Sprint 7.1 complet)
 
 Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 **https://github.com/alexx94/saas-hotelier**
@@ -88,6 +88,12 @@ web/src/
     roles/              ← roluri custom + permisiuni (Sprint 6.3)
       api.ts / hooks.ts ← fetchRoles/Permissions + create/update/delete
       roles-section.tsx ← listă expandabilă + editor permisiuni pe domeniu
+    audit/              ← jurnal de audit unificat + feed activitate (Sprint 7)
+      api.ts            ← fetchActivityFeed (RPC get_activity_feed, cu filtre) + fetchEntityEvents
+      hooks.ts           ← useActivityFeed (infinite query, staleTime 0 + refetchOnWindowFocus) + auditKeys
+      activity-feed.tsx ← panou „Activitate": filtre (tip entitate/eveniment, interval dată), refresh manual
+      activity-feed-config.ts ← ACTIVITY_FEED_CONFIG: registry entity_type → label-uri + câmpuri (reutilizează registrele per-feature)
+      entity-history-dialog.tsx ← wrapper generic peste event-history-dialog.tsx (unit-types/), parametrizat per entitate
     organizations/
       api.ts
       hooks.ts
@@ -124,6 +130,7 @@ web/src/
     onboarding.tsx
     p.$slug.tsx       ← pagina publică de rezervare (lane guest, neatinsă)
   components/ui/      ← shadcn/ui (nu modifica direct dacă nu e necesar)
+  components/         ← componente compuse reutilizabile (peste primitive shadcn), ex. multi-select-filter.tsx
   lib/
     supabase.ts
     i18n/
@@ -284,6 +291,7 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 
 ## Features implementate (rezumat)
 
+- ✅ **Sprint 7/7.1 — Audit & Activity Feed**: tabel generic `entity_events` + trigger generic `app.audit_entity` extind audit-ul existent (Sprint 3) la `properties`/`guests`/`payments`/`rate_rules`/`promotions`/`stay_rules`/`arrival_rules`/`closures` (create/update/archive/restore/delete). Feed unificat `get_activity_feed` (UNION peste toate sursele de audit, cu filtre `entity_types`/`event_types`/interval dată, index `entity_events_property_type_idx`). Gated pe permisiunea `audit.view` (**reutilizată** din Sprint 6.1, nu permisiune nouă) — RLS + gardă în RPC, nav și butoane „Istoric" gate-uite cu `<Can>`. Frontend `features/audit/` (panou cu filtre, cache cu `staleTime: 0` + refresh manual, paginare „Afișează mai mult"); `components/multi-select-filter.tsx` extras ca filtru reutilizabil. Teste TEST 98–101 (**289 PASS**). Doc: [`docs/backend/rpc/audit.md`](backend/rpc/audit.md)
 - ✅ Auth (login/signup/logout), onboarding organizație
 - ✅ CRUD proprietăți + pagina publică `/p/{slug}`
 - ✅ Tipuri de camere + generare bulk + adăugare camere suplimentare la tip existent
@@ -317,7 +325,7 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 
 - **Plăți reale** — `payments` ledger e pregătit (provider/provider_ref/status); de adăugat integrarea Stripe (webhook → insert `provider='stripe'`, `status` din eveniment) + e-factură (`provider_ref` = serie factură)
 - **Email notifications** — confirmare rezervare, reminder check-in
-- **Multi-user / RBAC**: fundația e gata (Sprint 6.1). Urmează 6.2 enforcement (RLS/RPC pe `has_permission` + gate-uri UI), 6.3 management membri + roluri custom + profiles, 6.4 invitații (link/token, email-ready), 6.5 audit generic, 6.6 planuri & limite. Roadmap complet cu status: [`docs/backend/rbac.md`](backend/rbac.md)
+- **Multi-user / RBAC**: fundația e gata (Sprint 6.1), enforcement operațional (6.2), management membri + roluri custom + profiles (6.3), invitații (link/token, email-ready, încă neimplementat). Audit operațional livrat (Sprint 7 — `entity_events`, gated pe `audit.view`); rămâne deschis un jurnal generic de **acțiuni administrative** (schimbări de rol/permisiuni/membri — distinct de auditul operațional pe entități, vezi [`docs/backend/rbac.md` §7](backend/rbac.md)) + 6.6 planuri & limite. Roadmap complet cu status: [`docs/backend/rbac.md`](backend/rbac.md)
 - **Pagina publică mai completă** — descriere proprietate, galerie, disponibilitate pe calendar
 - **Setări extinse** — `#settings/notifications`, `#settings/billing` etc. (SECTIONS array e scalabil în `settings-dialog.tsx`)
 - **Export** — CSV rezervări, rapoarte ocupare

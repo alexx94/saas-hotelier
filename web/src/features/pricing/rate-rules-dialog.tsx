@@ -1,11 +1,14 @@
 import { useState } from "react"
 import { format } from "date-fns"
 import { toast } from "sonner"
-import { CalendarRange, Pencil, Trash2 } from "lucide-react"
+import { CalendarRange, History, Pencil, Trash2 } from "lucide-react"
 import {
   useCreateRateRule, useDeleteRateRule, useSeasons, useUpdateRateRule,
 } from "./hooks"
 import type { RateRule } from "./api"
+import { RATE_RULE_EVENT_LABEL, RATE_RULE_FIELDS } from "./rate-rule-fields"
+import { EntityHistoryDialog } from "@/features/audit/entity-history-dialog"
+import { Can } from "@/features/auth/can"
 import { dedupeById } from "@/lib/pagination"
 import { t } from "@/lib/i18n"
 import { formatMoney } from "@/lib/money"
@@ -49,6 +52,7 @@ export function RateRulesDialog({
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [historyId, setHistoryId] = useState<string | null>(null)
 
   const today = new Date().toISOString().slice(0, 10)
   const seasons = dedupeById(seasonsQuery.data?.pages.flatMap((p) => p.items) ?? [])
@@ -168,6 +172,11 @@ export function RateRulesDialog({
                   </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
+                  <Can permission="audit.view">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setHistoryId(r.id)}>
+                      <History className="h-3.5 w-3.5" />
+                    </Button>
+                  </Can>
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(r)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
@@ -197,6 +206,15 @@ export function RateRulesDialog({
           confirmLabel={t("common.delete")}
           destructive
           onConfirm={() => deleteId && onDelete(deleteId)}
+        />
+
+        <EntityHistoryDialog
+          entityType="rate_rule"
+          entityId={historyId}
+          title={t("history.title")}
+          labels={RATE_RULE_EVENT_LABEL}
+          fields={RATE_RULE_FIELDS}
+          onClose={() => setHistoryId(null)}
         />
       </DialogContent>
     </Dialog>
