@@ -4120,4 +4120,292 @@ begin
 end $$;
 reset role;
 
+-- ============================================================
+-- Sprint 8 — Housekeeping
+-- Reutilizează fixturile RBAC din TEST 80: hk-a (a1, housekeeping/unit.manage),
+-- mgr-a (a4, manager), rec-a (a5, reception, fără unit.manage).
+-- TEST 89c a transferat ownership-ul structural către a5 (rec-a) — restaurăm
+-- owner-a, altfel a5 bypass-ează toate permisiunile (nu mai e "reception simplu").
+update organizations set owner_user_id = '00000000-0000-0000-0000-00000000000a'
+  where id = '10000000-0000-0000-0000-000000000001';
+-- a5 a primit și rolul Administrator (de sistem) la transfer — îl scoatem, păstrând
+-- doar mapping-ul standard de reception (enum 'staff' din TEST 80 setup).
+delete from member_roles
+  where member_id = (select id from organization_members
+                      where user_id = '00000000-0000-0000-0000-0000000000a5'
+                        and org_id = '10000000-0000-0000-0000-000000000001')
+    and role_id = (select id from roles where slug = 'administrator' and org_id is null);
+insert into member_roles (member_id, role_id)
+  select (select id from organization_members
+          where user_id = '00000000-0000-0000-0000-0000000000a5'
+            and org_id = '10000000-0000-0000-0000-000000000001'),
+         (select id from roles where slug = 'reception' and org_id is null)
+  on conflict do nothing;
+
+-- TEST 93 a restrâns managerul a4 la propB — restaurăm acces complet, altfel
+-- nu mai poate scrie pe camerele din propA folosite mai jos.
+delete from member_property_access
+  where member_id = (select id from organization_members
+                      where user_id = '00000000-0000-0000-0000-0000000000a4'
+                        and org_id = '10000000-0000-0000-0000-000000000001');
+
+-- TEST 90f a reatribuit temporar rolurile lui a1 (custom role, apoi șters) —
+-- restaurăm explicit rolul housekeeping înainte de a-l reutiliza aici.
+delete from member_roles
+  where member_id = (select id from organization_members
+                      where user_id = '00000000-0000-0000-0000-0000000000a1'
+                        and org_id = '10000000-0000-0000-0000-000000000001');
+insert into member_roles (member_id, role_id)
+  select (select id from organization_members
+          where user_id = '00000000-0000-0000-0000-0000000000a1'
+            and org_id = '10000000-0000-0000-0000-000000000001'),
+         (select id from roles where slug = 'housekeeping' and org_id is null);
+-- ============================================================
+
+-- ---------- TEST 102: scrierea pe cleaning_status — RLS pe unit.manage ----------
+-- 102a: housekeeping schimbă cleaning_status DA (unit.manage)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+do $$ begin
+  update units set cleaning_status = 'dirty' where id = '40000000-0000-0000-0000-000000000002';
+  if not found then raise exception 'TEST 102a FAIL: housekeeping nu a putut schimba cleaning_status'; end if;
+  raise notice 'TEST 102a PASS: housekeeping schimbă cleaning_status (unit.manage)';
+end $$;
+reset role;
+
+-- 102b: reception NU schimbă cleaning_status (RLS ascunde rândul la UPDATE)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ declare v_n int; begin
+  update units set cleaning_status = 'inspected' where id = '40000000-0000-0000-0000-000000000002';
+  get diagnostics v_n = row_count;
+  if v_n = 0 then raise notice 'TEST 102b PASS: reception nu schimbă cleaning_status (fără unit.manage)';
+  else raise exception 'TEST 102b FAIL: reception a actualizat % rânduri', v_n; end if;
+end $$;
+reset role;
+
+-- 102c: manager schimbă cleaning_status DA (unit.manage prin permisiuni complete)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ begin
+  update units set cleaning_status = 'clean' where id = '40000000-0000-0000-0000-000000000002';
+  if not found then raise exception 'TEST 102c FAIL: manager nu a putut schimba cleaning_status'; end if;
+  raise notice 'TEST 102c PASS: manager schimbă cleaning_status (unit.manage)';
+end $$;
+reset role;
+
+-- 102d: cleaning_status_at se actualizează automat la schimbarea de stare
+do $$ declare v_at timestamptz; begin
+  select cleaning_status_at into v_at from units where id = '40000000-0000-0000-0000-000000000002';
+  if v_at > now() - interval '1 minute' then
+    raise notice 'TEST 102d PASS: cleaning_status_at marchează momentul schimbării';
+  else raise exception 'TEST 102d FAIL: cleaning_status_at nu a fost actualizat'; end if;
+end $$;
+
+-- ---------- TEST 103: get_housekeeping_board — gated pe unit.manage, nu doar membership ----------
+-- 103a: housekeeping citește panoul (unit.manage)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+do $$ declare v_n int; begin
+  select count(*) into v_n from public.get_housekeeping_board('20000000-0000-0000-0000-000000000001');
+  if v_n >= 2 then raise notice 'TEST 103a PASS: housekeeping citește get_housekeeping_board (% camere)', v_n;
+  else raise exception 'TEST 103a FAIL: housekeeping a primit % camere', v_n; end if;
+end $$;
+reset role;
+
+-- 103b: reception (membru org, acces la proprietate, dar fără unit.manage) => FORBIDDEN
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ begin
+  begin
+    perform public.get_housekeeping_board('20000000-0000-0000-0000-000000000001');
+    raise exception 'TEST 103b FAIL: reception a citit panoul housekeeping';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 103b PASS: reception => FORBIDDEN (fără unit.manage)';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- 103c: proprietate din altă org => FORBIDDEN (izolare tenant, înaintea verificării de permisiune)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+do $$ begin
+  begin
+    perform public.get_housekeeping_board('20000000-0000-0000-0000-000000000003');
+    raise exception 'TEST 103c FAIL: housekeeping a citit panoul altei org';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' or sqlerrm like '%PROPERTY_NOT_FOUND%' then
+      raise notice 'TEST 103c PASS: proprietate din altă org => %', sqlerrm;
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 104: bulk_set_unit_cleaning_status — RLS, fără raport parțial ----------
+-- 104a: housekeeping actualizează în masă (RLS autorizează ambele camere)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+do $$ declare v_updated int; begin
+  v_updated := public.bulk_set_unit_cleaning_status(
+    array['40000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000002']::uuid[], 'inspected');
+  if v_updated = 2 then raise notice 'TEST 104a PASS: housekeeping marchează 2 camere "inspected" în masă';
+  else raise exception 'TEST 104a FAIL: % camere actualizate (esperat 2)', v_updated; end if;
+end $$;
+reset role;
+
+-- 104b: reception => 0 actualizate (RLS filtrează rândurile, fără excepție)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ declare v_updated int; begin
+  v_updated := public.bulk_set_unit_cleaning_status(
+    array['40000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000002']::uuid[], 'clean');
+  if v_updated = 0 then raise notice 'TEST 104b PASS: reception => 0 camere actualizate (fără unit.manage)';
+  else raise exception 'TEST 104b FAIL: reception a actualizat % camere', v_updated; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 105: Auto Dirty — check-out pune camera automat pe "dirty" ----------
+-- reset camera 1 pe 'clean' (a rămas 'inspected' din TEST 104a)
+update units set cleaning_status = 'clean' where id = '40000000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ declare v_b uuid; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2061-03-10','2061-03-12',
+    '50000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 1, 0, 'confirmed', null, false, null);
+  update bookings set status = 'checked_in' where id = v_b;
+  update bookings set status = 'checked_out' where id = v_b;
+  raise notice 'TEST 105a PASS: rezervare dusă pe checked_out de reception (booking.edit)';
+end $$;
+reset role;
+
+do $$ declare v_status text; begin
+  select cleaning_status into v_status from units where id = '40000000-0000-0000-0000-000000000001';
+  if v_status = 'dirty' then raise notice 'TEST 105b PASS: Auto Dirty — check-out pune camera pe "dirty"';
+  else raise exception 'TEST 105b FAIL: cleaning_status = % (esperat dirty)', v_status; end if;
+end $$;
+
+-- 105c: trecerea clean -> dirty (declanșată de checkout) e auditată
+do $$ begin
+  if exists (
+    select 1 from unit_events
+    where unit_id = '40000000-0000-0000-0000-000000000001'
+      and event_type = 'cleaning_status_changed'
+      and old_data->>'cleaning_status' = 'clean'
+      and new_data->>'cleaning_status' = 'dirty'
+  ) then
+    raise notice 'TEST 105c PASS: Auto Dirty e auditată în unit_events (cleaning_status_changed)';
+  else raise exception 'TEST 105c FAIL: eveniment clean->dirty nu a fost găsit'; end if;
+end $$;
+
+-- ---------- TEST 106: actor pe ultima schimbare (JOIN profiles/auth.users, nu mapare client-side) ----------
+-- 106a: Auto Dirty (105a, declanșat de reception rec-a) a marcat actorul corect
+-- (uuid auth.uid(), nu un "system user" artificial) — e cine a apăsat check-out.
+do $$ declare v_by uuid; begin
+  select cleaning_status_by into v_by from units where id = '40000000-0000-0000-0000-000000000001';
+  if v_by = '00000000-0000-0000-0000-0000000000a5' then
+    raise notice 'TEST 106a PASS: cleaning_status_by = actorul check-out-ului (rec-a, nu un sistem artificial)';
+  else raise exception 'TEST 106a FAIL: cleaning_status_by = %', v_by; end if;
+end $$;
+
+-- 106b: schimbare manuală (housekeeping) suprascrie actorul cu cel curent
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+do $$ begin
+  update units set cleaning_status = 'clean' where id = '40000000-0000-0000-0000-000000000001';
+end $$;
+reset role;
+do $$ declare v_by uuid; begin
+  select cleaning_status_by into v_by from units where id = '40000000-0000-0000-0000-000000000001';
+  if v_by = '00000000-0000-0000-0000-0000000000a1' then
+    raise notice 'TEST 106b PASS: schimbare manuală => cleaning_status_by = housekeeping';
+  else raise exception 'TEST 106b FAIL: cleaning_status_by = %', v_by; end if;
+end $$;
+
+-- 106c: get_housekeeping_board întoarce numele afișabil prin JOIN (profiles.full_name,
+-- fallback auth.users.email — fixturile de test nu au full_name, deci cade pe email),
+-- fără niciun fetch separat de membri necesar pe frontend.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+do $$ declare v_name text; begin
+  select cleaning_status_by_name into v_name from public.get_housekeeping_board('20000000-0000-0000-0000-000000000001')
+  where unit_id = '40000000-0000-0000-0000-000000000001';
+  if v_name = 'hk-a@test.ro' then
+    raise notice 'TEST 106c PASS: get_housekeeping_board întoarce cleaning_status_by_name via JOIN (%)', v_name;
+  else raise exception 'TEST 106c FAIL: cleaning_status_by_name = %', v_name; end if;
+end $$;
+reset role;
+
+-- 106d: evenimentul cleaning_status_changed include numele camerei (unit_name)
+-- — fără el, Activity Feed arăta generic "Cameră: ..." fără să spună CARE cameră.
+-- (notă: toate evenimentele dintr-o tranzacție au același now(), deci nu se poate
+-- căuta "ultimul" după created_at — verificăm conținutul tranziției 106b, nu ordinea.)
+do $$ begin
+  if exists (
+    select 1 from unit_events
+    where unit_id = '40000000-0000-0000-0000-000000000001'
+      and event_type = 'cleaning_status_changed'
+      and old_data->>'cleaning_status' = 'dirty'
+      and new_data->>'cleaning_status' = 'clean'
+      and new_data->>'unit_name' = 'Camera 1'
+  ) then
+    raise notice 'TEST 106d PASS: evenimentul de curățenie include numele camerei (Camera 1)';
+  else raise exception 'TEST 106d FAIL: eveniment cu unit_name=Camera 1 nu a fost găsit'; end if;
+end $$;
+
+-- ---------- TEST 107: get_activity_feed.actor_name — JOIN profiles server-side ----------
+-- Înlocuiește maparea client-side (fetch la toți membrii org-ului doar pentru
+-- email→nume) cu un singur LEFT JOIN pe profiles în RPC. Acoperă și
+-- booking_events, care nu are deloc actor_email — singura sursă de nume e
+-- acum actor_id → profiles, nu un fallback inexistent.
+
+-- owner-a ('a') are profiles.full_name = 'Owner A' (setat la TEST 85b) — actor
+-- cu profil cunoscut. Generăm un eveniment nou (property update), proaspăt
+-- atribuit lui 'a', ca să-l localizăm precis în feed.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$ begin
+  update properties set name = 'Pensiune Actualizată TEST107'
+    where id = '20000000-0000-0000-0000-0000000000aa';
+end $$;
+reset role;
+
+do $$ declare v_name text; begin
+  select actor_name into v_name from public.get_activity_feed(
+    '20000000-0000-0000-0000-0000000000aa', 100000, 0, array['property']
+  ) where entity_id = '20000000-0000-0000-0000-0000000000aa' and event_type = 'updated'
+    and new_data->>'name' = 'Pensiune Actualizată TEST107';
+  if v_name = 'Owner A' then
+    raise notice 'TEST 107a PASS: actor_name rezolvat din profiles.full_name (Owner A), fără mapare client-side';
+  else raise exception 'TEST 107a FAIL: actor_name = %', coalesce(v_name, '<NULL>'); end if;
+end $$;
+
+-- hk-a (a1) nu are profiles.full_name (fixturile de test nu îl setează) =>
+-- actor_name trebuie să cadă pe actor_email. NOTĂ: triggerele de audit citesc
+-- emailul din auth.jwt()->>'email', iar request.jwt.claims din fixturile de
+-- test nu populează 'email' (doar sub/role) — actor_email ar fi mereu NULL
+-- pentru evenimente generate prin trigger în acest harness. Inserăm direct
+-- (ca postgres, fără RLS) un entity_events sintetic cu un actor_email
+-- explicit și fără rând în profiles, ca să verificăm strict fallback-ul
+-- coalesce(profiles.full_name, actor_email) din RPC, nu limitarea fixture-ului.
+insert into entity_events (org_id, property_id, entity_type, entity_id, actor_id, actor_email, event_type, new_data)
+values (
+  '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
+  'closure', '60000000-0000-0000-0000-0000000000aa', '00000000-0000-0000-0000-0000000000a1',
+  'hk-a-snapshot@test.ro', 'created', '{"reason":"test 107b"}'::jsonb
+);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$ declare v_name text; v_email text; begin
+  select actor_name, actor_email into v_name, v_email from public.get_activity_feed(
+    '20000000-0000-0000-0000-000000000001', 100000, 0, array['closure']
+  ) where entity_id = '60000000-0000-0000-0000-0000000000aa' and event_type = 'created';
+  if v_name = v_email and v_email = 'hk-a-snapshot@test.ro' then
+    raise notice 'TEST 107b PASS: fără profil/full_name => actor_name cade pe actor_email (%)', v_email;
+  else raise exception 'TEST 107b FAIL: actor_name=%, actor_email=%', coalesce(v_name,'<NULL>'), coalesce(v_email,'<NULL>'); end if;
+end $$;
+reset role;
+
 rollback;

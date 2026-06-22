@@ -1,9 +1,12 @@
 import { supabase } from "@/lib/supabase"
-import type { Tables } from "@/lib/database.types"
+import type { Database, Tables } from "@/lib/database.types"
 import { pageRange, toPage, type Page } from "@/lib/pagination"
 
 export type EntityEvent = Tables<"entity_events">
-export type ActivityFeedItem = Tables<"entity_events"> // get_activity_feed are aceeași formă
+// get_activity_feed întoarce un actor_name suplimentar (rezolvat server-side
+// prin JOIN pe profiles), absent din entity_events — de aceea tipul propriu RPC.
+export type ActivityFeedItem =
+  Database["public"]["Functions"]["get_activity_feed"]["Returns"][number]
 
 // Istoricurile cresc nelimitat în timp — se aduc paginat, ca la unit_events/booking_events.
 export const EVENTS_PAGE_SIZE = 15

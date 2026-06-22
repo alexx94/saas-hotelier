@@ -5,6 +5,67 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 8 — Housekeeping (22 iun 2026)
+
+Stare de curățenie a camerei (`clean`/`dirty`/`inspected`), panou dedicat housekeeping-ului, **mobile-first**, și tranziție automată „Auto Dirty" la check-out. Niciun cod nou de autorizare — reutilizare integrală a arhitecturii RBAC din Sprint 6.
+
+### Model de date — separat de starea operațională
+
+`units.cleaning_status` (clean/dirty/inspected) + `units.cleaning_status_at` sunt coloane noi, **distincte** de `units.status` (active/inactive/out_of_service/archived, Sprint 3) — curățenia e operațională, nu afectează vânzarea camerei (o cameră `dirty` rămâne disponibilă pentru rezervare; dacă se dorește vreodată blocarea ei, e un strat separat peste `room_blocks`, nu o schimbare aici). `cleaning_status_at` se actualizează automat printr-un trigger dedicat (`units_touch_cleaning_status`), nu din aplicație.
+
+### Auto Dirty — checkout pune camera automat pe „dirty"
+
+Trigger nou pe `bookings` (`app.checkout_sets_unit_dirty`, AFTER UPDATE): la tranziția `status -> 'checked_out'`, camera asociată trece pe `dirty`. SECURITY DEFINER, pentru că actorul tipic (recepție, `booking.edit`) nu are `unit.manage` — la fel ca trigger-ele de audit existente, care scriu indiferent de rolul celui ce a declanșat acțiunea. Fără tranziție inversă automată (un checkout anulat nu repune camera „curată").
+
+### RBAC — zero permisiuni noi, doar reutilizare
+
+`unit.manage` (Sprint 6.1) era deja acordată rolului de sistem `housekeeping` și gata să gateze scrierea pe `units` (RLS `units_cud`, Sprint 6.2) — niciun catalog de permisiuni de modificat. Housekeeper, manager, administrator și owner pot vedea + modifica panoul; reception/finance/readonly nu (RLS le filtrează rândurile la `UPDATE`, fără excepție — la fel ca statusul operațional). RPC-ul de citire (`get_housekeeping_board`) verifică **explicit** `unit.manage`, nu doar apartenență la organizație — diferit de `get_dashboard_stats`, unde permisiunile `*.view` sunt gatate doar în UI; panoul housekeeping e o suprafață operațională dedicată, nu un view general.
+
+### RPC + audit, fără tabele noi
+
+- `get_housekeeping_board(p_property_id)` — o trecere per proprietate, adnotată cu ocupare/sosire/plecare azi (în tz proprietății), aceeași filozofie ca `get_dashboard_stats` (Sprint 5).
+- `bulk_set_unit_cleaning_status(p_unit_ids, p_status)` — selecție multiplă, INVOKER, RLS decide per rând (fără raport parțial — curățenia nu poate fi „blocată" ca statusul operațional).
+- Schimbarea unei singure camere nu are RPC dedicat — `UPDATE` direct prin supabase-js, ca `setUnitStatus`; RLS e suficientă.
+- `app.audit_unit()` (trigger existent, Sprint 3) e extins cu ramura `cleaning_status_changed` — **același** tabel `unit_events`, niciun tabel nou. Se afișează automat în istoricul camerei și în Activity Feed unificat (Sprint 7), prin extinderea registry-urilor existente (`UNIT_FIELDS`/`UNIT_EVENT_LABEL` din `unit-fields.ts`) — zero schimbări la `get_activity_feed` sau la pagina de activitate.
+
+### Frontend — mobile-first, inspirat din Mews/Cloudbeds
+
+Feature nou `features/housekeeping/` (api/hooks + `cleaning-status.ts`, mirror exact al `unit-status.ts`) + rută proprie `/property/$propertyId/housekeeping`, intrare nouă în navigare (gate pe `unit.manage`, deci invizibilă pentru reception/finance/readonly). Panoul (`housekeeping-board.tsx`):
+- Carduri mari, tap-friendly (nu tabel) — fiecare cameră are 3 butoane de schimbare rapidă a stării, badge-uri pentru ocupare/sosire azi/plecare azi.
+- Filtre rapide („Necesită atenție" implicit, Toate, sau pe stare) cu numărătoare — „necesită atenție" = murdară SAU sosire azi pe o cameră neverificată încă.
+- Selecție multiplă opțională (toggle) cu bară de acțiuni sticky pentru schimbări în masă, util pentru manageri care închid o tură.
+- Buton „Istoric" pe fiecare cameră — reutilizează direct `UnitHistoryDialog` (Sprint 3), fără nicio schimbare de schemă sau RPC nou.
+
+### Documentație + teste
+
+Doc nou [`docs/backend/rpc/housekeeping.md`](backend/rpc/housekeeping.md) (RPC-uri, trigger Auto Dirty, contract de ștergere). Teste DB TEST 102–106 (**toate trec**, plus suita completă existentă neafectată): scriere `unit.manage` pozitiv/negativ housekeeping/manager/reception, `cleaning_status_at` automat, `get_housekeeping_board` gated pe permisiune (nu doar membership) + izolare tenant, `bulk_set_unit_cleaning_status` RLS, Auto Dirty la checkout + auditul lui.
+
+**Notă de mentenanță teste**: fixturile `db_tests.sql` sunt cumulative într-o singură tranzacție — actorii `hk-a`/`mgr-a`/`rec-a` folosiți la TEST 80 sunt remapați mai târziu de alte teste (TEST 89c transferă ownership la `rec-a`, TEST 90f schimbă temporar rolurile lui `hk-a`, TEST 93 restrânge `mgr-a` la o singură proprietate). Testele Sprint 8, rulate la finalul fișierului, restaurează explicit starea originală a acestor actori înainte de a-i reutiliza — un test nou care reutilizează un actor dintr-un sprint anterior trebuie să verifice ce i s-a putut întâmpla rolului/accesului lui pe parcurs, nu doar la setup-ul inițial.
+
+### Sprint 8.1 — actorul ultimei schimbări + numele camerei în audit (același 22 iun 2026)
+
+Două completări cerute după revizuirea inițială:
+
+1. **Cine a actualizat ultima dată curățenia, nu doar când.** Coloană nouă `units.cleaning_status_by_email` (migrația `20260622130000`) — snapshot din `auth.jwt()->>'email'`, setat de același trigger care actualizează `cleaning_status_at`. Funcționează identic pentru schimbare manuală (housekeeper) ȚI pentru Auto Dirty (recepția care a apăsat check-out) — actorul înregistrat e mereu cel real, niciun „system user" artificial. `get_housekeeping_board` întoarce coloana; panoul rezolvă email→nume afișabil (`useMembers` + hartă email→nume, exact ca în Activity Feed) și arată „Nume · oră" sub fiecare cameră, în loc de doar oră.
+2. **Numele camerei în evenimentul de audit al curățeniei.** Evenimentele `cleaning_status_changed` din Activity Feed (Sprint 7) erau generice — „Cameră: curățenie schimbată" — fără să spună **care** cameră, pentru că ești în feed-ul global, nu în dialogul per-cameră. Fix: `app.audit_unit()` adaugă `unit_name` în `new_data` la acest tip de eveniment (câmp unilateral, ca `unit` la `audit_booking` — fără diff propriu-zis, doar context). Înregistrat în `UNIT_FIELDS` (`unit-fields.ts`) cu eticheta „Cameră" (reutilizată din `entity.unit`).
+
+**Capcană de test descoperită**: `db_tests.sql` nu setase niciodată claim-ul `email` în `request.jwt.claims` pentru actorii de test, pentru că niciun test anterior nu citea `auth.jwt()->>'email'`. TEST 106 (primul care verifică actorul) a picat inițial cu valoare `NULL` din acest motiv. (Vezi Sprint 8.2 mai jos — abordarea pe email a fost ulterior înlocuită cu uuid + JOIN, care elimină cu totul dependența de claim-ul `email`.)
+
+### Sprint 8.2 — rezolvarea actorului prin JOIN server-side (eliminarea maparei client-side)
+
+Problemă semnalată la revizuire: rezolvarea numelui actorului (housekeeping + Activity Feed) se făcea **client-side** — se aducea **toată lista de membri** ai organizației (`useMembers`) și se construia o hartă email→nume, doar ca să afișezi câteva nume pe ecran. La scara țintă (2000 de hoteluri × 100-200 angajați) e ineficient: un fetch + listă întreagă per pagină. Fix unificat, pe ambele suprafețe, mutând rezoluția lângă date.
+
+**De ce un JOIN fără FK e corect și rapid aici** (clarificare arhitecturală importantă): coloanele de actor din tabelele de audit (`*_events.actor_id`) sunt `uuid` **fără FK** — intenționat, pentru imutabilitatea jurnalului (un FK ar bloca ștergerea userului sau ar șterge istoricul; de-aia există în paralel `actor_email` ca snapshot durabil). Lipsa FK-ului **nu** afectează JOIN-ul: ce contează e indexul pe partea **căutată** (`profiles.user_id` = PRIMARY KEY, deci indexat). JOIN-ul e un point lookup O(log N) în PK-ul lui `profiles` — la 15-50 de rânduri pe pagină de feed, microsecunde, indiferent de mărimea lui `profiles`. Și multi-tenancy-ul scopuiește fiecare query pe o singură proprietate, deci numărul de hoteluri nu influențează costul unui request.
+
+1. **Housekeeping** (migrația `20260622140000`): coloana de actor a trecut de la snapshot-text `cleaning_status_by_email` la `cleaning_status_by uuid` (pattern de „rând viu", ca `payments.recorded_by`). `get_housekeeping_board` face acum `left join profiles` (+ `left join auth.users` pentru fallback email dacă nu există `full_name`) și întoarce direct `cleaning_status_by_name`. Frontend-ul nu mai aduce lista de membri și nu mai mapează nimic — afișează direct `room.cleaning_status_by_name`.
+2. **Activity Feed** (migrația `20260622150000`): `get_activity_feed` întoarce o coloană nouă `actor_name` = `coalesce(profiles.full_name, actor_email)` via un singur `left join profiles on user_id = actor_id` pe rezultatul UNION. `actor_email` rămâne fallback durabil pentru useri șterși. `activity-feed.tsx` a scăpat de `useMembers`/`useCurrentOrg`/harta `nameByEmail` — folosește direct `ev.actor_name`. **Bonus**: a reparat și booking events, care nu aveau `actor_email` snapshot și apăreau fără autor — acum se rezolvă prin `actor_id`. (`ActivityFeedItem` re-derivat din tipul de retur al RPC-ului, ca `actor_name` să curgă în TS.)
+
+**Housekeeping „Selectează tot"** (frontend-only): în modul de selecție multiplă, un buton „Selectează tot/Deselectează tot" care bifează toate camerele din **filtrul activ** (ex. filtrezi „Murdare" → selectezi tot → marchezi „Curat"). Toggle pe baza lui `allVisibleSelected`; selecția face union cu ce era deja bifat, deselecția curăță doar vizibilele. Fără backend nou — `bulk_set_unit_cleaning_status` face deja un singur `UPDATE ... WHERE id = ANY(array)`, optim la 100-200 camere/hotel (diferența față de un `WHERE property_id` blanket e insesizabilă, iar array-ul păstrează granularitatea pe filtru + RLS per rând).
+
+**Implementare**: cele două taskuri (audit JOIN + select-all) rulate în paralel de subagenți Sonnet pe fișiere disjuncte, cu verificare finală consolidată (tsc + eslint curate, **307 PASS** la suita DB, zero FAIL/ERROR). Teste DB noi: TEST 106 (actor housekeeping prin uuid + JOIN), TEST 107 (actor_name în `get_activity_feed`, cu fallback pe email). Doc: [`housekeeping.md`](backend/rpc/housekeeping.md) + [`audit.md`](backend/rpc/audit.md).
+
+---
+
 ## Sprint 7.1 — Activity Feed: permisiune, filtre, cache & UX (22 iun 2026)
 
 Rafinare a panoului „Activitate" livrat în Sprint 7, pe patru probleme concrete identificate la revizuire.

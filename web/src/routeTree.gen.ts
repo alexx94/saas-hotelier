@@ -21,6 +21,7 @@ import { Route as AppOrgOrgIdRouteRouteImport } from './routes/_app/org/$orgId/r
 import { Route as AppPropertyPropertyIdIndexRouteImport } from './routes/_app/property/$propertyId/index'
 import { Route as AppOrgOrgIdIndexRouteImport } from './routes/_app/org/$orgId/index'
 import { Route as AppPropertyPropertyIdSettingsRouteImport } from './routes/_app/property/$propertyId/settings'
+import { Route as AppPropertyPropertyIdHousekeepingRouteImport } from './routes/_app/property/$propertyId/housekeeping'
 import { Route as AppPropertyPropertyIdCalendarRouteImport } from './routes/_app/property/$propertyId/calendar'
 import { Route as AppPropertyPropertyIdActivityRouteImport } from './routes/_app/property/$propertyId/activity'
 import { Route as AppPropertyPropertyIdGuestsIndexRouteImport } from './routes/_app/property/$propertyId/guests/index'
@@ -90,6 +91,12 @@ const AppPropertyPropertyIdSettingsRoute =
     path: '/settings',
     getParentRoute: () => AppPropertyPropertyIdRouteRoute,
   } as any)
+const AppPropertyPropertyIdHousekeepingRoute =
+  AppPropertyPropertyIdHousekeepingRouteImport.update({
+    id: '/housekeeping',
+    path: '/housekeeping',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
 const AppPropertyPropertyIdCalendarRoute =
   AppPropertyPropertyIdCalendarRouteImport.update({
     id: '/calendar',
@@ -138,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/org/': typeof AppOrgIndexRoute
   '/property/$propertyId/activity': typeof AppPropertyPropertyIdActivityRoute
   '/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
+  '/property/$propertyId/housekeeping': typeof AppPropertyPropertyIdHousekeepingRoute
   '/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
   '/org/$orgId/': typeof AppOrgOrgIdIndexRoute
   '/property/$propertyId/': typeof AppPropertyPropertyIdIndexRoute
@@ -155,6 +163,7 @@ export interface FileRoutesByTo {
   '/org': typeof AppOrgIndexRoute
   '/property/$propertyId/activity': typeof AppPropertyPropertyIdActivityRoute
   '/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
+  '/property/$propertyId/housekeeping': typeof AppPropertyPropertyIdHousekeepingRoute
   '/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
   '/org/$orgId': typeof AppOrgOrgIdIndexRoute
   '/property/$propertyId': typeof AppPropertyPropertyIdIndexRoute
@@ -176,6 +185,7 @@ export interface FileRoutesById {
   '/_app/org/': typeof AppOrgIndexRoute
   '/_app/property/$propertyId/activity': typeof AppPropertyPropertyIdActivityRoute
   '/_app/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
+  '/_app/property/$propertyId/housekeeping': typeof AppPropertyPropertyIdHousekeepingRoute
   '/_app/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
   '/_app/org/$orgId/': typeof AppOrgOrgIdIndexRoute
   '/_app/property/$propertyId/': typeof AppPropertyPropertyIdIndexRoute
@@ -197,6 +207,7 @@ export interface FileRouteTypes {
     | '/org/'
     | '/property/$propertyId/activity'
     | '/property/$propertyId/calendar'
+    | '/property/$propertyId/housekeeping'
     | '/property/$propertyId/settings'
     | '/org/$orgId/'
     | '/property/$propertyId/'
@@ -214,6 +225,7 @@ export interface FileRouteTypes {
     | '/org'
     | '/property/$propertyId/activity'
     | '/property/$propertyId/calendar'
+    | '/property/$propertyId/housekeeping'
     | '/property/$propertyId/settings'
     | '/org/$orgId'
     | '/property/$propertyId'
@@ -234,6 +246,7 @@ export interface FileRouteTypes {
     | '/_app/org/'
     | '/_app/property/$propertyId/activity'
     | '/_app/property/$propertyId/calendar'
+    | '/_app/property/$propertyId/housekeeping'
     | '/_app/property/$propertyId/settings'
     | '/_app/org/$orgId/'
     | '/_app/property/$propertyId/'
@@ -338,6 +351,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPropertyPropertyIdSettingsRouteImport
       parentRoute: typeof AppPropertyPropertyIdRouteRoute
     }
+    '/_app/property/$propertyId/housekeeping': {
+      id: '/_app/property/$propertyId/housekeeping'
+      path: '/housekeeping'
+      fullPath: '/property/$propertyId/housekeeping'
+      preLoaderRoute: typeof AppPropertyPropertyIdHousekeepingRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
+    }
     '/_app/property/$propertyId/calendar': {
       id: '/_app/property/$propertyId/calendar'
       path: '/calendar'
@@ -397,6 +417,7 @@ const AppOrgOrgIdRouteRouteWithChildren =
 interface AppPropertyPropertyIdRouteRouteChildren {
   AppPropertyPropertyIdActivityRoute: typeof AppPropertyPropertyIdActivityRoute
   AppPropertyPropertyIdCalendarRoute: typeof AppPropertyPropertyIdCalendarRoute
+  AppPropertyPropertyIdHousekeepingRoute: typeof AppPropertyPropertyIdHousekeepingRoute
   AppPropertyPropertyIdSettingsRoute: typeof AppPropertyPropertyIdSettingsRoute
   AppPropertyPropertyIdIndexRoute: typeof AppPropertyPropertyIdIndexRoute
   AppPropertyPropertyIdBookingsBookingIdRoute: typeof AppPropertyPropertyIdBookingsBookingIdRoute
@@ -409,6 +430,8 @@ const AppPropertyPropertyIdRouteRouteChildren: AppPropertyPropertyIdRouteRouteCh
   {
     AppPropertyPropertyIdActivityRoute: AppPropertyPropertyIdActivityRoute,
     AppPropertyPropertyIdCalendarRoute: AppPropertyPropertyIdCalendarRoute,
+    AppPropertyPropertyIdHousekeepingRoute:
+      AppPropertyPropertyIdHousekeepingRoute,
     AppPropertyPropertyIdSettingsRoute: AppPropertyPropertyIdSettingsRoute,
     AppPropertyPropertyIdIndexRoute: AppPropertyPropertyIdIndexRoute,
     AppPropertyPropertyIdBookingsBookingIdRoute:

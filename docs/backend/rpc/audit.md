@@ -54,11 +54,17 @@ Refolosește `app.has_permission` (Sprint 6.1) — **nicio permisiune nouă**: `
 
 | | |
 |---|---|
-| Migrații | `20260621120000` (versiune inițială), `20260622120000` (permisiune + filtre) |
+| Migrații | `20260621120000` (versiune inițială), `20260622120000` (permisiune + filtre), `20260622150000` (actor_name via JOIN profiles) |
 | Security | DEFINER (`set search_path = ''`) |
 | Grants | `authenticated` ✅ · `anon`/PUBLIC ❌ |
 | Autorizare | `app.has_permission(org_id, p_property_id, 'audit.view')` → `FORBIDDEN` |
 | Frontend | `features/audit/api.ts` → `fetchActivityFeed()`, hook `useActivityFeed`, pagina `/property/$propertyId/activity` (`features/audit/activity-feed.tsx`) |
+
+**`actor_name` — rezolvat server-side (Sprint 8.2)**: coloana suplimentară `actor_name` se calculează printr-un singur `left join public.profiles p on p.user_id = feed.actor_id` aplicat pe subquery-ul exterior (`feed`, după `UNION ALL`-ul celor 4 ramuri, nu în fiecare ramură) — un singur join, nu patru. Valoarea e `coalesce(p.full_name, feed.actor_email)`: nume afișabil dacă actorul are profil cu `full_name` completat, altfel cade pe `actor_email` (snapshot text la momentul acțiunii, fără FK spre `auth.users`). `profiles.user_id` e PK, deci join-ul e un point-lookup indexat, ieftin chiar la 100-200 rânduri de feed per pagină.
+
+Înainte, numele actorului se rezolva **client-side** în `activity-feed.tsx`: fetch la `useMembers(currentOrg.id)` (toată lista de membri ai organizației) → `Map` email→nume → lookup per rând. Risipitor la scară (2000 hoteluri × 100-200 staff, fetch complet doar pentru a afișa câteva nume pe o pagină). Eliminat complet — frontend-ul citește direct `ev.actor_name`.
+
+**Bonus**: `booking_events` nu are deloc coloana `actor_email` (ramura lui selectează `null::text` pentru ea în `feed`) — înainte de acest JOIN, evenimentele de booking nu arătau niciodată un nume de actor. Acum `actor_name` se rezolvă din `actor_id → profiles` la fel ca pe celelalte ramuri, deci evenimentele de booking au și ele nume afișabil (dacă actorul are profil; altfel `actor_name` rămâne `NULL`, neexistând fallback de email pe această ramură).
 
 **Filtre împinse în interiorul fiecărei ramuri UNION** (nu pe rezultatul agregat) — fiecare ramură își filtrează propriul tabel sursă pe coloana indexată (`property_id` prin join, plus `entity_type`/`event_type`/interval ca predicate simple), ca planner-ul să folosească indexul fiecărui tabel sursă, nu să materializeze tot feed-ul înainte de filtrare:
 
@@ -88,3 +94,4 @@ where u.property_id = p_property_id
 - **TEST 99a–99c**: izolare cross-org (`FORBIDDEN` + 0 rânduri direct pe tabel) și scrisul direct (bypass trigger) respins de RLS.
 - **TEST 100a–100e**: `audit.view` — administrator îl are (citește feed-ul), manager NU îl are (`FORBIDDEN` pe RPC + 0 rânduri direct pe tabel, nu doar listă goală).
 - **TEST 101a–101d**: filtrele restrâng corect (`entity_types`, `event_types`, interval de dată).
+- **TEST 107a–107b**: `actor_name` — 107a verifică rezolvarea din `profiles.full_name` (owner cu profil completat); 107b verifică fallback-ul pe `actor_email` când actorul nu are `full_name` (rând `entity_events` inserat direct, pentru că fixturile de test nu populează `auth.jwt()->>'email'`, deci triggerele de audit din harness ar produce mereu `actor_email = NULL`).

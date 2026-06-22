@@ -43,6 +43,7 @@ export const ro = {
   "nav.dashboard": "Panou",
   "nav.calendar": "Calendar",
   "nav.bookings": "Rezervări",
+  "nav.housekeeping": "Curățenie",
   "nav.properties": "Proprietăți",
   "nav.guests": "Oaspeți",
   "nav.property_settings": "Setări proprietate",
@@ -139,6 +140,13 @@ export const ro = {
   "unit.status_label": "Stare cameră",
   "unit.has_future_bookings": "Camera are rezervări viitoare. Mută-le sau anulează-le mai întâi.",
   "unit.archived_warning": "Camerele arhivate nu mai pot fi rezervate.",
+
+  // curățenie cameră (Sprint 8 — Housekeeping)
+  "unit.cleaning.clean": "Curată",
+  "unit.cleaning.dirty": "Murdară",
+  "unit.cleaning.inspected": "Verificată",
+  "unit.cleaning_status_label": "Curățenie",
+  "unit.event.cleaning_status_changed": "Curățenie schimbată",
 
   // reasignare booking
   "bookings.reassign": "Mută în altă cameră",
@@ -808,6 +816,22 @@ export const ro = {
   "activity.event_type.block_created": "Blocaj creat",
   "activity.event_type.block_updated": "Blocaj actualizat",
   "activity.event_type.block_removed": "Blocaj eliminat",
+  "activity.event_type.cleaning_status_changed": "Curățenie schimbată",
+
+  // panou Housekeeping (Sprint 8)
+  "housekeeping.filter.attention": "Necesită atenție",
+  "housekeeping.filter.all": "Toate",
+  "housekeeping.empty": "Nicio cameră în această categorie.",
+  "housekeeping.occupied": "Ocupată",
+  "housekeeping.arrival_today": "Sosire azi",
+  "housekeeping.departure_today": "Plecare azi",
+  "housekeeping.select_mode": "Selectare multiplă",
+  "housekeeping.select_cancel": "Anulează selecția",
+  "housekeeping.select_all": "Selectează tot",
+  "housekeeping.deselect_all": "Deselectează tot",
+  "housekeeping.selected": "selectate",
+  "housekeeping.bulk_updated_toast": "camere actualizate",
+  "housekeeping.forbidden": "Nu ai permisiunea de a gestiona curățenia camerelor acestei proprietăți.",
 } as const
 
 export type TranslationKey = keyof typeof ro

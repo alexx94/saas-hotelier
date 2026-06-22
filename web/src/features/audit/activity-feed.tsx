@@ -1,11 +1,9 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { format } from "date-fns"
 import { Activity, RefreshCw, X } from "lucide-react"
 import { useActivityFeed } from "./hooks"
 import { ACTIVITY_FEED_CONFIG, ACTIVITY_ENTITY_TYPES, availableEventTypes } from "./activity-feed-config"
 import { EventDiff } from "@/features/bookings/event-diff"
-import { useMembers } from "@/features/members/hooks"
-import { useCurrentOrg } from "@/features/organizations/context"
 import { dedupeById } from "@/lib/pagination"
 import { t, type TranslationKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -22,7 +20,6 @@ import { Label } from "@/components/ui/label"
 // îndată ce e înregistrată în ACTIVITY_FEED_CONFIG. Filtrele (tip/eveniment/
 // interval) se aplică server-side, în RPC, pe coloane indexate.
 export function ActivityFeed({ propertyId }: { propertyId: string }) {
-  const { currentOrg } = useCurrentOrg()
   const [entityTypes, setEntityTypes] = useState<string[]>([])
   const [eventTypes, setEventTypes] = useState<string[]>([])
   const [dateFrom, setDateFrom] = useState("")
@@ -35,15 +32,7 @@ export function ActivityFeed({ propertyId }: { propertyId: string }) {
     dateTo: dateTo ? `${dateTo}T23:59:59` : undefined,
   }
   const query = useActivityFeed(propertyId, filters)
-  const { data: members } = useMembers(currentOrg.id)
   const items = dedupeById(query.data?.pages.flatMap((p) => p.items))
-
-  const nameByEmail = useMemo(
-    () => new Map((members ?? []).map((m) => [m.email, m.full_name])),
-    [members]
-  )
-  const actorName = (email: string | null) =>
-    (email && (nameByEmail.get(email) ?? email)) || null
 
   const hasFilters = entityTypes.length > 0 || eventTypes.length > 0 || !!dateFrom || !!dateTo
 
@@ -135,7 +124,7 @@ export function ActivityFeed({ propertyId }: { propertyId: string }) {
             {items.map((ev) => {
               const config = ACTIVITY_FEED_CONFIG[ev.entity_type]
               const eventLabel = config?.eventLabels[ev.event_type] ?? null
-              const who = actorName(ev.actor_email)
+              const who = ev.actor_name
               return (
                 <div key={ev.id} className="flex items-start gap-3 border-b pb-3 text-sm last:border-0 last:pb-0">
                   <Activity className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />

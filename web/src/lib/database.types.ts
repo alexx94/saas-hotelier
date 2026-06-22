@@ -1311,6 +1311,9 @@ export type Database = {
       }
       units: {
         Row: {
+          cleaning_status: string
+          cleaning_status_at: string
+          cleaning_status_by: string | null
           created_at: string
           id: string
           name: string
@@ -1320,6 +1323,9 @@ export type Database = {
           unit_type_id: string
         }
         Insert: {
+          cleaning_status?: string
+          cleaning_status_at?: string
+          cleaning_status_by?: string | null
           created_at?: string
           id?: string
           name: string
@@ -1329,6 +1335,9 @@ export type Database = {
           unit_type_id: string
         }
         Update: {
+          cleaning_status?: string
+          cleaning_status_at?: string
+          cleaning_status_by?: string | null
           created_at?: string
           id?: string
           name?: string
@@ -1400,6 +1409,10 @@ export type Database = {
         Args: { p_end: string; p_start: string; p_unit_ids: string[] }
         Returns: number
       }
+      bulk_set_unit_cleaning_status: {
+        Args: { p_status: string; p_unit_ids: string[] }
+        Returns: number
+      }
       bulk_update_unit_status: {
         Args: { p_status: string; p_unit_ids: string[] }
         Returns: Json
@@ -1460,6 +1473,7 @@ export type Database = {
         Returns: {
           actor_email: string
           actor_id: string
+          actor_name: string
           created_at: string
           entity_id: string
           entity_type: string
@@ -1506,6 +1520,21 @@ export type Database = {
           cancelled: number
           total: number
           upcoming: number
+        }[]
+      }
+      get_housekeeping_board: {
+        Args: { p_property_id: string }
+        Returns: {
+          arrival_today: boolean
+          cleaning_status: string
+          cleaning_status_at: string
+          cleaning_status_by_name: string
+          departure_today: boolean
+          occupied_today: boolean
+          unit_id: string
+          unit_name: string
+          unit_status: string
+          unit_type_name: string
         }[]
       }
       get_my_permissions: { Args: { p_org_id: string }; Returns: string[] }

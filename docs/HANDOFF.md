@@ -4,7 +4,7 @@
 
 ---
 
-## Starea curentă a proiectului (22 iun 2026 — Sprint 7.1 complet)
+## Starea curentă a proiectului (22 iun 2026 — Sprint 8 complet)
 
 Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 **https://github.com/alexx94/saas-hotelier**
@@ -88,6 +88,11 @@ web/src/
     roles/              ← roluri custom + permisiuni (Sprint 6.3)
       api.ts / hooks.ts ← fetchRoles/Permissions + create/update/delete
       roles-section.tsx ← listă expandabilă + editor permisiuni pe domeniu
+    housekeeping/       ← stare curățenie camere + panou mobile-first (Sprint 8)
+      api.ts            ← fetchHousekeepingBoard (RPC) + setUnitCleaningStatus + bulkSetUnitCleaningStatus
+      hooks.ts          ← useHousekeepingBoard / useSetUnitCleaningStatus / useBulkSetUnitCleaningStatus
+      cleaning-status.ts ← registry clean/dirty/inspected (mirror unit-status.ts)
+      housekeeping-board.tsx ← carduri tap-friendly, filtre, selecție multiplă + bară bulk
     audit/              ← jurnal de audit unificat + feed activitate (Sprint 7)
       api.ts            ← fetchActivityFeed (RPC get_activity_feed, cu filtre) + fetchEntityEvents
       hooks.ts           ← useActivityFeed (infinite query, staleTime 0 + refetchOnWindowFocus) + auditKeys
@@ -117,6 +122,7 @@ web/src/
       route.tsx       ← gardă acces (fetchProperty; RLS ascunde → redirect /org) + OrgProvider + PropertyProvider + <AppShell>
       index.tsx       ← Dashboard (per-proprietate)
       calendar.tsx
+      housekeeping.tsx ← panou curățenie (Sprint 8), gate <Can permission="unit.manage">
       settings.tsx    ← config proprietate (tipuri camere, prețuri, reguli, promoții, publish)
       bookings/
         index.tsx
@@ -291,6 +297,8 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 
 ## Features implementate (rezumat)
 
+- ✅ **Sprint 8 — Housekeeping**: stare de curățenie a camerei (`units.cleaning_status`: clean/dirty/inspected + `cleaning_status_at`), **separată** de starea operațională (`units.status`, Sprint 3) — curățenia nu blochează vânzarea camerei. **Auto Dirty**: trigger pe `bookings` (`app.checkout_sets_unit_dirty`) trece camera pe `dirty` automat la check-out, indiferent de rolul actorului (SECURITY DEFINER, ca audit-ul). **RBAC: zero permisiuni noi** — reutilizează `unit.manage` (Sprint 6.1, deja acordată rolului de sistem `housekeeping`); RLS `units_cud` gatează scrierea, iar RPC-ul de citire `get_housekeeping_board` verifică explicit `unit.manage` (nu doar membership — mai strict ca `get_dashboard_stats`). RPC nou `bulk_set_unit_cleaning_status` (selecție multiplă, INVOKER, RLS decide per rând). Audit extins pe trigger-ul existent `app.audit_unit` (ramură `cleaning_status_changed`, fără tabel nou) — vizibil automat în istoricul camerei și în Activity Feed (Sprint 7). Frontend **mobile-first** (`features/housekeeping/`): panou cu carduri tap-friendly, filtru „Necesită atenție" implicit, selecție multiplă cu „Selectează tot" (pe filtrul activ) + bară de acțiuni bulk; rută + nav nouă (`/property/$propertyId/housekeeping`), gate pe `unit.manage`; fiecare cameră arată „Nume actor · oră" pe ultima schimbare (`units.cleaning_status_by` uuid, capturat și pe Auto Dirty; numele rezolvat **server-side prin JOIN** `profiles`, nu mapare client-side — vezi Sprint 8.2). Evenimentul de audit `cleaning_status_changed` include numele camerei (`unit_name`). Teste DB TEST 102–106. Doc: [`docs/backend/rpc/housekeeping.md`](backend/rpc/housekeeping.md)
+- ✅ **Sprint 8.2 — Actor prin JOIN server-side**: rezolvarea numelui actorului (housekeeping + Activity Feed) mutată din client (`useMembers` + hartă email→nume, ineficient la 2000 hoteluri × 100-200 angajați) în SQL. `get_housekeeping_board` și `get_activity_feed` fac `left join profiles on user_id = actor_id` cu `coalesce(full_name, email_snapshot)`; JOIN-ul e rapid (point lookup în PK-ul lui `profiles`, indiferent de mărime) și nu depinde de FK (coloanele de audit `actor_id` rămân intenționat fără FK, pentru imutabilitate). Reparat și booking events (nu aveau snapshot email → apăreau fără autor). + housekeeping „Selectează tot" (frontend). Teste DB TEST 106–107. Doc: [`audit.md`](backend/rpc/audit.md)
 - ✅ **Sprint 7/7.1 — Audit & Activity Feed**: tabel generic `entity_events` + trigger generic `app.audit_entity` extind audit-ul existent (Sprint 3) la `properties`/`guests`/`payments`/`rate_rules`/`promotions`/`stay_rules`/`arrival_rules`/`closures` (create/update/archive/restore/delete). Feed unificat `get_activity_feed` (UNION peste toate sursele de audit, cu filtre `entity_types`/`event_types`/interval dată, index `entity_events_property_type_idx`). Gated pe permisiunea `audit.view` (**reutilizată** din Sprint 6.1, nu permisiune nouă) — RLS + gardă în RPC, nav și butoane „Istoric" gate-uite cu `<Can>`. Frontend `features/audit/` (panou cu filtre, cache cu `staleTime: 0` + refresh manual, paginare „Afișează mai mult"); `components/multi-select-filter.tsx` extras ca filtru reutilizabil. Teste TEST 98–101 (**289 PASS**). Doc: [`docs/backend/rpc/audit.md`](backend/rpc/audit.md)
 - ✅ Auth (login/signup/logout), onboarding organizație
 - ✅ CRUD proprietăți + pagina publică `/p/{slug}`
