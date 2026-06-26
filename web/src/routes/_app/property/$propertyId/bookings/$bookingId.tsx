@@ -1,11 +1,13 @@
 import { useState } from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { toast } from "sonner"
-import { ArrowLeft, Link2, UserRound } from "lucide-react"
+import { ArrowLeft, Link2, Pencil, UserRound } from "lucide-react"
 import { useCurrentOrg } from "@/features/organizations/context"
 import { useBooking, useLinkBookingGuest } from "@/features/bookings/hooks"
 import { BookingHistory } from "@/features/bookings/booking-history"
+import { BookingNotesCard } from "@/features/bookings/booking-notes-card"
 import { StatusBadge } from "@/features/bookings/status-badge"
+import { PriceOverrideDialog } from "@/features/bookings/price-override-dialog"
 import type { BookingStatus } from "@/features/bookings/api"
 import type { PaymentStatus } from "@/features/payments/api"
 import { PaymentStatusBadge } from "@/features/payments/payment-status-badge"
@@ -13,6 +15,8 @@ import { PaymentsCard } from "@/features/payments/payments-card"
 import { GuestCombobox } from "@/features/guests/guest-combobox"
 import { PriceBreakdown } from "@/features/pricing/price-breakdown"
 import type { PriceQuote } from "@/features/pricing/api"
+import type { PriceOverride, PriceOverrideKind } from "@/features/pricing/price-override"
+import { usePermissions } from "@/features/auth/permissions"
 import { t, type TranslationKey } from "@/lib/i18n"
 import { formatMoney } from "@/lib/money"
 import { Button } from "@/components/ui/button"
@@ -40,6 +44,8 @@ function BookingDetailPage() {
 
   const [linkOpen, setLinkOpen] = useState(false)
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null)
+  const [priceOpen, setPriceOpen] = useState(false)
+  const { has } = usePermissions()
 
   async function onLinkGuest() {
     if (!selectedGuestId) return
@@ -79,6 +85,21 @@ function BookingDetailPage() {
         discount,
         total: Number(booking.total_amount),
       }
+    : null
+
+  // override manual de preț (booking.price_override): editabil pe rezervări reale
+  // ne-anulate; prefill din coloanele snapshot ale rezervării
+  const canPriceOverride = has("booking.price_override")
+  const priceEditable = canPriceOverride && !isBlocked && booking.status !== "cancelled"
+  const overrideKind = booking.price_override_kind as PriceOverrideKind | null
+  const initialOverride: PriceOverride | null = overrideKind
+    ? overrideKind === "per_night"
+      ? {
+          kind: "per_night",
+          nights: (rawBreakdown?.nights ?? []).map((n) => ({ date: n.date, rate: n.rate })),
+          note: booking.price_override_note,
+        }
+      : { kind: overrideKind, value: Number(booking.price_override_value), note: booking.price_override_note }
     : null
 
   return (
@@ -133,12 +154,20 @@ function BookingDetailPage() {
               value={t(SOURCE_LABEL[booking.source] ?? "bookings.source.admin")}
             />
             <Row label={t("bookings.created_at")} value={booking.created_at.slice(0, 10)} />
-            {booking.notes && <Row label={t("bookings.notes")} value={booking.notes} />}
             {!isBlocked && breakdown && breakdown.nights?.length > 0 && (
               <div className="space-y-1.5 pt-1">
                 <p className="text-muted-foreground">{t("pricing.breakdown")}</p>
                 <PriceBreakdown quote={breakdown} />
               </div>
+            )}
+            {priceEditable && (
+              <Button
+                variant="outline" size="sm" className="mt-1 h-7 text-xs"
+                onClick={() => setPriceOpen(true)}
+              >
+                <Pencil className="h-3 w-3" />
+                {t("bookings.price_override_action")}
+              </Button>
             )}
           </CardContent>
         </Card>
@@ -193,6 +222,13 @@ function BookingDetailPage() {
         )}
       </div>
 
+      {/* Notă */}
+      <BookingNotesCard
+        bookingId={booking.id}
+        notes={booking.notes}
+        canEdit={has("booking.edit")}
+      />
+
       {/* Plăți */}
       {!isBlocked && (
         <PaymentsCard
@@ -235,6 +271,18 @@ function BookingDetailPage() {
           </Button>
         </DialogContent>
       </Dialog>
+
+      <PriceOverrideDialog
+        open={priceOpen}
+        onClose={() => setPriceOpen(false)}
+        bookingId={booking.id}
+        unitTypeId={booking.unit_type_id}
+        checkIn={booking.check_in}
+        checkOut={booking.check_out}
+        currency={booking.currency}
+        initial={initialOverride}
+        hasOverride={!!overrideKind}
+      />
     </div>
   )
 }

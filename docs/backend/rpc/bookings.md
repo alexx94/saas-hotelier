@@ -70,6 +70,24 @@ edit-dates-dialog ──► update_booking_dates ──► UPDATE bookings ◄�
 
 ---
 
+## `update_booking_notes(p_booking_id, p_notes) returns void`
+
+**Scop**: editare notei libere a unei rezervări **după** creare (din pagina rezervării) — ex. "client cere pat suplimentar", "sosire după ora 22". Distinct de override-ul de preț: orice rol cu `booking.edit` o poate folosi, inclusiv recepție, indiferent de status (notele sunt metadată, nu afectează business logic).
+
+| | |
+|---|---|
+| Migrație | `20260626130000` (Sprint 9.1) |
+| Security | DEFINER, `set search_path = ''` |
+| Grants | `authenticated` ✅ · `anon`/PUBLIC ❌ |
+| Autorizare | `app.has_permission(org_id, property_id, 'booking.edit')` → `FORBIDDEN` |
+| Frontend | `features/bookings/api.ts` → `updateBookingNotes()`, hook `useUpdateBookingNotes`, UI `features/bookings/booking-notes-card.tsx` (editare inline pe pagina rezervării) |
+
+**Erori**: `BOOKING_NOT_FOUND`, `FORBIDDEN`. Text gol/doar spații → `notes` devine `NULL` (nu string gol). Nicio coloană nouă — `bookings.notes` exista deja din schema inițială; nici trigger de audit nou — `app.audit_booking` prinde generic schimbarea (event `updated`).
+
+**Teste**: `db_tests.sql` TEST 110 (reception editează/suprascrie/golește nota; housekeeping fără `booking.edit` → `FORBIDDEN`).
+
+---
+
 ## `reassign_booking(p_booking_id, p_unit_id) returns void`
 
 **Scop**: mutarea rezervării pe altă cameră (din calendar/listă).

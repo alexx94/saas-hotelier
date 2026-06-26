@@ -5,9 +5,11 @@ import {
 import {
   createBooking, fetchAvailableUnits, fetchBooking, fetchBookingEvents,
   fetchBlocksInRange, fetchBookings, fetchBookingsInRange, fetchUnits, linkBookingGuest,
-  reassignBooking, updateBookingDates, updateBookingStatus,
+  overrideBookingPrice, reassignBooking, updateBookingDates, updateBookingNotes,
+  updateBookingStatus,
   type BookingListParams, type BookingStatus, type CreateBookingInput,
 } from "./api"
+import type { PriceOverride } from "@/features/pricing/price-override"
 import { guestKeys } from "@/features/guests/hooks"
 import { dashboardKeys } from "@/features/dashboard/hooks"
 
@@ -134,6 +136,15 @@ export function useCreateBooking() {
   })
 }
 
+export function useOverrideBookingPrice() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ bookingId, override }: { bookingId: string; override: PriceOverride | null }) =>
+      overrideBookingPrice(bookingId, override),
+    onSuccess: () => invalidateBookingData(qc),
+  })
+}
+
 export function useUpdateBookingStatus() {
   const qc = useQueryClient()
   return useMutation({
@@ -148,6 +159,15 @@ export function useReassignBooking() {
   return useMutation({
     mutationFn: ({ bookingId, unitId }: { bookingId: string; unitId: string }) =>
       reassignBooking(bookingId, unitId),
+    onSuccess: () => invalidateBookingData(qc),
+  })
+}
+
+export function useUpdateBookingNotes() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ bookingId, notes }: { bookingId: string; notes: string }) =>
+      updateBookingNotes(bookingId, notes),
     onSuccess: () => invalidateBookingData(qc),
   })
 }

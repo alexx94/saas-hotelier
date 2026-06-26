@@ -169,6 +169,11 @@ export type Database = {
           org_id: string
           payment_status: string
           price_breakdown: Json
+          price_override_at: string | null
+          price_override_by: string | null
+          price_override_kind: string | null
+          price_override_note: string | null
+          price_override_value: number | null
           promotion_id: string | null
           property_id: string
           source: string
@@ -199,6 +204,11 @@ export type Database = {
           org_id: string
           payment_status?: string
           price_breakdown?: Json
+          price_override_at?: string | null
+          price_override_by?: string | null
+          price_override_kind?: string | null
+          price_override_note?: string | null
+          price_override_value?: number | null
           promotion_id?: string | null
           property_id: string
           source?: string
@@ -229,6 +239,11 @@ export type Database = {
           org_id?: string
           payment_status?: string
           price_breakdown?: Json
+          price_override_at?: string | null
+          price_override_by?: string | null
+          price_override_kind?: string | null
+          price_override_note?: string | null
+          price_override_value?: number | null
           promotion_id?: string | null
           property_id?: string
           source?: string
@@ -1426,6 +1441,10 @@ export type Database = {
           p_guest_id?: string
           p_notes?: string
           p_override?: boolean
+          p_price_override_kind?: string
+          p_price_override_nights?: Json
+          p_price_override_note?: string
+          p_price_override_value?: number
           p_promo_code?: string
           p_status?: string
           p_unit_id?: string
@@ -1592,6 +1611,16 @@ export type Database = {
         Args: { p_booking_id: string; p_guest_id: string }
         Returns: undefined
       }
+      override_booking_price: {
+        Args: {
+          p_booking_id: string
+          p_kind?: string
+          p_nights?: Json
+          p_note?: string
+          p_value?: number
+        }
+        Returns: undefined
+      }
       public_create_booking: {
         Args: {
           p_adults?: number
@@ -1647,6 +1676,9 @@ export type Database = {
         Args: {
           p_check_in: string
           p_check_out: string
+          p_override_kind?: string
+          p_override_nights?: Json
+          p_override_value?: number
           p_promo_code?: string
           p_unit_type_id: string
         }
@@ -1689,6 +1721,10 @@ export type Database = {
           p_check_out: string
           p_override?: boolean
         }
+        Returns: undefined
+      }
+      update_booking_notes: {
+        Args: { p_booking_id: string; p_notes: string }
         Returns: undefined
       }
       update_role: {

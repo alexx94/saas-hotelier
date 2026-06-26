@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase"
 import { naturalCompare } from "@/lib/natural-sort"
 import type { Tables } from "@/lib/database.types"
 import { pageRange, toPage, type Page } from "@/lib/pagination"
+import { overrideRpcArgs, type PriceOverride } from "@/features/pricing/price-override"
 
 export type BookingStatus =
   | "pending" | "confirmed" | "cancelled"
@@ -174,9 +175,13 @@ export type CreateBookingInput = {
   override?: boolean
   // cod promoțional (opțional) — reducerea se rezolvă și se snapshot-uiește server-side
   promoCode?: string
+  // override manual de preț (doar booking.price_override — validat server-side, Sprint 9).
+  // Înlocuiește promoția. Vezi features/pricing/price-override.ts.
+  priceOverride?: PriceOverride | null
 }
 
 export async function createBooking(input: CreateBookingInput): Promise<string> {
+  const ov = overrideRpcArgs(input.priceOverride ?? null)
   const { data, error } = await supabase.rpc("create_booking", {
     p_unit_type_id: input.unitTypeId,
     p_check_in: input.checkIn,
@@ -189,9 +194,40 @@ export async function createBooking(input: CreateBookingInput): Promise<string> 
     p_notes: input.notes ?? undefined,
     p_override: input.override ?? false,
     p_promo_code: input.promoCode?.trim() || undefined,
+    p_price_override_kind: ov.kind ?? undefined,
+    p_price_override_value: ov.value ?? undefined,
+    p_price_override_nights: ov.nights ?? undefined,
+    p_price_override_note: ov.note ?? undefined,
   })
   if (error) throw error
   return data
+}
+
+// Editare preț pe rezervare existentă (override_booking_price RPC, Sprint 9).
+// p_kind null = curăță override-ul (revine la prețul calculat de motor).
+export async function overrideBookingPrice(
+  bookingId: string,
+  override: PriceOverride | null
+): Promise<void> {
+  const ov = overrideRpcArgs(override)
+  const { error } = await supabase.rpc("override_booking_price", {
+    p_booking_id: bookingId,
+    p_kind: ov.kind ?? undefined,
+    p_value: ov.value ?? undefined,
+    p_nights: ov.nights ?? undefined,
+    p_note: ov.note ?? undefined,
+  })
+  if (error) throw error
+}
+
+// Editare notă pe rezervare existentă (update_booking_notes RPC, Sprint 9.1).
+// Disponibilă oricărui rol cu booking.edit (inclusiv recepție), indiferent de status.
+export async function updateBookingNotes(bookingId: string, notes: string): Promise<void> {
+  const { error } = await supabase.rpc("update_booking_notes", {
+    p_booking_id: bookingId,
+    p_notes: notes,
+  })
+  if (error) throw error
 }
 
 export async function updateBookingStatus(id: string, status: BookingStatus): Promise<void> {

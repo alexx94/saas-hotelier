@@ -655,6 +655,22 @@ export const ro = {
   "bookings.override_hint": "Forțează rezervarea peste restricțiile de mai sus (doar manager/owner).",
   "bookings.override_forbidden": "Doar un manager sau owner poate forța aceste restricții.",
 
+  // override manual de preț pe rezervare (Sprint 9)
+  "bookings.price_override_action": "Modifică prețul",
+  "bookings.price_override_title": "Modifică prețul rezervării",
+  "bookings.price_override_clear": "Revino la preț calculat",
+  "bookings.price_override_saved": "Preț actualizat",
+  "bookings.price_override_forbidden": "Doar un manager, admin sau owner poate modifica prețul.",
+  "bookings.price_override_negative": "Prețul rezultat nu poate fi negativ.",
+
+  // notă editabilă pe rezervare (Sprint 9.1)
+  "bookings.notes_empty": "Fără notă.",
+  "bookings.notes_placeholder": "Ex: client cere pat suplimentar, sosire după ora 22…",
+  "bookings.notes_edit": "Editează nota",
+  "bookings.notes_add": "Adaugă notă",
+  "bookings.notes_saved": "Notă salvată",
+  "bookings.notes_forbidden": "Nu ai permisiunea de a edita notele acestei rezervări.",
+
   // ─── Sprint 4.8 — Promotions & Commercial Rules ──────────────────────────
   "promotions.manage": "Promoții",
   "promotions.title": "Promoții și reduceri",
@@ -719,6 +735,22 @@ export const ro = {
   // breakdown preț
   "pricing.subtotal": "Subtotal",
   "pricing.discount": "Reducere",
+
+  // override manual de preț (Sprint 9 — doar booking.price_override)
+  "pricing.manual_override": "Preț setat manual",
+  "pricing.override.title": "Modifică prețul manual",
+  "pricing.override.mode.total": "Total",
+  "pricing.override.mode.adjustment": "Ajustare",
+  "pricing.override.mode.per_night": "Per noapte",
+  "pricing.override.total_label": "Preț total ședere",
+  "pricing.override.adjust_label": "Reducere / adaos pe total",
+  "pricing.override.discount": "Reducere",
+  "pricing.override.surcharge": "Adaos",
+  "pricing.override.per_night_label": "Preț per noapte",
+  "pricing.override.note_label": "Notă (opțional)",
+  "pricing.override.note_placeholder": "ex: tarif Booking.com, reducere fidelitate",
+  "pricing.override.replaces_promo": "Prețul manual înlocuiește promoția (cod/automată).",
+
   // public
   "public.promo_code": "Cod promoțional",
   "public.promo_apply": "Aplică",

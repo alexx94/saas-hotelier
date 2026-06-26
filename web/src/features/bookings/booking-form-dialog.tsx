@@ -9,7 +9,10 @@ import { GuestCombobox } from "@/features/guests/guest-combobox"
 import { useUnitTypes } from "@/features/unit-types/hooks"
 import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
 import { PriceBreakdown } from "@/features/pricing/price-breakdown"
+import { PriceOverrideEditor } from "@/features/pricing/price-override-editor"
+import { applyPriceOverridePreview, type PriceOverride } from "@/features/pricing/price-override"
 import { useQuotePrice } from "@/features/pricing/hooks"
+import { usePermissions } from "@/features/auth/permissions"
 import { useStayConstraints, useValidateBooking } from "@/features/reservation-rules/hooks"
 import { VALIDATION_LABEL, isSoftCode } from "@/features/reservation-rules/api"
 import { useAvailableUnits, useCreateBooking } from "./hooks"
@@ -85,8 +88,12 @@ export function BookingFormDialog({
   // cod promo introdus vs cod „aplicat" (trimis la quote doar la apăsarea Aplică)
   const [promoInput, setPromoInput] = useState("")
   const [promoCode, setPromoCode] = useState("")
+  // override manual de preț (gated pe booking.price_override)
+  const [priceOverride, setPriceOverride] = useState<PriceOverride | null>(null)
 
+  const { has } = usePermissions()
   const canOverride = ["owner", "manager"].includes(currentOrg.role)
+  const canPriceOverride = has("booking.price_override")
 
   const form = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
@@ -117,6 +124,9 @@ export function BookingFormDialog({
   // cod introdus dar care nu corespunde unei promoții eligibile (greșit/neeligibil) —
   // chiar dacă o promoție automată mai bună s-a aplicat (best-of), semnalăm codul
   const promoRejected = !!promoCode && !!quote?.promotion && !quote.promotion.code_matched
+
+  // quote-ul afișat: override manual (preview client-side, oglindă a SQL) sau cel din engine
+  const displayQuote = quote && priceOverride ? applyPriceOverridePreview(quote, priceOverride) : quote
 
   // constrângeri de durată (min/max stay) rezolvate pe data de check-in
   const { data: stay } = useStayConstraints(unitTypeId || undefined, checkIn ?? "")
@@ -161,6 +171,7 @@ export function BookingFormDialog({
     setOverride(false)
     setPromoInput("")
     setPromoCode("")
+    setPriceOverride(null)
   }
 
   function handleGuestChange(id: string) {
@@ -190,6 +201,7 @@ export function BookingFormDialog({
         notes: values.notes,
         override: override && canOverride,
         promoCode: promoCode || undefined,
+        priceOverride: canPriceOverride ? priceOverride : null,
       })
       toast.success(t("bookings.created"))
       onOpenChange(false)
@@ -198,6 +210,8 @@ export function BookingFormDialog({
       const message = errorMessage(e)
       if (message.includes("PROMO_INVALID")) toast.error(t("bookings.promo_invalid"))
       else if (message.includes("PROMO_LIMIT_REACHED")) toast.error(t("bookings.promo_limit"))
+      else if (message.includes("PRICE_OVERRIDE_FORBIDDEN")) toast.error(t("bookings.price_override_forbidden"))
+      else if (message.includes("PRICE_OVERRIDE_NEGATIVE")) toast.error(t("bookings.price_override_negative"))
       else if (message.includes("OVERRIDE_FORBIDDEN")) toast.error(t("bookings.override_forbidden"))
       else if (message.includes("STAY_TOO_SHORT")) toast.error(t("bookings.stay_too_short"))
       else if (message.includes("STAY_TOO_LONG")) toast.error(t("bookings.stay_too_long"))
@@ -429,11 +443,21 @@ export function BookingFormDialog({
             </div>
           )}
 
+          {/* Override manual de preț (doar booking.price_override) */}
+          {canPriceOverride && quote && quote.nights.length > 0 && (
+            <PriceOverrideEditor
+              base={quote}
+              currency={currency}
+              value={priceOverride}
+              onChange={setPriceOverride}
+            />
+          )}
+
           {/* Estimare preț: breakdown per noapte + reducere promoție + total final */}
-          {quote && quote.nights.length > 0 && (
+          {displayQuote && displayQuote.nights.length > 0 && (
             <div className="space-y-1.5">
               <Label>{t("bookings.price_estimate")}</Label>
-              <PriceBreakdown quote={quote} />
+              <PriceBreakdown quote={displayQuote} />
             </div>
           )}
 

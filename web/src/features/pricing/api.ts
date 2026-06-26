@@ -12,6 +12,8 @@ export type PriceNight = {
   base: number
   rate: number
   weekend: boolean
+  // marcaj că tariful nopții a fost setat manual (override de preț, Sprint 9)
+  manual?: boolean
 }
 // Promoția rezolvată (din app.resolve_promotion) — atașată quote-ului/preview-ului.
 export type AppliedPromotion = {
@@ -38,6 +40,8 @@ export type PriceQuote = {
   promotion?: AppliedPromotion
   avg_nightly: number
   night_count: number
+  // prezent când prețul a fost setat manual (override) — vezi price-override.ts
+  override?: { kind: "total" | "adjustment" | "per_night"; value: number | null }
 }
 
 // Tarif rezolvat per tip × zi (din get_rate_calendar) — pictat în celulele calendarului.

@@ -5,6 +5,53 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 9.1 — Notă editabilă pe rezervare (26 iun 2026)
+
+Notă liberă (`bookings.notes`, coloană existentă din schema inițială) editabilă **și după creare**, direct din pagina rezervării — nu doar la creare ca până acum. Disponibilă oricărui rol cu `booking.edit`, **inclusiv recepție** (nu doar manager/admin, diferit de override-ul de preț — notele sunt informative, nu afectează banii).
+
+### De ce a fost simplu
+
+Nicio coloană, tabel sau trigger de audit nou: `bookings.notes` exista deja, iar `app.audit_booking` prinde generic schimbările pe `notes` (event `updated`) din Sprint 4.x. A fost suficient un RPC nou — `update_booking_notes(p_booking_id, p_notes)` — care reutilizează exact pattern-ul + permisiunea `booking.edit` de la `update_booking_dates`. Text gol/doar spații → `NULL` (nu string gol), ca să nu apară rânduri goale fals-pozitive în UI/istoric.
+
+### Frontend
+
+Card dedicat `BookingNotesCard` (editare inline, fără dialog — afișare → buton „Editează"/„Adaugă notă" → textarea + Salvează/Anulează), montat pe pagina rezervării, gated pe `usePermissions().has('booking.edit')`. Vechiul rând read-only din cardul de detalii a fost eliminat (înlocuit de acest card).
+
+### Verificare
+
+Teste DB TEST 110a–d (**319 PASS, 0 FAIL**): recepție adaugă + editează + golește nota; housekeeping (fără `booking.edit`) → `FORBIDDEN`. `tsc` + `eslint` curate (verificat și că cele 2 erori `react-refresh` din `bookings/$bookingId.tsx` sunt preexistente, nu introduse de această modificare). Doc actualizat: [`docs/backend/rpc/bookings.md`](backend/rpc/bookings.md).
+
+---
+
+## Sprint 9 — Manual Price Override (26 iun 2026)
+
+Rolurile privilegiate (administrator/manager + owner) pot modifica manual prețul unei rezervări create din panou — la creare și la editare. Util pentru sincronizarea rezervărilor de pe Booking.com (unde prețul e stabilit extern) și pentru reduceri/adaosuri ad-hoc decise de manager.
+
+### Decizii de design (confirmate cu userul înainte de implementare)
+
+- **3 moduri**, cu aceeași stocare (total + breakdown per noapte), diferă doar inputul: **total absolut** (tastezi totalul, se distribuie pe nopți), **ajustare** (reducere − / adaos + pe totalul calculat), **per noapte** (editezi fiecare noapte).
+- **Override-ul înlocuiește promoția** — când setezi prețul manual, promoția (cod/automată) se ignoră (`promotion_id=null`, `discount_amount=0`). Predictibil la reconciliere.
+- **Creare + editare** — și pe rezervarea deja existentă (RPC `override_booking_price`), pentru sync ulterior.
+- **Permisiune nouă `booking.price_override`** (administrator + manager, owner bypass) — nu reutilizează `booking.override` (care e despre reguli soft). Granular și scalabil.
+
+### Backend — un singur helper pur, refolosit peste tot
+
+`app.apply_price_override(base, kind, value, nights)` (`immutable`) face toată matematica: distribuie targetul proporțional cu tarifele de bază (reziduul de rotunjire pe ultima noapte ca suma per-noapte == target exact), sau preia tarifele per-noapte. Refolosit de `quote_price` (preview), `create_booking` și `override_booking_price` → sursă unică de adevăr. `create_booking_internal` primește 4 params noi de override și **sare peste rezolvarea promoției** când override-ul e activ. `override_booking_price` recalculează din motor pe datele rezervării, eliberează promoția veche (`uses_count − 1`) și acceptă `p_kind=null` pentru a curăța override-ul (revenire la prețul motorului). Coloane noi snapshot pe `bookings`: `price_override_kind/value/by/at/note`.
+
+### Frontend — modular, mobile-first, gated
+
+Componentă reutilizabilă `PriceOverrideEditor` (3 moduri într-un singur UI: selector mod + câmpuri) folosită în formularul de creare **și** în dialogul de editare (`PriceOverrideDialog`, deschis din pagina rezervării). Preview instant client-side prin `applyPriceOverridePreview()` — **oglindă exactă a SQL-ului** (per-noapte fără round-trip la server; serverul recalculează autoritar la salvare, ca `status-rules.ts` ↔ trigger). `PriceBreakdown` arată badge „Preț setat manual" când override-ul e activ. Toate controalele sunt gate-uite pe `usePermissions().has('booking.price_override')`; backend-ul dublează gate-ul.
+
+### Capcană prinsă la testare
+
+Org-ul de test avea o promoție automată activă → rezervarea „fresh" stoca 255 (300 − promo), dar `override_booking_price` recalculează din prețul **brut** al motorului (300) și aplică ajustarea peste el (−50 → 250), nu peste totalul cu promo. Comportamentul e **corect prin design** (override înlocuiește promoția), assertion-ul inițial era greșit. Testele Sprint 9 dezactivează promoțiile org-ului la început (`is_active=false`, nu `delete` — ar lovi FK-uri) pentru un baseline de preț determinist; faptul că override-ul înlocuiește promoția e testat separat (TEST 108a: `promotion_id` devine null).
+
+### Verificare
+
+Teste DB TEST 108–109 (**315 PASS, 0 FAIL**): gate permisiune pozitiv/negativ la creare + editare, cele 3 moduri, snapshot corect, clear → revenire la calculat. `tsc` + `eslint` curate. Doc: [`docs/backend/rpc/price-override.md`](backend/rpc/price-override.md).
+
+---
+
 ## Sprint 8 — Housekeeping (22 iun 2026)
 
 Stare de curățenie a camerei (`clean`/`dirty`/`inspected`), panou dedicat housekeeping-ului, **mobile-first**, și tranziție automată „Auto Dirty" la check-out. Niciun cod nou de autorizare — reutilizare integrală a arhitecturii RBAC din Sprint 6.

@@ -15,17 +15,23 @@ export function PriceBreakdown({ quote }: { quote: PriceQuote }) {
   const { currency, nights, total, subtotal, promotion } = quote
   const discount = quote.discount ?? 0
   const hasDiscount = !!promotion?.applied && discount > 0
+  const isManual = !!quote.override
   return (
     <div className="rounded-md border text-sm">
+      {isManual && (
+        <div className="border-b bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+          {t("pricing.manual_override")}
+        </div>
+      )}
       <ul className="divide-y">
         {nights.map((n) => (
           <li key={n.date} className="flex items-center justify-between px-3 py-1.5">
             <span className="flex items-center gap-2 text-muted-foreground">
               {n.date}
-              {n.kind !== "base" && (
+              {!isManual && n.kind !== "base" && (
                 <Badge variant="outline" className="text-[10px]">{nightLabel(n.kind)}</Badge>
               )}
-              {n.weekend && (
+              {!isManual && n.weekend && (
                 <Badge variant="secondary" className="text-[10px]">{t("pricing.weekend_badge")}</Badge>
               )}
             </span>

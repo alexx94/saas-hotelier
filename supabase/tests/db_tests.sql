@@ -4408,4 +4408,163 @@ do $$ declare v_name text; v_email text; begin
 end $$;
 reset role;
 
+-- ============================================================
+-- Sprint 9 — Manual Price Override
+-- Reutilizează actorii RBAC: a4 (manager, ARE booking.price_override),
+-- a5 (reception, NU are). Owner-a (owner structural) bypass.
+-- Date 2028 (libere) + auto-asignare ca să nu lovim fixturile existente.
+-- Curățăm promoțiile org-ului → baseline de preț determinist (engine raw =
+-- total stocat), ca să verificăm clar matematica override-ului. (Faptul că
+-- override-ul ÎNLOCUIEȘTE promoția e testat separat la TEST 108a: promotion_id
+-- devine null când setezi total manual.)
+-- ============================================================
+update promotions set is_active = false where org_id = '10000000-0000-0000-0000-000000000001';
+
+-- ---------- TEST 108: gate permisiune la CREARE cu override ----------
+-- 108a: manager creează rezervare cu total absolut 500 (override înlocuiește promo)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ declare v_b uuid; v_rec record; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2028-02-10','2028-02-13',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null,
+    'total', 500, null, 'Sync Booking.com');
+  select total_amount, price_override_kind, price_override_value, price_override_by,
+         promotion_id, discount_amount, price_override_note
+    into v_rec from bookings where id = v_b;
+  if v_rec.total_amount = 500 and v_rec.price_override_kind = 'total'
+     and v_rec.price_override_by = '00000000-0000-0000-0000-0000000000a4'
+     and v_rec.promotion_id is null and v_rec.discount_amount = 0 then
+    raise notice 'TEST 108a PASS: manager creează rezervare cu total override 500 (promo înlocuită)';
+  else raise exception 'TEST 108a FAIL: total=%, kind=%, by=%, promo=%', v_rec.total_amount, v_rec.price_override_kind, v_rec.price_override_by, v_rec.promotion_id; end if;
+end $$;
+reset role;
+
+-- 108b: reception NU poate seta override la creare => PRICE_OVERRIDE_FORBIDDEN
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ begin
+  begin
+    perform public.create_booking('30000000-0000-0000-0000-000000000001','2028-03-10','2028-03-12',
+      '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null,
+      'total', 200, null, null);
+    raise exception 'TEST 108b FAIL: reception a setat override de preț';
+  exception when others then
+    if sqlerrm like '%PRICE_OVERRIDE_FORBIDDEN%' then raise notice 'TEST 108b PASS: reception => PRICE_OVERRIDE_FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- 108c: reception POATE crea fără override (regresie: override null nu blochează)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
+do $$ declare v_b uuid; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2028-03-10','2028-03-12',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+  if v_b is not null then raise notice 'TEST 108c PASS: reception creează normal fără override';
+  else raise exception 'TEST 108c FAIL'; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 109: editare preț pe rezervare existentă ----------
+-- pregătim o rezervare normală (preț calculat de motor) creată de manager
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ declare v_b uuid; v_computed numeric; v_after numeric; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2028-04-10','2028-04-13',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+  select total_amount into v_computed from bookings where id = v_b;
+
+  -- 109a: ajustare -50 pe total
+  perform public.override_booking_price(v_b, 'adjustment', -50, null, 'Reducere fidelitate');
+  select total_amount into v_after from bookings where id = v_b;
+  if v_after = v_computed - 50 then raise notice 'TEST 109a PASS: editare adjustment -50 (% -> %)', v_computed, v_after;
+  else raise exception 'TEST 109a FAIL: computed=%, after=%', v_computed, v_after; end if;
+
+  -- 109b: per_night override (3 nopți: 80+80+90 = 250)
+  perform public.override_booking_price(v_b, 'per_night', null,
+    '[{"date":"2028-04-10","rate":80},{"date":"2028-04-11","rate":80},{"date":"2028-04-12","rate":90}]'::jsonb, null);
+  select total_amount into v_after from bookings where id = v_b;
+  if v_after = 250 then raise notice 'TEST 109b PASS: editare per_night => 250';
+  else raise exception 'TEST 109b FAIL: per_night total=%', v_after; end if;
+
+  -- 109c: curățare override (kind null) => revine la prețul calculat
+  perform public.override_booking_price(v_b, null, null, null, null);
+  select total_amount into v_after from bookings where id = v_b;
+  if v_after = v_computed then raise notice 'TEST 109c PASS: clear override => revine la preț calculat (%)', v_after;
+  else raise exception 'TEST 109c FAIL: computed=%, after_clear=%', v_computed, v_after; end if;
+
+  -- 109d: marcaj override curățat în coloane
+  perform 1 from bookings where id = v_b and price_override_kind is null and price_override_by is null;
+  if found then raise notice 'TEST 109d PASS: coloanele de override curățate la clear';
+  else raise exception 'TEST 109d FAIL: coloanele de override nu sunt null'; end if;
+end $$;
+reset role;
+
+-- 109e: reception NU poate edita prețul => FORBIDDEN
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ declare v_b uuid; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2028-05-10','2028-05-12',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+  perform set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}', true);
+  begin
+    perform public.override_booking_price(v_b, 'total', 100, null, null);
+    raise exception 'TEST 109e FAIL: reception a editat prețul';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 109e PASS: reception override_booking_price => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ============================================================
+-- Sprint 9.1 — Notă editabilă pe rezervare (update_booking_notes)
+-- Reutilizează booking.edit (deja are reception a5). a1 (hk-a, housekeeping)
+-- NU are booking.edit => negativ.
+-- ============================================================
+
+-- 110a: reception adaugă/editează nota pe o rezervare existentă
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ declare v_b uuid; v_note text; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2028-06-10','2028-06-12',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+  perform set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}', true);
+  perform public.update_booking_notes(v_b, 'Client cere pat suplimentar');
+  select notes into v_note from bookings where id = v_b;
+  if v_note = 'Client cere pat suplimentar' then raise notice 'TEST 110a PASS: reception adaugă notă';
+  else raise exception 'TEST 110a FAIL: notes=%', v_note; end if;
+
+  -- 110b: editare ulterioară (suprascrie, nu adaugă)
+  perform public.update_booking_notes(v_b, 'Sosire după ora 22');
+  select notes into v_note from bookings where id = v_b;
+  if v_note = 'Sosire după ora 22' then raise notice 'TEST 110b PASS: nota se poate edita din nou';
+  else raise exception 'TEST 110b FAIL: notes=%', v_note; end if;
+
+  -- 110c: text gol => notes redevine NULL (nu string gol)
+  perform public.update_booking_notes(v_b, '   ');
+  select notes into v_note from bookings where id = v_b;
+  if v_note is null then raise notice 'TEST 110c PASS: notă goală => NULL';
+  else raise exception 'TEST 110c FAIL: notes=%', v_note; end if;
+end $$;
+reset role;
+
+-- 110d: housekeeping (a1, fără booking.edit) => FORBIDDEN
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ declare v_b uuid; begin
+  v_b := public.create_booking('30000000-0000-0000-0000-000000000001','2028-06-15','2028-06-17',
+    '50000000-0000-0000-0000-000000000001', null, 1, 0, 'confirmed', null, false, null);
+  perform set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}', true);
+  begin
+    perform public.update_booking_notes(v_b, 'nu ar trebui să meargă');
+    raise exception 'TEST 110d FAIL: housekeeping a editat nota';
+  exception when others then
+    if sqlerrm like '%FORBIDDEN%' then raise notice 'TEST 110d PASS: housekeeping update_booking_notes => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
 rollback;

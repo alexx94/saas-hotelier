@@ -4,7 +4,7 @@
 
 ---
 
-## Starea curentă a proiectului (22 iun 2026 — Sprint 8 complet)
+## Starea curentă a proiectului (26 iun 2026 — Sprint 9.1 complet)
 
 Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 **https://github.com/alexx94/saas-hotelier**
@@ -39,6 +39,8 @@ web/src/
       hooks.ts        ← useQuery/useMutation wrappers + query keys
       booking-form-dialog.tsx
       booking-history.tsx
+      booking-notes-card.tsx ← notă editabilă inline pe pagina rezervării (booking.edit, orice status)
+      price-override-dialog.tsx ← editare preț pe rezervare existentă (booking.price_override)
       reassign-dialog.tsx
       status-badge.tsx
     guests/
@@ -67,7 +69,9 @@ web/src/
       api.ts / hooks.ts ← rate_rules CRUD + quote_price (estimare)
       rate-rules-dialog.tsx ← gestionare sezoane/override per tip de cameră
       occupancy-stepper.tsx ← stepper +/- adulți/copii (reutilizabil)
-      price-breakdown.tsx   ← detaliu preț per noapte (reutilizabil)
+      price-breakdown.tsx   ← detaliu preț per noapte (reutilizabil; badge „Preț manual")
+      price-override.ts     ← tipuri + applyPriceOverridePreview (oglindă SQL apply_price_override)
+      price-override-editor.tsx ← editor 3 moduri (total/ajustare/per-noapte), reutilizat creare+editare
       weekend-days-toggle.tsx / weekend-pricing.ts ← config + helper zile weekend
     reservation-rules/  ← reguli de rezervare (Sprint 4.6 + 4.7)
       api.ts / hooks.ts ← stay_rules + closures + arrival_rules CRUD,
@@ -297,6 +301,8 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 
 ## Features implementate (rezumat)
 
+- ✅ **Sprint 9.1 — Notă editabilă pe rezervare**: `bookings.notes` (existent) editabil **și după creare**, din pagina rezervării, de orice rol cu `booking.edit` — **inclusiv recepție**. RPC nou `update_booking_notes` (reutilizează permisiunea + pattern-ul lui `update_booking_dates`); zero coloane/tabele/triggere noi (`app.audit_booking` prinde generic schimbarea). UI: `BookingNotesCard` (editare inline, fără dialog). Teste DB TEST 110 (319 PASS).
+- ✅ **Sprint 9 — Manual Price Override**: rolurile privilegiate (administrator/manager + owner) pot modifica manual prețul unei rezervări, la **creare** și **editare**. 3 moduri cu aceeași stocare (total + breakdown): **total absolut** (sync Booking.com), **ajustare** (reducere −/adaos +), **per noapte**. Override-ul **înlocuiește promoția** (`promotion_id=null`). Helper pur `app.apply_price_override` (sursă unică, refolosit de `quote_price`/`create_booking`/`override_booking_price`), oglindit client-side în `price-override.ts` pentru preview instant. RPC nou `override_booking_price` (editare + clear). Permisiune nouă `booking.price_override` (admin+manager, owner bypass) — gate server-side + UI (`<usePermissions>`). Coloane snapshot `bookings.price_override_*`. Frontend modular: `PriceOverrideEditor` (creare) + `PriceOverrideDialog` (editare din pagina rezervării). Teste DB TEST 108–109 (315 PASS). Doc: [`docs/backend/rpc/price-override.md`](backend/rpc/price-override.md)
 - ✅ **Sprint 8 — Housekeeping**: stare de curățenie a camerei (`units.cleaning_status`: clean/dirty/inspected + `cleaning_status_at`), **separată** de starea operațională (`units.status`, Sprint 3) — curățenia nu blochează vânzarea camerei. **Auto Dirty**: trigger pe `bookings` (`app.checkout_sets_unit_dirty`) trece camera pe `dirty` automat la check-out, indiferent de rolul actorului (SECURITY DEFINER, ca audit-ul). **RBAC: zero permisiuni noi** — reutilizează `unit.manage` (Sprint 6.1, deja acordată rolului de sistem `housekeeping`); RLS `units_cud` gatează scrierea, iar RPC-ul de citire `get_housekeeping_board` verifică explicit `unit.manage` (nu doar membership — mai strict ca `get_dashboard_stats`). RPC nou `bulk_set_unit_cleaning_status` (selecție multiplă, INVOKER, RLS decide per rând). Audit extins pe trigger-ul existent `app.audit_unit` (ramură `cleaning_status_changed`, fără tabel nou) — vizibil automat în istoricul camerei și în Activity Feed (Sprint 7). Frontend **mobile-first** (`features/housekeeping/`): panou cu carduri tap-friendly, filtru „Necesită atenție" implicit, selecție multiplă cu „Selectează tot" (pe filtrul activ) + bară de acțiuni bulk; rută + nav nouă (`/property/$propertyId/housekeeping`), gate pe `unit.manage`; fiecare cameră arată „Nume actor · oră" pe ultima schimbare (`units.cleaning_status_by` uuid, capturat și pe Auto Dirty; numele rezolvat **server-side prin JOIN** `profiles`, nu mapare client-side — vezi Sprint 8.2). Evenimentul de audit `cleaning_status_changed` include numele camerei (`unit_name`). Teste DB TEST 102–106. Doc: [`docs/backend/rpc/housekeeping.md`](backend/rpc/housekeeping.md)
 - ✅ **Sprint 8.2 — Actor prin JOIN server-side**: rezolvarea numelui actorului (housekeeping + Activity Feed) mutată din client (`useMembers` + hartă email→nume, ineficient la 2000 hoteluri × 100-200 angajați) în SQL. `get_housekeeping_board` și `get_activity_feed` fac `left join profiles on user_id = actor_id` cu `coalesce(full_name, email_snapshot)`; JOIN-ul e rapid (point lookup în PK-ul lui `profiles`, indiferent de mărime) și nu depinde de FK (coloanele de audit `actor_id` rămân intenționat fără FK, pentru imutabilitate). Reparat și booking events (nu aveau snapshot email → apăreau fără autor). + housekeeping „Selectează tot" (frontend). Teste DB TEST 106–107. Doc: [`audit.md`](backend/rpc/audit.md)
 - ✅ **Sprint 7/7.1 — Audit & Activity Feed**: tabel generic `entity_events` + trigger generic `app.audit_entity` extind audit-ul existent (Sprint 3) la `properties`/`guests`/`payments`/`rate_rules`/`promotions`/`stay_rules`/`arrival_rules`/`closures` (create/update/archive/restore/delete). Feed unificat `get_activity_feed` (UNION peste toate sursele de audit, cu filtre `entity_types`/`event_types`/interval dată, index `entity_events_property_type_idx`). Gated pe permisiunea `audit.view` (**reutilizată** din Sprint 6.1, nu permisiune nouă) — RLS + gardă în RPC, nav și butoane „Istoric" gate-uite cu `<Can>`. Frontend `features/audit/` (panou cu filtre, cache cu `staleTime: 0` + refresh manual, paginare „Afișează mai mult"); `components/multi-select-filter.tsx` extras ca filtru reutilizabil. Teste TEST 98–101 (**289 PASS**). Doc: [`docs/backend/rpc/audit.md`](backend/rpc/audit.md)

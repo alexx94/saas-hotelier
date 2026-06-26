@@ -37,6 +37,7 @@ frontend (api.ts per feature)
 | [rpc/bookings.md](rpc/bookings.md) | `create_booking`, `update_booking_dates`, `reassign_booking`, `link_booking_guest`, `get_available_units` + engine-ul intern |
 | [rpc/public-api.md](rpc/public-api.md) | API-ul anonim: `public_get_availability`, `public_create_booking` |
 | [rpc/housekeeping.md](rpc/housekeeping.md) | `get_housekeeping_board`, `bulk_set_unit_cleaning_status`, Auto Dirty (checkout → `dirty`) |
+| [rpc/price-override.md](rpc/price-override.md) | Override manual de preț: `apply_price_override`, `create_booking`/`override_booking_price` extinse (total/ajustare/per-noapte) |
 
 ## Inventarul funcțiilor (cine ce poate apela)
 
@@ -54,6 +55,7 @@ Stare la 2026-06-12, după migrația 18 (`20260612140000`). ✅ = are EXECUTE.
 | `update_booking_dates` | public | DEFINER | ❌ | ✅ (doar prop. accesibile) | [rpc/bookings.md](rpc/bookings.md) |
 | `reassign_booking` | public | DEFINER | ❌ | ✅ (doar prop. accesibile) | [rpc/bookings.md](rpc/bookings.md) |
 | `link_booking_guest` | public | DEFINER | ❌ | ✅ (doar prop. accesibile) | [rpc/bookings.md](rpc/bookings.md) |
+| `update_booking_notes` | public | DEFINER | ❌ | ✅ (RBAC: `booking.edit`) | [rpc/bookings.md](rpc/bookings.md) |
 | `get_guest_stats` | public | INVOKER | ❌ | ✅ (RLS decide) | [rpc/guests.md](rpc/guests.md) |
 | `get_available_units` | public | INVOKER | ❌ | ✅ (RLS decide) | [rpc/bookings.md](rpc/bookings.md) |
 | `public_get_availability` | public | DEFINER | ✅ | ✅ | [rpc/public-api.md](rpc/public-api.md) |
