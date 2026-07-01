@@ -38,6 +38,39 @@ npm run dev                  # → http://localhost:5173
 - Supabase Studio: http://127.0.0.1:54323
 - La prima rulare, creează un cont prin pagina de signup, apoi o organizație (onboarding).
 
+## Deploy în producție
+
+### 1. Supabase (backend)
+
+Creează un proiect nou pe [supabase.com](https://supabase.com), apoi aplică toate migrațiile:
+
+```bash
+supabase login
+supabase link --project-ref <PROJECT_REF>   # ref-ul din URL-ul proiectului
+supabase db push                             # aplică toate migrațiile; seed.sql NU e inclus
+```
+
+Din **Dashboard → Project Settings → API** copiezi:
+- `Project URL` → `VITE_SUPABASE_URL`
+- `anon public` key → `VITE_SUPABASE_ANON_KEY`
+
+Configurează redirect-urile Auth: **Authentication → URL Configuration → Site URL** = URL-ul Vercel.
+
+### 2. Vercel (frontend)
+
+1. Import repo pe [vercel.com/new](https://vercel.com/new)
+2. **Root Directory**: `web`
+3. **Environment Variables** (Settings → Environment Variables, toate cele 3 medii):
+   ```
+   VITE_SUPABASE_URL      = https://<ref>.supabase.co
+   VITE_SUPABASE_ANON_KEY = eyJ...
+   ```
+4. Deploy — Vercel face build automat la fiecare push pe `main`.
+
+### 3. Primul utilizator
+
+Fără seed nu există conturi. Creează primul user din **Supabase Dashboard → Authentication → Users → Invite user**.
+
 ## Structură
 
 ```
