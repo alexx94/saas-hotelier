@@ -36,6 +36,12 @@ const SOURCE_LABEL: Record<string, TranslationKey> = {
   blocked: "bookings.source.blocked",
 }
 
+const CHANNEL_LABEL: Record<string, TranslationKey> = {
+  direct: "bookings.channel.direct",
+  booking_com: "bookings.channel.booking_com",
+  airbnb: "bookings.channel.airbnb",
+}
+
 function BookingDetailPage() {
   const { propertyId, bookingId } = Route.useParams()
   const { currentOrg } = useCurrentOrg()
@@ -152,6 +158,10 @@ function BookingDetailPage() {
             <Row
               label={t("bookings.source")}
               value={t(SOURCE_LABEL[booking.source] ?? "bookings.source.admin")}
+            />
+            <Row
+              label={t("bookings.channel")}
+              value={t(CHANNEL_LABEL[booking.channel ?? "direct"] ?? "bookings.channel.direct")}
             />
             <Row label={t("bookings.created_at")} value={booking.created_at.slice(0, 10)} />
             {!isBlocked && breakdown && breakdown.nights?.length > 0 && (

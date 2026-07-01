@@ -8,6 +8,10 @@ export type BookingStatus =
   | "pending" | "confirmed" | "cancelled"
   | "checked_in" | "checked_out" | "no_show" | "blocked"
 
+export type BookingChannel = "direct" | "booking_com" | "airbnb"
+
+export const BOOKING_CHANNELS: BookingChannel[] = ["direct", "booking_com", "airbnb"]
+
 export type UnitStatus = "active" | "inactive" | "out_of_service" | "archived"
 
 export type Booking = Tables<"bookings"> & {
@@ -178,6 +182,8 @@ export type CreateBookingInput = {
   // override manual de preț (doar booking.price_override — validat server-side, Sprint 9).
   // Înlocuiește promoția. Vezi features/pricing/price-override.ts.
   priceOverride?: PriceOverride | null
+  // canalul de distribuție (de unde a venit rezervarea). Default server-side: 'direct'.
+  channel?: BookingChannel
 }
 
 export async function createBooking(input: CreateBookingInput): Promise<string> {
@@ -198,6 +204,7 @@ export async function createBooking(input: CreateBookingInput): Promise<string> 
     p_price_override_value: ov.value ?? undefined,
     p_price_override_nights: ov.nights ?? undefined,
     p_price_override_note: ov.note ?? undefined,
+    p_channel: input.channel ?? "direct",
   })
   if (error) throw error
   return data

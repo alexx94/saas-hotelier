@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { useMyProfile } from "./profile"
 import { SettingsDialog, settingsHash } from "./settings-dialog"
 
-export function UserMenu({ onLogout }: { onLogout: () => void }) {
+export function UserMenu({ onLogout, collapsed }: { onLogout: () => void; collapsed?: boolean }) {
   const [email, setEmail] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const navigate = useNavigate()
@@ -25,13 +25,18 @@ export function UserMenu({ onLogout }: { onLogout: () => void }) {
     <>
       <Popover open={menuOpen} onOpenChange={setMenuOpen}>
         <PopoverTrigger asChild>
-          <button className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
+          <button className={collapsed
+            ? "flex w-full items-center justify-center rounded-md p-2 text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+            : "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          }>
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
               <User className="h-4 w-4" />
             </div>
-            <span className="min-w-0 flex-1 truncate text-left text-xs">
-              {displayName ?? "…"}
-            </span>
+            {!collapsed && (
+              <span className="min-w-0 flex-1 truncate text-left text-xs">
+                {displayName ?? "…"}
+              </span>
+            )}
           </button>
         </PopoverTrigger>
         <PopoverContent side="top" align="start" sideOffset={4} className="w-56 p-1">

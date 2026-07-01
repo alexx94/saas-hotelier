@@ -49,6 +49,8 @@ export const ro = {
   "nav.property_settings": "Setări proprietate",
   "nav.all_properties": "Toate proprietățile",
   "nav.all_organizations": "Toate organizațiile",
+  "nav.collapse_sidebar": "Restrânge sidebar",
+  "nav.expand_sidebar": "Extinde sidebar",
 
   // organizație (selector + roluri membership)
   "org.select_title": "Organizațiile tale",
@@ -426,6 +428,10 @@ export const ro = {
   "bookings.source.admin": "Recepție",
   "bookings.source.public": "Pagina publică",
   "bookings.source.blocked": "Blocare",
+  "bookings.channel": "Canal rezervare",
+  "bookings.channel.direct": "Direct",
+  "bookings.channel.booking_com": "Booking.com",
+  "bookings.channel.airbnb": "Airbnb",
   "bookings.unit_price": "Preț / noapte",
   "bookings.event.payment_status": "Stare plată schimbată",
 

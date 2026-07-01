@@ -15,6 +15,7 @@ import { useQuotePrice } from "@/features/pricing/hooks"
 import { usePermissions } from "@/features/auth/permissions"
 import { useStayConstraints, useValidateBooking } from "@/features/reservation-rules/hooks"
 import { VALIDATION_LABEL, isSoftCode } from "@/features/reservation-rules/api"
+import { BOOKING_CHANNELS, type BookingChannel } from "./api"
 import { useAvailableUnits, useCreateBooking } from "./hooks"
 import { t } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -90,6 +91,7 @@ export function BookingFormDialog({
   const [promoCode, setPromoCode] = useState("")
   // override manual de preț (gated pe booking.price_override)
   const [priceOverride, setPriceOverride] = useState<PriceOverride | null>(null)
+  const [channel, setChannel] = useState<BookingChannel>("direct")
 
   const { has } = usePermissions()
   const canOverride = ["owner", "manager"].includes(currentOrg.role)
@@ -172,6 +174,7 @@ export function BookingFormDialog({
     setPromoInput("")
     setPromoCode("")
     setPriceOverride(null)
+    setChannel("direct")
   }
 
   function handleGuestChange(id: string) {
@@ -202,6 +205,7 @@ export function BookingFormDialog({
         override: override && canOverride,
         promoCode: promoCode || undefined,
         priceOverride: canPriceOverride ? priceOverride : null,
+        channel,
       })
       toast.success(t("bookings.created"))
       onOpenChange(false)
@@ -365,16 +369,31 @@ export function BookingFormDialog({
             </div>
           )}
 
-          {/* Status */}
-          <div className="space-y-2">
-            <Label>{t("bookings.status")}</Label>
-            <Select defaultValue="confirmed" onValueChange={(v) => form.setValue("status", v as FormValues["status"])}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="confirmed">{t("status.confirmed")}</SelectItem>
-                <SelectItem value="pending">{t("status.pending")}</SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Status + Canal rezervare */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>{t("bookings.status")}</Label>
+              <Select defaultValue="confirmed" onValueChange={(v) => form.setValue("status", v as FormValues["status"])}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="confirmed">{t("status.confirmed")}</SelectItem>
+                  <SelectItem value="pending">{t("status.pending")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{t("bookings.channel")}</Label>
+              <Select value={channel} onValueChange={(v) => setChannel(v as BookingChannel)}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {BOOKING_CHANNELS.map((ch) => (
+                    <SelectItem key={ch} value={ch}>
+                      {t(`bookings.channel.${ch}` as const)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Ocupare: adulți (min 1) + copii (min 0) */}
