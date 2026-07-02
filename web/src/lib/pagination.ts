@@ -28,8 +28,8 @@ export function toPage<TItem>(rows: TItem[], pageSize: number): Page<TItem> {
 // pagini (offsetul alunecă). Mutațiile proprii invalidează query-ul, dar scrierile
 // concurente ale altui user nu — dedupe pe id la randare, ieftin și suficient
 // pentru listele "Afișează mai mult" (infinite query).
-export function dedupeById<T extends { id: string }>(items: T[] | undefined): T[] | undefined {
-  if (!items) return items
+export function dedupeById<T extends { id: string }>(items: T[] | undefined): T[] {
+  if (!items) return []
   const seen = new Set<string>()
   return items.filter((it) => (seen.has(it.id) ? false : (seen.add(it.id), true)))
 }

@@ -63,7 +63,7 @@ const capacityFields = {
 }
 
 const stayOrder = (v: { min_stay: number; max_stay: number }) => v.max_stay >= v.min_stay
-const stayOrderError = { message: "stay_order", path: ["max_stay"] as const }
+const stayOrderError = { message: "stay_order", path: ["max_stay"] as PropertyKey[] }
 
 const createSchema = z.object({
   name: z.string().min(2),
