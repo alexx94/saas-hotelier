@@ -4,7 +4,7 @@
 
 ---
 
-## Starea curentă a proiectului (5 iul 2026 — Sprint 10 complet)
+## Starea curentă a proiectului (5 iul 2026 — Sprint 10.1 complet)
 
 Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 **https://github.com/alexx94/saas-hotelier**
@@ -97,31 +97,36 @@ web/src/
       hooks.ts          ← useHousekeepingBoard / useSetUnitCleaningStatus / useBulkSetUnitCleaningStatus
       cleaning-status.ts ← registry clean/dirty/inspected (mirror unit-status.ts)
       housekeeping-board.tsx ← carduri tap-friendly, filtre, selecție multiplă + bară bulk
-    site-builder/       ← Website Builder — editor site public în PMS (Sprint 10)
+    site-builder/       ← Website Builder — editor site public în PMS (Sprint 10, template+paletă în 10.1)
       api.ts            ← siteContentSchema (Zod, oglindă a contractului DB) + CRUD property_sites/site_photos + upload Storage
       hooks.ts          ← usePropertySite / useUpdatePropertySite / useSitePhotos / useUploadSitePhoto etc.
-      site-fields.ts    ← registry EventFieldRegistry pentru audit (Activity Feed)
+      site-fields.ts    ← registry EventFieldRegistry pentru audit (Activity Feed); `theme.format` traduce valoarea compusă în „NumeTemplate · NumePaletă"
       service-icons.ts  ← SERVICE_ICONS (chei semantice → icon lucide + labelKey), contract partajat cu features/site/
       site-header.tsx   ← enable/disable + slug + link „vezi site-ul"
       site-content-form.tsx ← formular hero/despre/servicii/hartă/contact (RHF + Zod)
       services-editor.tsx ← listă editabilă de servicii (icon + titlu + descriere), reordonare
-      theme-selector.tsx ← selector temă (registry themes.ts)
+      theme-selector.tsx ← selector în 2 trepte: grilă de template-uri + rând de palete ale template-ului ales (Sprint 10.1)
       photos-manager.tsx / sortable-photo-card.tsx ← upload + reordonare drag galerie foto
       create-site-card.tsx ← creare site nouă (sugestie slug + verificare disponibilitate live)
-      themes.ts         ← registry temelor disponibile în PMS
+      themes.ts         ← DOAR metadata de prezentare (nume/descriere/swatch-uri) — parserul e în features/site/themes.ts (sursă unică)
     public-booking/     ← căutare disponibilitate + rezervare publică (existent; componente extrase din p.$slug.tsx în Sprint 10)
       api.ts            ← fetchPublicProperty/searchAvailability/createPublicBooking etc. (RPC public_*, anon)
       availability-search.tsx ← formular date+ocupare
       availability-results.tsx ← listă tipuri disponibile + preț
       booking-dialog.tsx  ← dialog date oaspete + confirmare (reutilizat de /p/{slug} ȘI /s/{slug}/book)
-    site/               ← site public per proprietate, temat (Sprint 10)
+    site/               ← site public per proprietate, temat (Sprint 10; template+paletă în 10.1)
       api.ts            ← fetchPublicSite (RPC public_get_site) + siteContentSchema tolerantă (.catch()) + helpers foto
       hooks.ts          ← usePublicSite (siteKeys.bySlug)
       service-icons.ts  ← resolveServiceIcon (aceleași chei semantice ca site-builder/, fallback Sparkles)
       site-host.ts      ← getSiteSlugFromHostname: hostname → slug (pregătit pt. treapta de subdomeniu, azi mereu null)
-      themes.ts         ← resolveSiteTheme (validare temă cunoscută, fallback „serene")
-      photo-carousel.tsx ← galerie foto pe embla carousel
-      sections/         ← hero-section / about-section / services-section / rooms-teaser-section / map-section / cta-section / room-card
+      themes.ts         ← SURSA UNICĂ: SITE_TEMPLATES (chei + palete + paletă implicită) + resolveSiteTheme (parsează „template/palette", fallback per-parte) + composeSiteTheme
+      photo-carousel.tsx ← galerie foto pe embla carousel (partajat de toate template-urile)
+      use-reveal.ts     ← hook IntersectionObserver (adaugă clasa `in`), folosit de reveal-urile la scroll ale template-ului boutique
+      templates/          ← registry de componente per template (Sprint 10.1)
+        index.ts          ← SITE_TEMPLATE_COMPONENTS: SiteTemplateKey → {Header, Footer, Landing, RoomsPage}
+        types.ts          ← contractul SiteTemplateComponents + props (Header primește navLinks, restul primesc `site`)
+        serene/           ← REFACTOR pur al temei originale Sprint 10 (zero schimbare vizuală): header.tsx, footer.tsx, landing.tsx, rooms-page.tsx, sections/ (hero/about/services/rooms-teaser/map/cta/room-card)
+        boutique/         ← template nou (Sprint 10.1, design „Sea Vibes"): header.tsx (sticky, transparent→frosted), footer.tsx (bandă --site-ink), landing.tsx (hero/ticker/about/rooms/services/galerie/hartă/cta), rooms-page.tsx (split-uri + carousel), sections/
     audit/              ← jurnal de audit unificat + feed activitate (Sprint 7)
       api.ts            ← fetchActivityFeed (RPC get_activity_feed, cu filtre) + fetchEntityEvents
       hooks.ts           ← useActivityFeed (infinite query, staleTime 0 + refetchOnWindowFocus) + auditKeys
@@ -165,11 +170,11 @@ web/src/
     signup.tsx
     onboarding.tsx
     p.$slug.tsx       ← pagina publică de rezervare (lane guest, neatinsă) — de la Sprint 10, componentele de căutare/rezultate/dialog sunt extrase în features/public-booking/ (reutilizate de s/$siteSlug/book.tsx)
-    s/$siteSlug/      ← site public temat per proprietate (Sprint 10), rutare azi pe path (viitor: subdomeniu, vezi site-host.ts)
-      route.tsx       ← layout: precarcă site-ul (beforeLoad, notFound elegant dacă null), header sticky + footer + CTA plutit „Rezervă"
-      index.tsx       ← homepage: hero + about + services + rooms-teaser + map (secțiuni toggle-abile din content jsonb)
-      rooms.tsx       ← listă completă tipuri de cameră (pagina „Camere", dacă content.pages.rooms=true)
-      book.tsx        ← căutare disponibilitate + rezervare (features/public-booking/, dacă content.pages.book=true)
+    s/$siteSlug/      ← site public temat per proprietate (Sprint 10; template+paletă în 10.1), rutare azi pe path (viitor: subdomeniu, vezi site-host.ts)
+      route.tsx       ← layout: precarcă site-ul (beforeLoad, notFound elegant dacă null), rezolvă `resolveSiteTheme` → `data-site-template`/`data-site-palette` pe wrapper, randează `<T.Header/>`/`<T.Footer/>` din registry + CTA plutit „Rezervă" (partajate, indiferent de template)
+      index.tsx       ← homepage: randează `<T.Landing site={site}/>` din registry-ul de template-uri
+      rooms.tsx       ← randează `<T.RoomsPage/>` (pagina „Camere", dacă content.pages.rooms=true)
+      book.tsx        ← căutare disponibilitate + rezervare (features/public-booking/, dacă content.pages.book=true) — NEATINS, partajat de toate template-urile (moștenește culorile prin variabilele --site-*)
   components/ui/      ← shadcn/ui (nu modifica direct dacă nu e necesar); switch.tsx nou (Sprint 10, prima folosire)
   components/         ← componente compuse reutilizabile (peste primitive shadcn), ex. multi-select-filter.tsx
   lib/
@@ -334,6 +339,7 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 
 ## Features implementate (rezumat)
 
+- ✅ **Sprint 10.1 — Template-uri & palete site public**: `property_sites.theme` (text liber, zero migrare) trece la un format compus `"{template}/{palette}"` (ex. `boutique/marble`), cu compatibilitate înapoi pe valoarea legacy fără slash (`"serene"` → template `serene` + paleta lui implicită). Sursă unică `features/site/themes.ts` (`SITE_TEMPLATES`, `resolveSiteTheme` cu fallback per-parte, `composeSiteTheme`). **Registry de componente per template** (`features/site/templates/index.ts`: `SiteTemplateKey → {Header, Footer, Landing, RoomsPage}`) — rutele `s/$siteSlug/*` doar aleg intrarea corectă, zero `if`/`switch` pe template; tema `serene` originală mutată 1:1 (`templates/serene/`, zero schimbare vizuală) + template nou **boutique** (`templates/boutique/`, design editorial „quiet luxury" — serif Cormorant Garamond + sans Jost, borduri drepte 2px, benzi întunecate `--site-ink`, ticker marquee, reveal-uri la scroll cu `use-reveal.ts`). **Separare CSS template/paletă** în `index.css`: `[data-site-template]` fără paletă = structură (fonturi, `.site-font-display`, clase structurale); `[data-site-template][data-site-palette]` = doar variabilele `--site-*`. Palete noi: serene → `warm`(implicit)/`sage`/`sea`; boutique → `marble`(implicit)/`olive`/`terra`. PMS: `ThemeSelector` în 2 trepte (grilă template-uri + rând palete ale celui ales), `site-builder/themes.ts` doar metadata de prezentare (parserul rămâne în `features/site/themes.ts`).
 - ✅ **Sprint 10 — Website Builder per proprietate**: fiecare proprietate poate avea un site public propriu (`/s/{slug}`), separat de pagina de rezervare (`/p/{slug}`, neatinsă): temă vizuală, conținut editabil (hero/despre/servicii/hartă/contact) și galerie foto cu tag opțional pe tipul de cameră. Tabele noi `property_sites` (1:1 cu `properties`) + `site_photos`; RLS reutilizează `property.edit` — **zero permisiuni noi**. Bucket Storage public `site-photos` (prima folosire Storage în proiect), scriere condiționată de `{property_id}/{uuid}.{ext}` fiind o proprietate administrabilă de user. Acces public **exclusiv prin RPC** (`public_get_site` — `null` uniform pentru site inexistent/dezactivat/proprietate nepublicată; `is_site_slug_available` pentru formular). Slug = viitor subdomeniu (format label DNS 3–63 + listă rezervată), path `/s/{slug}` azi → `{slug}.pilow.app` mâine fără migrare de date (host-resolver pur `site-host.ts`, pregătit). Chei semantice partajate pentru iconurile de servicii (`site-builder/service-icons.ts` ↔ `site/service-icons.ts`). Frontend: `features/site-builder/` (editor în PMS: conținut, servicii, temă, poze cu reordonare) + `features/site/` (site public temat „serene", secțiuni toggle-abile din `content` jsonb, galerie embla) + rute `s/$siteSlug/{route,index,rooms,book}`. Refactor `features/public-booking/` (componente căutare/rezultate/dialog extrase din `p.$slug.tsx`, reutilizate de `/s/{slug}/book`). Teste DB TEST 111–116 (**341 PASS**). Doc: [`docs/backend/rpc/sites.md`](backend/rpc/sites.md)
 - ✅ **Sprint 9.1 — Notă editabilă pe rezervare**: `bookings.notes` (existent) editabil **și după creare**, din pagina rezervării, de orice rol cu `booking.edit` — **inclusiv recepție**. RPC nou `update_booking_notes` (reutilizează permisiunea + pattern-ul lui `update_booking_dates`); zero coloane/tabele/triggere noi (`app.audit_booking` prinde generic schimbarea). UI: `BookingNotesCard` (editare inline, fără dialog). Teste DB TEST 110 (319 PASS).
 - ✅ **Sprint 9 — Manual Price Override**: rolurile privilegiate (administrator/manager + owner) pot modifica manual prețul unei rezervări, la **creare** și **editare**. 3 moduri cu aceeași stocare (total + breakdown): **total absolut** (sync Booking.com), **ajustare** (reducere −/adaos +), **per noapte**. Override-ul **înlocuiește promoția** (`promotion_id=null`). Helper pur `app.apply_price_override` (sursă unică, refolosit de `quote_price`/`create_booking`/`override_booking_price`), oglindit client-side în `price-override.ts` pentru preview instant. RPC nou `override_booking_price` (editare + clear). Permisiune nouă `booking.price_override` (admin+manager, owner bypass) — gate server-side + UI (`<usePermissions>`). Coloane snapshot `bookings.price_override_*`. Frontend modular: `PriceOverrideEditor` (creare) + `PriceOverrideDialog` (editare din pagina rezervării). Teste DB TEST 108–109 (315 PASS). Doc: [`docs/backend/rpc/price-override.md`](backend/rpc/price-override.md)

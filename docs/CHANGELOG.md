@@ -5,6 +5,36 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 10.1 — Template-uri & palete pentru site-ul public (5 iul 2026)
+
+Website Builder-ul primește un al doilea template vizual (`boutique`, design editorial „quiet luxury" inspirat de un handoff Sea Vibes) și palete de culori pe fiecare template — fără nicio migrare DB, `property_sites.theme` rămâne coloana text liber din Sprint 10.
+
+### Contract de stocare
+
+Format nou compus, decis integral de frontend: `"{templateKey}/{paletteKey}"` (ex. `"boutique/marble"`). Compatibilitate înapoi pe valoarea legacy fără slash (`"serene"`) — rezolvată la template `serene` + paleta lui implicită. Sursă unică `web/src/features/site/themes.ts`: `SITE_TEMPLATES` (chei + palete disponibile + paletă implicită per template), `resolveSiteTheme` (fallback per-parte — template necunoscut → `serene`, paletă necunoscută → paleta implicită a template-ului rezolvat), `composeSiteTheme`. Backend agnostic, zero schimbare de coloană/CHECK/RPC — doar o notă în [`docs/backend/rpc/sites.md`](backend/rpc/sites.md).
+
+### Registry de componente per template
+
+`features/site/templates/index.ts` mapează `SiteTemplateKey → {Header, Footer, Landing, RoomsPage}` (contract în `templates/types.ts`); rutele `s/$siteSlug/{route,index,rooms}.tsx` doar aleg intrarea corectă din registry, fără niciun `if`/`switch` pe template împrăștiat prin rute. Tema originală „serene" (Sprint 10) a fost **mutată 1:1** în `templates/serene/` (header/footer/landing/rooms-page + `sections/` cu fișierele existente) — zero schimbare vizuală, doar refactor de organizare. `book.tsx` **neatins**, partajat de toate template-urile prin variabilele `--site-*`.
+
+### Template nou: boutique
+
+Design editorial recreat în React+Tailwind (nu HTML copiat) din handoff-ul „Sea Vibes Eforie Sud": serif mare (Cormorant Garamond) + sans subțire (Jost), borduri drepte de 2px (semnătura vizuală, în loc de `rounded-2xl`), benzi întunecate `--site-ink` pentru ticker/CTA/footer. Secțiuni mapate strict pe contractul `content` existent (fiecare `enabled` respectat, `return null` ca la serene): hero full-viewport cu Ken Burns lent, ticker marquee (titluri servicii + nume proprietate, doar dacă `services.enabled`), about editorial 2 coloane, camere în split-uri alternate 50/50 (stil `camere.html`, cu numere ghost italice), grid de servicii cu celule separate de borduri, galerie mozaic CSS 12 coloane (doar dacă rămân ≥3 poze generale după hero), hartă încadrată editorial, CTA final. Header sticky transparent→frosted la scroll, mobil = drawer full-screen; footer pe fundal ink. Reveal-uri la scroll prin hook nou `features/site/use-reveal.ts` (IntersectionObserver, caz legitim de `useEffect`) — doar `transform`, `opacity` rămâne 1 (niciodată blank), respectă `prefers-reduced-motion`. Nu s-au implementat: cursor custom, grain overlay, scroll progress bar, toggle i18n RO/EN, WhatsApp FAB (excluse explicit din scop).
+
+### CSS — separare template/paletă
+
+`index.css`: blocul `[data-site-template="x"]` (fără paletă) definește structura (font-family, `.site-font-display`, clase structurale/animații); blocul `[data-site-template="x"][data-site-palette="y"]` definește DOAR variabilele `--site-*`. Palete noi: serene → `warm` (implicit, valorile originale nemodificate) / `sage` (accent verde salvie) / `sea` (accent albastru marin); boutique → `marble` (implicit) / `olive` / `terra`. Variabilă nouă `--site-ink`/`--site-ink-foreground` (bandă întunecată) — adăugată și la paletele serene (`--site-ink` = `--site-fg`) ca variabila să existe în ambele template-uri, pentru componentele partajate. Fonturi noi în `index.html` (`Cormorant Garamond`, `Jost`).
+
+### PMS — selector template + paletă
+
+`features/site-builder/theme-selector.tsx` (rescris): selector în 2 trepte în același card — grilă de template-uri (nume/descriere + mini-swatch al paletei implicite) și, dedesubt, rândul de palete al template-ului ales (cercuri swatch + nume). `features/site-builder/themes.ts` rescris ca **doar metadata de prezentare** (`SITE_TEMPLATE_META`/`SITE_PALETTE_META`) — parserul/registry-ul de chei rămâne exclusiv în `features/site/themes.ts` (nicio duplicare). `site-fields.ts`: `theme.format` traduce valoarea compusă din istoric (audit) în „NumeTemplate · NumePaletă".
+
+### Verificare
+
+`tsc -b` + `vite build` curate (zero erori). `eslint` fără regresii — aceleași categorii sistemice preexistente (`react-refresh/only-export-components` pe fișiere de rută, `react-hooks/incompatible-library` pe `form.watch()`), nimic nou introdus de acest sprint. De verificat manual: `/s/hotel-demo` (seed local, temă `serene` legacy — confirmă compatibilitatea înapoi) și comutarea template/paletă din PMS (`/property/{id}/website`) urmată de vizualizarea `/s/{slug}` cu `boutique/marble`.
+
+---
+
 ## Sprint 10 — Website Builder per proprietate (5 iul 2026)
 
 Fiecare proprietate poate avea acum un site public propriu (`/s/{slug}`), separat de pagina de rezervare existentă (`/p/{slug}`, neatinsă): temă vizuală, conținut editabil (hero/despre/servicii/hartă/contact), galerie foto cu tag opțional pe tipul de cameră. Editabil din PMS (`/property/$propertyId/website`), consumat public printr-un singur RPC.

@@ -791,6 +791,7 @@ export const ro = {
   "site.book.title": "Rezervare",
   "site.book.subtitle": "Alege datele sejurului tău și verifică disponibilitatea.",
   "site.book.pick_dates_hint": "Alege datele de sosire și plecare pentru a vedea disponibilitatea și prețul acestui tip de cameră.",
+  "site.gallery.title": "Galerie",
 
   // zile săptămână (DOW Postgres: 0=Duminică … 6=Sâmbătă)
   "dow.0": "Du", "dow.1": "Lu", "dow.2": "Ma", "dow.3": "Mi",
@@ -918,10 +919,19 @@ export const ro = {
   "site_builder.header.go_to_settings": "Mergi la Setări",
   "site_builder.header.status_updated": "Stare site actualizată.",
 
-  // teme
+  // teme + palete (Sprint 10.1 — template + paletă)
   "site_builder.theme.title": "Temă",
   "site_builder.theme.serene.name": "Serene",
   "site_builder.theme.serene.description": "Temă calmă, luminoasă, potrivită oricărui tip de proprietate.",
+  "site_builder.theme.boutique.name": "Boutique",
+  "site_builder.theme.boutique.description": "Editorial, lux discret — serif elegant și neutre de marmură.",
+  "site_builder.theme.palette_label": "Paletă de culori",
+  "site_builder.palette.warm.name": "Cald",
+  "site_builder.palette.sage.name": "Salvie",
+  "site_builder.palette.sea.name": "Marin",
+  "site_builder.palette.marble.name": "Marmură",
+  "site_builder.palette.olive.name": "Măslin",
+  "site_builder.palette.terra.name": "Teracotă",
 
   // conținut — secțiuni
   "site_builder.content.title": "Conținut",

@@ -120,14 +120,32 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Site public — tema „Serene" (Sprint 10, Website Builder per proprietate)
-   Scope: [data-site-theme="serene"], pus pe wrapper-ul rutei /s/$siteSlug.
-   Paletă caldă hotelieră (crem/ivory + teracotă), oklch. O temă nouă în
-   viitor = un bloc CSS nou cu alt scope `[data-site-theme="..."]` + o
-   intrare în features/site/themes.ts — zero schimbări în componentele de
-   secțiune, care consumă DOAR variabilele --site-* de mai jos.
+   Site public — template + paletă (Sprint 10 / 10.1, Website Builder)
+   Scope: [data-site-template="<template>"][data-site-palette="<palette>"],
+   pus pe wrapper-ul rutei /s/$siteSlug (route.tsx, din `resolveSiteTheme`).
+   Separare intenționată: blocul `[data-site-template]` fără paletă definește
+   STRUCTURA (font-family, `.site-font-display`, clase structurale ale
+   template-ului); blocul `[data-site-template][data-site-palette]` definește
+   DOAR variabilele de culoare `--site-*`. Un template nou = folder în
+   features/site/templates/ + bloc(uri) CSS noi + o intrare în
+   features/site/themes.ts (SITE_TEMPLATES). O paletă nouă pe un template
+   existent = doar un bloc `[data-site-template="x"][data-site-palette="y"]`
+   nou — zero schimbări în componente, care consumă DOAR variabilele --site-*.
    ───────────────────────────────────────────────────────────────────── */
-[data-site-theme="serene"] {
+
+/* ---------- Template: serene ---------- */
+[data-site-template="serene"] {
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  background: var(--site-bg);
+  color: var(--site-fg);
+}
+
+[data-site-template="serene"] .site-font-display {
+  font-family: "Fraunces", ui-serif, Georgia, serif;
+}
+
+/* paletă implicită — valorile serene originale, nemodificate */
+[data-site-template="serene"][data-site-palette="warm"] {
   --site-bg: oklch(0.98 0.012 85);
   --site-bg-alt: oklch(0.955 0.02 80);
   --site-fg: oklch(0.24 0.02 50);
@@ -138,6 +156,8 @@
   --site-accent-foreground: oklch(0.98 0.01 85);
   --site-accent-soft: oklch(0.93 0.045 45);
   --site-sage: oklch(0.42 0.05 155);
+  --site-ink: var(--site-fg);
+  --site-ink-foreground: var(--site-bg);
 
   /* fallback elegant unde nu există poză — gradient stratificat din paletă,
      niciodată gri de placeholder */
@@ -152,13 +172,267 @@
     var(--site-accent-soft) 0%,
     var(--site-bg-alt) 100%
   );
+}
 
-  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+/* aceleași neutre, accent verde salvie */
+[data-site-template="serene"][data-site-palette="sage"] {
+  --site-bg: oklch(0.98 0.012 85);
+  --site-bg-alt: oklch(0.955 0.02 80);
+  --site-fg: oklch(0.24 0.02 50);
+  --site-muted: oklch(0.5 0.03 55);
+  --site-card: oklch(1 0.006 85);
+  --site-border: oklch(0.9 0.02 70);
+  --site-accent: oklch(0.45 0.06 155);
+  --site-accent-foreground: oklch(0.98 0.01 85);
+  --site-accent-soft: oklch(0.91 0.035 155);
+  --site-sage: oklch(0.42 0.05 155);
+  --site-ink: var(--site-fg);
+  --site-ink-foreground: var(--site-bg);
+
+  --site-hero-fallback: linear-gradient(
+    135deg,
+    oklch(0.36 0.05 150) 0%,
+    oklch(0.46 0.06 155) 55%,
+    oklch(0.6 0.08 145) 100%
+  );
+  --site-card-fallback: linear-gradient(
+    160deg,
+    var(--site-accent-soft) 0%,
+    var(--site-bg-alt) 100%
+  );
+}
+
+/* aceleași neutre, accent albastru marin prăfuit */
+[data-site-template="serene"][data-site-palette="sea"] {
+  --site-bg: oklch(0.98 0.012 85);
+  --site-bg-alt: oklch(0.955 0.02 80);
+  --site-fg: oklch(0.24 0.02 50);
+  --site-muted: oklch(0.5 0.03 55);
+  --site-card: oklch(1 0.006 85);
+  --site-border: oklch(0.9 0.02 70);
+  --site-accent: oklch(0.5 0.05 220);
+  --site-accent-foreground: oklch(0.98 0.01 85);
+  --site-accent-soft: oklch(0.91 0.025 220);
+  --site-sage: oklch(0.42 0.05 155);
+  --site-ink: var(--site-fg);
+  --site-ink-foreground: var(--site-bg);
+
+  --site-hero-fallback: linear-gradient(
+    135deg,
+    oklch(0.4 0.05 220) 0%,
+    oklch(0.5 0.06 215) 55%,
+    oklch(0.62 0.07 205) 100%
+  );
+  --site-card-fallback: linear-gradient(
+    160deg,
+    var(--site-accent-soft) 0%,
+    var(--site-bg-alt) 100%
+  );
+}
+
+/* ---------- Template: boutique (Sprint 10.1 — design "Sea Vibes") ----------
+   Editorial, quiet-luxury: serif mare + sans subțire, borduri drepte (2px),
+   benzi întunecate (--site-ink) pentru ticker/CTA/footer, reveal-uri la
+   scroll (translateY, opacity rămâne 1 — vezi use-reveal.ts) și un ticker
+   marquee CSS-only. Respectă `prefers-reduced-motion`. */
+[data-site-template="boutique"] {
+  font-family: "Jost", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 300;
   background: var(--site-bg);
   color: var(--site-fg);
 }
 
-[data-site-theme="serene"] .site-font-display {
-  font-family: "Fraunces", ui-serif, Georgia, serif;
+[data-site-template="boutique"] .site-font-display {
+  font-family: "Cormorant Garamond", "Times New Roman", serif;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+[data-site-template="boutique"] .site-eyebrow {
+  font-family: "Jost", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 400;
+  font-size: clamp(10px, 1vw, 12px);
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+}
+
+/* text editorial serif (lede) — pentru paragrafe accent din About/Rooms */
+[data-site-template="boutique"] .site-lede {
+  font-family: "Cormorant Garamond", "Times New Roman", serif;
+  font-weight: 400;
+  line-height: 1.42;
+  font-size: clamp(19px, 2.1vw, 26px);
+  color: var(--site-fg);
+}
+
+/* număr ghost italic serif (split-uri camere) */
+[data-site-template="boutique"] .site-ghost {
+  font-family: "Cormorant Garamond", serif;
+  font-style: italic;
+  line-height: 0.9;
+  color: var(--site-border);
+}
+
+/* marquee — dublează conținutul (randat de 2 ori de componentă) pentru loop */
+[data-site-template="boutique"] .site-ticker-track {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  animation: site-ticker-roll 42s linear infinite;
+}
+@keyframes site-ticker-roll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+[data-site-template="boutique"] .site-ticker-track span {
+  font-size: 9.5px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding: 0 clamp(22px, 2.8vw, 40px);
+  color: color-mix(in oklch, var(--site-ink-foreground) 40%, transparent);
+}
+[data-site-template="boutique"] .site-ticker-track .site-ticker-sep {
+  color: var(--site-accent);
+  padding: 0;
+  font-size: 7px;
+}
+
+/* reveal-uri la scroll — doar transform, opacity rămâne 1 (niciodată blank) */
+[data-site-template="boutique"] .site-reveal {
+  transform: translateY(34px);
+  transition: transform 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-site-template="boutique"] .site-reveal.in {
+  transform: none;
+}
+[data-site-template="boutique"] .site-reveal-scale {
+  transform: scale(1.06);
+  transform-origin: center;
+  transition: transform 1.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-site-template="boutique"] .site-reveal-scale.in {
+  transform: none;
+}
+
+/* Ken Burns lent pe imaginea de hero */
+[data-site-template="boutique"] .site-kenburns {
+  animation: site-kenburns 14s ease-out forwards;
+}
+@keyframes site-kenburns {
+  from { transform: scale(1.08); }
+  to { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-site-template="boutique"] .site-ticker-track {
+    animation: none;
+  }
+  [data-site-template="boutique"] .site-reveal,
+  [data-site-template="boutique"] .site-reveal-scale {
+    transform: none !important;
+    transition: none !important;
+  }
+  [data-site-template="boutique"] .site-kenburns {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+/* marmură (implicit) — neutre calde din handoff, accent marin discret */
+[data-site-template="boutique"][data-site-palette="marble"] {
+  --site-bg: oklch(0.97 0.015 85);
+  --site-bg-alt: oklch(0.94 0.02 80);
+  --site-fg: oklch(0.22 0.014 50);
+  --site-muted: oklch(0.55 0.02 70);
+  --site-card: oklch(0.99 0.008 85);
+  --site-border: oklch(0.22 0.014 50 / 12%);
+  --site-accent: oklch(0.56 0.032 205);
+  --site-accent-foreground: oklch(0.97 0.015 85);
+  --site-accent-soft: oklch(0.92 0.012 205);
+  --site-sage: oklch(0.42 0.05 155);
+  --site-ink: oklch(0.22 0.014 50);
+  --site-ink-foreground: oklch(0.97 0.015 85);
+
+  --site-hero-fallback: linear-gradient(
+    150deg,
+    oklch(0.9 0.01 85) 0%,
+    oklch(0.82 0.015 75) 55%,
+    oklch(0.72 0.02 65) 100%
+  );
+  --site-card-fallback: linear-gradient(
+    160deg,
+    var(--site-accent-soft) 0%,
+    var(--site-bg-alt) 100%
+  );
+}
+
+/* măslin — accent verde măsliniu low-chroma */
+[data-site-template="boutique"][data-site-palette="olive"] {
+  --site-bg: oklch(0.97 0.015 85);
+  --site-bg-alt: oklch(0.94 0.02 80);
+  --site-fg: oklch(0.22 0.014 50);
+  --site-muted: oklch(0.55 0.02 70);
+  --site-card: oklch(0.99 0.008 85);
+  --site-border: oklch(0.22 0.014 50 / 12%);
+  --site-accent: oklch(0.52 0.05 130);
+  --site-accent-foreground: oklch(0.97 0.015 85);
+  --site-accent-soft: oklch(0.9 0.025 130);
+  --site-sage: oklch(0.42 0.05 155);
+  --site-ink: oklch(0.22 0.014 50);
+  --site-ink-foreground: oklch(0.97 0.015 85);
+
+  --site-hero-fallback: linear-gradient(
+    150deg,
+    oklch(0.62 0.05 130) 0%,
+    oklch(0.5 0.055 128) 55%,
+    oklch(0.38 0.05 125) 100%
+  );
+  --site-card-fallback: linear-gradient(
+    160deg,
+    var(--site-accent-soft) 0%,
+    var(--site-bg-alt) 100%
+  );
+}
+
+/* teracotă — accent cărămiziu low-chroma */
+[data-site-template="boutique"][data-site-palette="terra"] {
+  --site-bg: oklch(0.97 0.015 85);
+  --site-bg-alt: oklch(0.94 0.02 80);
+  --site-fg: oklch(0.22 0.014 50);
+  --site-muted: oklch(0.55 0.02 70);
+  --site-card: oklch(0.99 0.008 85);
+  --site-border: oklch(0.22 0.014 50 / 12%);
+  --site-accent: oklch(0.55 0.08 45);
+  --site-accent-foreground: oklch(0.97 0.015 85);
+  --site-accent-soft: oklch(0.9 0.035 45);
+  --site-sage: oklch(0.42 0.05 155);
+  --site-ink: oklch(0.22 0.014 50);
+  --site-ink-foreground: oklch(0.97 0.015 85);
+
+  --site-hero-fallback: linear-gradient(
+    150deg,
+    oklch(0.65 0.08 50) 0%,
+    oklch(0.55 0.09 45) 55%,
+    oklch(0.42 0.07 40) 100%
+  );
+  --site-card-fallback: linear-gradient(
+    160deg,
+    var(--site-accent-soft) 0%,
+    var(--site-bg-alt) 100%
+  );
+}
+
+/* Carduri de servicii (boutique): tranziție hover pe bordură — setată prin
+   clasă (nu inline style, care ar câștiga mereu specificitatea și ar bloca
+   orice hover). Randare cu flex-wrap + justify-center în componentă (nu CSS
+   grid), ca orice rând incomplet să se centreze ca grup, la orice număr de
+   servicii — vezi services-section.tsx. */
+[data-site-template="boutique"] .site-service-card {
+  transition: border-color 300ms;
+}
+[data-site-template="boutique"] .site-service-card:hover {
+  border-color: var(--site-accent);
 }
 

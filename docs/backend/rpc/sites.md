@@ -10,7 +10,14 @@ property_sites (1:1 cu properties)
                   fără cratimă la capete), listă de nume rezervate — vezi
                   „De ce slug ≤ 63 caractere" mai jos
   theme           text liber, fără CHECK — teme noi fără migrare (contract
-                  cu frontend-ul, care are propriul registry de teme)
+                  cu frontend-ul, care are propriul registry de teme).
+                  Sprint 10.1: frontend-ul persistă un format compus
+                  `"{template}/{palette}"` (ex. `"boutique/marble"`),
+                  decis și parsat exclusiv client-side —
+                  `web/src/features/site/themes.ts`); valorile legacy fără
+                  slash (ex. `"serene"`) rămân valide, rezolvate la acel
+                  template + paleta lui implicită. Backend-ul rămâne complet
+                  agnostic — nicio schimbare de contract/coloană/CHECK.
   is_enabled      site-ul poate fi „oprit" fără să-l ștergi (draft/pauză)
   contact_phone / contact_email / map_embed_url   opționale
   content         jsonb, un singur contract stabil cu frontend-ul (vezi mai jos)
