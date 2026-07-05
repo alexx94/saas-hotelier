@@ -38,6 +38,7 @@ frontend (api.ts per feature)
 | [rpc/public-api.md](rpc/public-api.md) | API-ul anonim: `public_get_availability`, `public_create_booking` |
 | [rpc/housekeeping.md](rpc/housekeeping.md) | `get_housekeeping_board`, `bulk_set_unit_cleaning_status`, Auto Dirty (checkout → `dirty`) |
 | [rpc/price-override.md](rpc/price-override.md) | Override manual de preț: `apply_price_override`, `create_booking`/`override_booking_price` extinse (total/ajustare/per-noapte) |
+| [rpc/sites.md](rpc/sites.md) | Website Builder per proprietate: `property_sites`/`site_photos`, `public_get_site`, `is_site_slug_available`, storage `site-photos` |
 
 ## Inventarul funcțiilor (cine ce poate apela)
 
@@ -60,6 +61,8 @@ Stare la 2026-06-12, după migrația 18 (`20260612140000`). ✅ = are EXECUTE.
 | `get_available_units` | public | INVOKER | ❌ | ✅ (RLS decide) | [rpc/bookings.md](rpc/bookings.md) |
 | `public_get_availability` | public | DEFINER | ✅ | ✅ | [rpc/public-api.md](rpc/public-api.md) |
 | `public_create_booking` | public | DEFINER | ✅ | ✅ | [rpc/public-api.md](rpc/public-api.md) |
+| `public_get_site` | public | DEFINER | ✅ | ✅ | [rpc/sites.md](rpc/sites.md) |
+| `is_site_slug_available` | public | DEFINER | ❌ | ✅ | [rpc/sites.md](rpc/sites.md) |
 | `app.create_booking_internal` | app | DEFINER | ❌ | ❌ (doar din RPC-uri) | [rpc/bookings.md](rpc/bookings.md) |
 | `app.find_or_create_guest_internal` | app | DEFINER | ❌ | ❌ (doar din RPC-uri) | [rpc/guests.md](rpc/guests.md) |
 | `app.user_org_ids` / `user_role` / `can_access_property` / `is_org_role` | app | DEFINER | helpers RLS | helpers RLS | [helpers.md](helpers.md) |

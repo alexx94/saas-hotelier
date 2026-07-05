@@ -7,8 +7,10 @@
 --
 -- Populează: 1 organizație + 1 proprietate publicată, 3 tipuri de cameră (11 camere,
 -- numerotate simplu 1-11), tarife (sezon + override), 3 oaspeți, 5 rezervări
--- (trecut/curent/viitor), 2 promoții (cod + automată), o închidere (stop-sell) și un
--- blocaj de cameră (mentenanță). Datele de rezervare sunt relative la `current_date`.
+-- (trecut/curent/viitor), 2 promoții (cod + automată), o închidere (stop-sell), un
+-- blocaj de cameră (mentenanță) și un site public activat (slug `hotel-demo`, temă
+-- „serene”, fără poze — demonstrează fallback-urile). Datele de rezervare sunt
+-- relative la `current_date`.
 -- ============================================================
 
 -- ── 1. Cont auth (test@hotel.ro / test1234) ──
@@ -128,3 +130,36 @@ from (values
   ('d0000000-0000-0000-0000-000000000001'::uuid, 'e0000000-0000-0000-0000-000000000003'::uuid, 'f0000000-0000-0000-0000-000000000002'::uuid, 'confirmed',   (current_date + 5),  (current_date + 8),  2, 0, 'admin',  'Maria Pop',      'maria.pop@example.com',      '+40722000222')
 ) as b(type, unit, guest, status, ci, co, adults, children, source, name, email, phone)
 cross join lateral (select app.compute_price(b.type, b.ci, b.co) as j) q;
+
+-- ── 11. Site public (Sprint 10) — slug `hotel-demo`, activat, temă „serene” ──
+-- Fără site_photos: nu putem pune fișiere reale în Storage din seed, deci site-ul
+-- demo demonstrează intenționat fallback-urile fără poze (hero/galerie/camere).
+insert into property_sites (
+  org_id, property_id, slug, theme, is_enabled, contact_phone, contact_email, map_embed_url, content)
+values (
+  'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001',
+  'hotel-demo', 'serene', true, '+40241000111', 'contact@hotel-demo.ro',
+  'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2848.0!2d28.6558!3d44.1733!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNDTCsDEwJzI0LjAiTiAyOMKwMzknMjEuMCJF!5e0!3m2!1sro!2sro!4v1700000000000!5m2!1sro!2sro',
+  jsonb_build_object(
+    'hero', jsonb_build_object(
+      'title', 'Hotel Demo Marea Neagră',
+      'subtitle', 'Cazare de bun-simț la câțiva pași de plajă, în inima Constanței'
+    ),
+    'about', jsonb_build_object(
+      'enabled', true,
+      'text', 'Hotel Demo Marea Neagră întâmpină oaspeții încă din 2010, la câteva minute de plajă și de centrul vechi al Constanței. Camerele sunt proaspăt renovate, iar echipa noastră vorbește română, engleză și franceză. Fie că vii pentru o vacanță de vară sau un city break de weekend, găsești liniște, curățenie și un mic dejun bun.'
+    ),
+    'rooms_teaser', jsonb_build_object('enabled', true, 'count', 2),
+    'services', jsonb_build_object(
+      'enabled', true,
+      'items', jsonb_build_array(
+        jsonb_build_object('icon', 'wifi', 'title', 'Wi-Fi gratuit', 'description', 'Internet de mare viteză, inclus în toate camerele și în spațiile comune.'),
+        jsonb_build_object('icon', 'breakfast', 'title', 'Mic dejun inclus', 'description', 'Bufet suedez zilnic, cu produse locale, între 07:00 și 10:30.'),
+        jsonb_build_object('icon', 'parking', 'title', 'Parcare privată', 'description', 'Loc de parcare gratuit, supravegheat video, la 2 minute de recepție.'),
+        jsonb_build_object('icon', 'pool', 'title', 'Piscină exterioară', 'description', 'Deschisă sezonier, cu șezlonguri și umbrele puse la dispoziție gratuit.')
+      )
+    ),
+    'map', jsonb_build_object('enabled', true),
+    'contact', jsonb_build_object('enabled', true),
+    'pages', jsonb_build_object('rooms', true, 'book', true)
+  ));

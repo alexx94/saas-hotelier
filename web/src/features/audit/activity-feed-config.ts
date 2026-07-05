@@ -11,6 +11,7 @@ import {
   CLOSURE_EVENT_LABEL, CLOSURE_FIELDS,
   STAY_RULE_EVENT_LABEL, STAY_RULE_FIELDS,
 } from "@/features/reservation-rules/rule-fields"
+import { SITE_EVENT_LABEL, SITE_FIELDS } from "@/features/site-builder/site-fields"
 import type { EventFieldRegistry } from "@/features/bookings/event-diff"
 import type { TranslationKey } from "@/lib/i18n"
 
@@ -35,6 +36,7 @@ export const ACTIVITY_FEED_CONFIG: Record<string, EntityConfig> = {
   stay_rule: { entityLabel: "entity.stay_rule", eventLabels: STAY_RULE_EVENT_LABEL, fields: STAY_RULE_FIELDS },
   arrival_rule: { entityLabel: "entity.arrival_rule", eventLabels: ARRIVAL_RULE_EVENT_LABEL, fields: ARRIVAL_RULE_FIELDS },
   closure: { entityLabel: "entity.closure", eventLabels: CLOSURE_EVENT_LABEL, fields: CLOSURE_FIELDS },
+  property_site: { entityLabel: "entity.property_site", eventLabels: SITE_EVENT_LABEL, fields: SITE_FIELDS },
 }
 
 export const ACTIVITY_ENTITY_TYPES = Object.keys(ACTIVITY_FEED_CONFIG)

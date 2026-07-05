@@ -887,6 +887,66 @@ export type Database = {
           },
         ]
       }
+      property_sites: {
+        Row: {
+          contact_email: string | null
+          contact_phone: string | null
+          content: Json
+          created_at: string
+          id: string
+          is_enabled: boolean
+          map_embed_url: string | null
+          org_id: string
+          property_id: string
+          slug: string
+          theme: string
+          updated_at: string
+        }
+        Insert: {
+          contact_email?: string | null
+          contact_phone?: string | null
+          content?: Json
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          map_embed_url?: string | null
+          org_id: string
+          property_id: string
+          slug: string
+          theme?: string
+          updated_at?: string
+        }
+        Update: {
+          contact_email?: string | null
+          contact_phone?: string | null
+          content?: Json
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          map_embed_url?: string | null
+          org_id?: string
+          property_id?: string
+          slug?: string
+          theme?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "property_sites_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "property_sites_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: true
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rate_rules: {
         Row: {
           created_at: string
@@ -1082,6 +1142,61 @@ export type Database = {
             columns: ["unit_id"]
             isOneToOne: false
             referencedRelation: "units"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      site_photos: {
+        Row: {
+          alt: string | null
+          created_at: string
+          id: string
+          org_id: string
+          property_id: string
+          sort_order: number
+          storage_path: string
+          unit_type_id: string | null
+        }
+        Insert: {
+          alt?: string | null
+          created_at?: string
+          id?: string
+          org_id: string
+          property_id: string
+          sort_order?: number
+          storage_path: string
+          unit_type_id?: string | null
+        }
+        Update: {
+          alt?: string | null
+          created_at?: string
+          id?: string
+          org_id?: string
+          property_id?: string
+          sort_order?: number
+          storage_path?: string
+          unit_type_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "site_photos_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "site_photos_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "site_photos_unit_type_id_fkey"
+            columns: ["unit_type_id"]
+            isOneToOne: false
+            referencedRelation: "unit_types"
             referencedColumns: ["id"]
           },
         ]
@@ -1611,6 +1726,7 @@ export type Database = {
         Args: { p_check_in: string; p_unit_type_id: string }
         Returns: Json
       }
+      is_site_slug_available: { Args: { p_slug: string }; Returns: boolean }
       link_booking_guest: {
         Args: { p_booking_id: string; p_guest_id: string }
         Returns: undefined
@@ -1666,6 +1782,7 @@ export type Database = {
           unit_type_id: string
         }[]
       }
+      public_get_site: { Args: { p_slug: string }; Returns: Json }
       public_preview_promo: {
         Args: {
           p_check_in: string
@@ -1885,3 +2002,4 @@ export const Constants = {
     },
   },
 } as const
+

@@ -4567,4 +4567,266 @@ do $$ declare v_b uuid; begin
 end $$;
 reset role;
 
+-- ============================================================
+-- Sprint 10 — Website Builder per proprietate (property_sites, site_photos,
+-- public_get_site, is_site_slug_available)
+--
+-- Fixtures (ca postgres → bypass RLS):
+--   * Property A ('20000000-...0001', Org A, deja publicată) => site enabled
+--     "hotel-test-site" (public complet).
+--   * O a doua proprietate în Org A, NEpublicată => site enabled, dar
+--     public_get_site trebuie să dea NULL (proprietatea nu e publicată).
+--   * Property A cu un al doilea site DEZACTIVAT (is_enabled=false) pe un
+--     slug separat => public_get_site NULL.
+--   * Property B (Org B, publicată) cu propriul site => folosit pt. izolarea
+--     cross-tenant (owner-b nu vede site-ul Org A).
+-- ============================================================
+
+insert into properties (id, org_id, name, slug, is_published) values
+  ('20000000-0000-0000-0000-000000000111', '10000000-0000-0000-0000-000000000001',
+   'Proprietate Nepublicata 111', 'prop-111-unpublished', false),
+  ('20000000-0000-0000-0000-000000000112', '10000000-0000-0000-0000-000000000002',
+   'Hotel Org B 111', 'hotel-org-b-111', true),
+  ('20000000-0000-0000-0000-000000000113', '10000000-0000-0000-0000-000000000001',
+   'Proprietate Fara Site 113', 'prop-113-no-site', true);
+
+insert into property_sites (id, org_id, property_id, slug, is_enabled, contact_phone, contact_email, content) values
+  ('90000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001', 'hotel-test-site', true, '0722111222', 'contact@hotel-test.ro',
+   '{"hero":{"title":"Bine ati venit","subtitle":"Confort"},"about":{"enabled":true,"text":"Despre noi"},
+     "rooms_teaser":{"enabled":true,"count":2},"services":{"enabled":true,"items":[]},
+     "map":{"enabled":true},"contact":{"enabled":true},"pages":{"rooms":true,"book":true}}'::jsonb),
+  ('90000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000111', 'prop-111-site', true, null, null, default),
+  ('90000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000002',
+   '20000000-0000-0000-0000-000000000112', 'hotel-org-b-site', true, null, null, default);
+
+insert into site_photos (id, org_id, property_id, storage_path, unit_type_id, sort_order, alt) values
+  ('91000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001/foto1.jpg', null, 0, 'Fatada hotelului'),
+  ('91000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001',
+   '20000000-0000-0000-0000-000000000001/foto2.jpg', '30000000-0000-0000-0000-000000000001', 1, 'Camera dubla');
+
+-- ---------- TEST 111: izolare cross-tenant pe property_sites (SELECT autenticat) ----------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}';
+do $$ declare v_cnt int; begin
+  select count(*) into v_cnt from property_sites where id = '90000000-0000-0000-0000-000000000001';
+  if v_cnt = 0 then raise notice 'TEST 111a PASS: owner-b nu vede site-ul Org A (property_sites)';
+  else raise exception 'TEST 111a FAIL: owner-b vede % rânduri din site-ul Org A', v_cnt; end if;
+
+  select count(*) into v_cnt from property_sites where id = '90000000-0000-0000-0000-000000000003';
+  if v_cnt = 1 then raise notice 'TEST 111b PASS: owner-b vede propriul site (Org B)';
+  else raise exception 'TEST 111b FAIL: owner-b nu vede site-ul propriu (cnt=%)', v_cnt; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 112: anon nu poate SELECT direct pe property_sites/site_photos ----------
+-- revoke all => nici măcar count(*) nu merge (permission denied la nivel de tabel,
+-- mai strict decât RLS întorcând 0 rânduri) — exact spec-ul: "niciun acces direct".
+set local role anon;
+do $$ declare v_cnt int; begin
+  begin
+    select count(*) into v_cnt from property_sites;
+    raise exception 'TEST 112a FAIL: anon a putut interoga property_sites (% rânduri)', v_cnt;
+  exception when insufficient_privilege then
+    raise notice 'TEST 112a PASS: anon => permission denied pe property_sites (revoke all)';
+  end;
+end $$;
+do $$ declare v_cnt int; begin
+  begin
+    select count(*) into v_cnt from site_photos;
+    raise exception 'TEST 112b FAIL: anon a putut interoga site_photos (% rânduri)', v_cnt;
+  exception when insufficient_privilege then
+    raise notice 'TEST 112b PASS: anon => permission denied pe site_photos (revoke all)';
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 113: public_get_site — NULL pt. disabled/nepublicat, date corecte pt. enabled+published ----------
+set local role anon;
+do $$ declare v_result jsonb; begin
+  -- 113a: site enabled + proprietate publicată => date complete
+  v_result := public.public_get_site('hotel-test-site');
+  if v_result is not null
+     and v_result->'site'->>'slug' = 'hotel-test-site'
+     and v_result->'site'->>'theme' = 'serene'
+     and v_result->'site'->>'contact_phone' = '0722111222'
+     and v_result->'property'->>'name' = 'Hotel Test'
+     and v_result->'property'->>'slug' = 'hotel-test'
+     and jsonb_array_length(v_result->'unit_types') >= 1
+     and jsonb_array_length(v_result->'photos') = 2
+  then raise notice 'TEST 113a PASS: public_get_site enabled+published => date complete';
+  else raise exception 'TEST 113a FAIL: %', v_result; end if;
+
+  -- 113a-2: nu expune org_id nicăieri în răspuns
+  if (v_result->'site') ? 'org_id' or (v_result->'property') ? 'org_id'
+     or (v_result->'property') ? 'is_published' or (v_result->'property') ? 'settings' then
+    raise exception 'TEST 113a-2 FAIL: răspunsul expune coloane interne: %', v_result;
+  else raise notice 'TEST 113a-2 PASS: fără org_id/is_published/settings în răspuns';
+  end if;
+
+  -- 113b: site pe proprietate NEpublicată => NULL
+  v_result := public.public_get_site('prop-111-site');
+  if v_result is null then raise notice 'TEST 113b PASS: proprietate nepublicată => NULL';
+  else raise exception 'TEST 113b FAIL: %', v_result; end if;
+
+  -- 113c: slug inexistent => NULL
+  v_result := public.public_get_site('nu-exista-asa-ceva');
+  if v_result is null then raise notice 'TEST 113c PASS: slug inexistent => NULL';
+  else raise exception 'TEST 113c FAIL: %', v_result; end if;
+end $$;
+reset role;
+
+-- 113d: site dezactivat (is_enabled=false) pe proprietate publicată => NULL
+update property_sites set is_enabled = false where id = '90000000-0000-0000-0000-000000000003';
+set local role anon;
+do $$ declare v_result jsonb; begin
+  v_result := public.public_get_site('hotel-org-b-site');
+  if v_result is null then raise notice 'TEST 113d PASS: site disabled => NULL';
+  else raise exception 'TEST 113d FAIL: %', v_result; end if;
+end $$;
+reset role;
+
+-- ---------- TEST 114: CHECK-uri de slug (format invalid, rezervat, prea scurt) ----------
+do $$ begin
+  begin
+    insert into property_sites (org_id, property_id, slug)
+    values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000111', 'AB');
+    raise exception 'TEST 114a FAIL: slug prea scurt acceptat';
+  exception when others then
+    if sqlerrm like '%property_sites_slug_format%' or sqlerrm like '%check constraint%' then
+      raise notice 'TEST 114a PASS: slug prea scurt/uppercase respins de CHECK';
+    else raise; end if;
+  end;
+end $$;
+
+do $$ begin
+  begin
+    insert into property_sites (org_id, property_id, slug)
+    values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000111', '-abc-');
+    raise exception 'TEST 114b FAIL: slug cu cratimă la capăt acceptat';
+  exception when others then
+    if sqlerrm like '%property_sites_slug_format%' then
+      raise notice 'TEST 114b PASS: slug cu cratimă la capăt respins de CHECK';
+    else raise; end if;
+  end;
+end $$;
+
+do $$ begin
+  begin
+    insert into property_sites (org_id, property_id, slug)
+    values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000111', 'admin');
+    raise exception 'TEST 114c FAIL: slug rezervat "admin" acceptat';
+  exception when others then
+    if sqlerrm like '%property_sites_slug_reserved%' then
+      raise notice 'TEST 114c PASS: slug rezervat respins de CHECK';
+    else raise; end if;
+  end;
+end $$;
+
+do $$ begin
+  begin
+    insert into property_sites (org_id, property_id, slug, map_embed_url)
+    values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000111',
+            'iframe-test-114d', 'https://evil.example.com/iframe');
+    raise exception 'TEST 114d FAIL: map_embed_url arbitrar acceptat';
+  exception when others then
+    if sqlerrm like '%property_sites_map_embed_format%' then
+      raise notice 'TEST 114d PASS: map_embed_url non-Google respins de CHECK';
+    else raise; end if;
+  end;
+end $$;
+
+-- ---------- TEST 115: unicitate slug + is_site_slug_available ----------
+do $$ begin
+  begin
+    insert into property_sites (org_id, property_id, slug)
+    values ('10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000112', 'hotel-test-site');
+    raise exception 'TEST 115a FAIL: slug duplicat acceptat (unique)';
+  exception when others then
+    if sqlerrm like '%unique%' or sqlerrm like '%duplicate key%' then
+      raise notice 'TEST 115a PASS: slug duplicat respins (unique constraint)';
+    else raise; end if;
+  end;
+end $$;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ declare v_avail boolean; begin
+  v_avail := public.is_site_slug_available('hotel-test-site');
+  if v_avail = false then raise notice 'TEST 115b PASS: is_site_slug_available => false (slug ocupat)';
+  else raise exception 'TEST 115b FAIL: slug ocupat raportat disponibil'; end if;
+
+  -- case-insensitive
+  v_avail := public.is_site_slug_available('HOTEL-TEST-SITE');
+  if v_avail = false then raise notice 'TEST 115c PASS: is_site_slug_available case-insensitive';
+  else raise exception 'TEST 115c FAIL: verificare case-insensitive a eșuat'; end if;
+
+  v_avail := public.is_site_slug_available('slug-nou-liber-115');
+  if v_avail = true then raise notice 'TEST 115d PASS: slug liber => true';
+  else raise exception 'TEST 115d FAIL: slug liber raportat indisponibil'; end if;
+end $$;
+reset role;
+
+-- anon nu poate apela is_site_slug_available (doar authenticated)
+set local role anon;
+do $$ begin
+  begin
+    perform public.is_site_slug_available('oricare');
+    raise exception 'TEST 115e FAIL: anon a putut apela is_site_slug_available';
+  exception when others then
+    if sqlerrm like '%permission denied%' then
+      raise notice 'TEST 115e PASS: anon => permission denied pe is_site_slug_available';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
+-- ---------- TEST 116: staff fără property.edit nu poate INSERT/UPDATE pe property_sites ----------
+-- a1 = housekeeping (fără property.edit) pe Org A
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+do $$ begin
+  begin
+    insert into property_sites (org_id, property_id, slug)
+    values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000113', 'slug-116a-housekeeping');
+    raise exception 'TEST 116a FAIL: housekeeping (fără property.edit) a creat un site';
+  exception when others then
+    if sqlerrm like '%new row violates row-level security%' or sqlerrm like '%policy%' then
+      raise notice 'TEST 116a PASS: INSERT respins de RLS (fără property.edit)';
+    else raise; end if;
+  end;
+end $$;
+
+-- UPDATE nu aruncă excepție când `using` nu potrivește niciun rând (doar
+-- 0 rânduri afectate) — verificăm explicit că valoarea a rămas neschimbată.
+do $$ declare v_theme text; begin
+  update property_sites set theme = 'hacked' where id = '90000000-0000-0000-0000-000000000001';
+  select theme into v_theme from property_sites where id = '90000000-0000-0000-0000-000000000001';
+  if v_theme = 'serene' then
+    raise notice 'TEST 116b PASS: UPDATE respins de RLS (fără property.edit) — theme neschimbat';
+  else raise exception 'TEST 116b FAIL: theme = % (housekeeping a reușit update-ul)', v_theme; end if;
+end $$;
+reset role;
+
+-- manager (a4, are property.edit) => POATE crea/edita
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a4","role":"authenticated"}';
+do $$ declare v_cnt int; begin
+  insert into property_sites (org_id, property_id, slug, theme)
+  values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000113', 'slug-116c-manager', 'sunset');
+  select count(*) into v_cnt from property_sites where slug = 'slug-116c-manager';
+  if v_cnt = 1 then raise notice 'TEST 116c PASS: manager (property.edit) creează site-ul';
+  else raise exception 'TEST 116c FAIL: insert manager nu a persistat'; end if;
+
+  update property_sites set theme = 'modern' where slug = 'slug-116c-manager';
+  perform 1 from property_sites where slug = 'slug-116c-manager' and theme = 'modern';
+  if found then raise notice 'TEST 116d PASS: manager (property.edit) editează site-ul';
+  else raise exception 'TEST 116d FAIL: update manager nu a persistat'; end if;
+end $$;
+reset role;
+
 rollback;

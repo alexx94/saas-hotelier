@@ -5,6 +5,37 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 10 — Website Builder per proprietate (5 iul 2026)
+
+Fiecare proprietate poate avea acum un site public propriu (`/s/{slug}`), separat de pagina de rezervare existentă (`/p/{slug}`, neatinsă): temă vizuală, conținut editabil (hero/despre/servicii/hartă/contact), galerie foto cu tag opțional pe tipul de cameră. Editabil din PMS (`/property/$propertyId/website`), consumat public printr-un singur RPC.
+
+### Backend — tabele noi, Storage, RPC public strict
+
+Migrația `20260705120000_property_sites.sql`: `property_sites` (1:1 cu `properties`, `slug` unic global + `theme` + `is_enabled` + `contact_phone/contact_email/map_embed_url` + `content` jsonb) și `site_photos` (`storage_path`, `unit_type_id` opțional = tag cameră, `sort_order`). RLS pe ambele reutilizează `property.edit` (Sprint 6.1) pentru scriere — **nicio permisiune nouă**. Bucket Storage public `site-photos` (5MB, jpeg/png/webp), cu politici de scriere condiționate de primul segment al path-ului (`{property_id}/{uuid}.{ext}`) fiind o proprietate administrabilă de user — prima folosire a Supabase Storage în acest proiect. Audit generic `app.audit_entity('property_site', ...)` (Sprint 7), `site_photos` neauditat (zgomot, ca `room_blocks`).
+
+Acces public **exclusiv prin RPC** — `public_get_site(slug)` (DEFINER, `null` dacă site dezactivat/inexistent/proprietate nepublicată; nu expune `org_id`/`settings`/`is_published`) și `is_site_slug_available(slug)` (verificare globală de unicitate, DEFINER pentru că RLS ascunde site-urile altor org-uri). Spre deosebire de `properties`/`unit_types` (SELECT direct + grants pe coloane pentru anon), aici totul trece printr-un singur punct de intrare — simplifică viitoarea extensie pe subdomeniu/domeniu custom. Detalii complete: [`docs/backend/rpc/sites.md`](backend/rpc/sites.md).
+
+### Decizii cheie
+
+- **Slug = viitor subdomeniu (label DNS)**: format strict de la început (`[a-z0-9]` + cratime interioare, 3–63 caractere, RFC 1035) + listă de nume rezervate (`www`, `app`, `api`, `admin`, ...) — evită o migrare dureroasă de date când se activează rutarea pe subdomeniu. Path-ul `/s/{slug}` de azi devine `{slug}.pilow.app` mâine cu **zero** schimbare de schemă, iar un domeniu custom viitor adaugă un tabel separat `site_domains` (fără să atingă `property_sites`).
+- **`map_embed_url` restricționat la prefixul `https://www.google.com/maps/embed`** — câmpul ajunge direct într-un `<iframe src>` public; a accepta orice URL ar deschide clickjacking/XSS printr-un chiriaș rău-intenționat.
+- **Chei semantice pentru iconurile de servicii** (`wifi`, `parking`, `breakfast`, `pool`, `spa`, `restaurant`, `bar`, `ac`, `pets`, `room_service`, `fitness`, `beach`) — contract partajat între `features/site-builder/service-icons.ts` (PMS, selector) și `features/site/service-icons.ts` (site public, `resolveServiceIcon`, fallback `Sparkles` pe cheie necunoscută). Sensul serviciului persistat în `content.services.items[].icon` rămâne stabil chiar dacă se schimbă iconul lucide din spate.
+- **Secțiuni toggle-abile în `content` jsonb** (`about.enabled`, `services.enabled`, `map.enabled`, `contact.enabled`, `pages.rooms/book`) — extensibilitate fără migrare: o secțiune nouă de conținut e un câmp jsonb nou + parsare Zod tolerantă (`.catch()` pe fiecare nivel, oglindă exactă în PMS și site public), nu o coloană SQL.
+
+### Frontend — PMS (site-builder) + site public temat
+
+`features/site-builder/` (PMS): formular de conținut (`site-content-form.tsx`, React Hook Form + Zod, oglindă a contractului din migrație), editor de servicii cu iconuri + reordonare (`services-editor.tsx`), selector temă (`theme-selector.tsx`), manager de poze cu reordonare drag (`photos-manager.tsx`, `sortable-photo-card.tsx`), creare site cu sugestie de slug + verificare disponibilitate live (`create-site-card.tsx`). Rută nouă `/property/$propertyId/website` + intrare „Website" în navigare (`app-shell.tsx`) + intrare `property_site` în registrul Activity Feed. Componentă nouă `components/ui/switch.tsx` (shadcn, prima folosire în proiect).
+
+`features/site/` (public): tema „serene" (tokens CSS `[data-site-theme="serene"]` în `index.css`, fonturi noi în `index.html`), secțiuni compuse (`hero-section`, `about-section`, `services-section`, `rooms-teaser-section`, `map-section`, `cta-section`, `room-card`), galerie foto pe embla carousel (`photo-carousel.tsx`), host-resolver pur `site-host.ts` (hostname → slug, pregătit pentru treapta de subdomeniu, azi mereu `null` pe path-based routing). Rute noi `routes/s/$siteSlug/{route,index,rooms,book}.tsx` — layout cu header sticky/footer/CTA plutit + 404 elegant dacă `public_get_site` întoarce `null`.
+
+**Refactor `features/public-booking/`**: `availability-search.tsx`/`availability-results.tsx`/`booking-dialog.tsx` extrase din `p.$slug.tsx` (fișier monolitic) ca să fie reutilizabile de `/s/{slug}/book` fără duplicare — pagina veche `/p/{slug}` neschimbată funcțional.
+
+### Verificare
+
+Teste DB TEST 111–116 (**341 PASS, 0 FAIL**): izolare cross-tenant pe `property_sites` (SELECT autenticat), `revoke all` pentru anon pe ambele tabele, `public_get_site` (date complete enabled+published / `null` pe fiecare caz de excludere / fără coloane interne expuse), CHECK-uri de slug (format, rezervat, prea scurt) + `map_embed_url`, unicitate slug + `is_site_slug_available` (case-insensitive, gated pe `authenticated`), RLS scriere gated pe `property.edit` (housekeeping respins, manager acceptat). Seed demo (`supabase/seed.sql`) extins cu un site activat pentru „Hotel Demo" (slug `hotel-demo`, temă serene, 4 servicii, fără poze — demonstrează intenționat fallback-urile fără galerie). `tsc -b` + `vite build` curate; `eslint` fără regresii (singurele findings sunt cele sistemice preexistente: `react-refresh/only-export-components` pe fișiere de rută, `react-hooks/incompatible-library` pe `form.watch()`).
+
+---
+
 ## Sprint 9.1 — Notă editabilă pe rezervare (26 iun 2026)
 
 Notă liberă (`bookings.notes`, coloană existentă din schema inițială) editabilă **și după creare**, direct din pagina rezervării — nu doar la creare ca până acum. Disponibilă oricărui rol cu `booking.edit`, **inclusiv recepție** (nu doar manager/admin, diferit de override-ul de preț — notele sunt informative, nu afectează banii).

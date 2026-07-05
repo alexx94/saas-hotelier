@@ -4,7 +4,7 @@
 
 ---
 
-## Starea curentă a proiectului (26 iun 2026 — Sprint 9.1 complet)
+## Starea curentă a proiectului (5 iul 2026 — Sprint 10 complet)
 
 Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 **https://github.com/alexx94/saas-hotelier**
@@ -12,7 +12,7 @@ Aplicație PMS multi-tenant funcțională. Tot codul e pe GitHub:
 Repo public. `web/.env.local` nu e în repo (exclus corect din `.gitignore`).
 Pentru a porni local: `supabase start` → `cd web && cp .env.example .env.local` (completezi cu valorile din output) → `npm install && npm run dev`.
 
-**Seed local de dezvoltare** (`supabase/seed.sql`, aplicat automat la `supabase db reset`, NU în producție): cont demo **test@hotel.ro / test1234** (owner), 1 proprietate publicată „Hotel Demo", 3 tipuri (11 camere, numerotate 1-11: duble 1-6, triple 7-9, apartamente 10-11), tarife sezon+override, 3 oaspeți, 5 rezervări (trecut/curent/viitor cu prețuri din motorul real), 2 promoții (cod `WELCOME10` + early booking automat), o închidere și un blocaj de cameră. Testele DB (`supabase/tests/db_tests.sql`) folosesc fixture-uri proprii (begin/rollback) și nu interferează cu seed-ul.
+**Seed local de dezvoltare** (`supabase/seed.sql`, aplicat automat la `supabase db reset`, NU în producție): cont demo **test@hotel.ro / test1234** (owner), 1 proprietate publicată „Hotel Demo", 3 tipuri (11 camere, numerotate 1-11: duble 1-6, triple 7-9, apartamente 10-11), tarife sezon+override, 3 oaspeți, 5 rezervări (trecut/curent/viitor cu prețuri din motorul real), 2 promoții (cod `WELCOME10` + early booking automat), o închidere și un blocaj de cameră, și un site public activat (Sprint 10, slug `hotel-demo`, temă „serene", fără poze — demonstrează fallback-urile fără galerie, vezi `/s/hotel-demo`). Testele DB (`supabase/tests/db_tests.sql`) folosesc fixture-uri proprii (begin/rollback) și nu interferează cu seed-ul.
 
 ---
 
@@ -97,6 +97,31 @@ web/src/
       hooks.ts          ← useHousekeepingBoard / useSetUnitCleaningStatus / useBulkSetUnitCleaningStatus
       cleaning-status.ts ← registry clean/dirty/inspected (mirror unit-status.ts)
       housekeeping-board.tsx ← carduri tap-friendly, filtre, selecție multiplă + bară bulk
+    site-builder/       ← Website Builder — editor site public în PMS (Sprint 10)
+      api.ts            ← siteContentSchema (Zod, oglindă a contractului DB) + CRUD property_sites/site_photos + upload Storage
+      hooks.ts          ← usePropertySite / useUpdatePropertySite / useSitePhotos / useUploadSitePhoto etc.
+      site-fields.ts    ← registry EventFieldRegistry pentru audit (Activity Feed)
+      service-icons.ts  ← SERVICE_ICONS (chei semantice → icon lucide + labelKey), contract partajat cu features/site/
+      site-header.tsx   ← enable/disable + slug + link „vezi site-ul"
+      site-content-form.tsx ← formular hero/despre/servicii/hartă/contact (RHF + Zod)
+      services-editor.tsx ← listă editabilă de servicii (icon + titlu + descriere), reordonare
+      theme-selector.tsx ← selector temă (registry themes.ts)
+      photos-manager.tsx / sortable-photo-card.tsx ← upload + reordonare drag galerie foto
+      create-site-card.tsx ← creare site nouă (sugestie slug + verificare disponibilitate live)
+      themes.ts         ← registry temelor disponibile în PMS
+    public-booking/     ← căutare disponibilitate + rezervare publică (existent; componente extrase din p.$slug.tsx în Sprint 10)
+      api.ts            ← fetchPublicProperty/searchAvailability/createPublicBooking etc. (RPC public_*, anon)
+      availability-search.tsx ← formular date+ocupare
+      availability-results.tsx ← listă tipuri disponibile + preț
+      booking-dialog.tsx  ← dialog date oaspete + confirmare (reutilizat de /p/{slug} ȘI /s/{slug}/book)
+    site/               ← site public per proprietate, temat (Sprint 10)
+      api.ts            ← fetchPublicSite (RPC public_get_site) + siteContentSchema tolerantă (.catch()) + helpers foto
+      hooks.ts          ← usePublicSite (siteKeys.bySlug)
+      service-icons.ts  ← resolveServiceIcon (aceleași chei semantice ca site-builder/, fallback Sparkles)
+      site-host.ts      ← getSiteSlugFromHostname: hostname → slug (pregătit pt. treapta de subdomeniu, azi mereu null)
+      themes.ts         ← resolveSiteTheme (validare temă cunoscută, fallback „serene")
+      photo-carousel.tsx ← galerie foto pe embla carousel
+      sections/         ← hero-section / about-section / services-section / rooms-teaser-section / map-section / cta-section / room-card
     audit/              ← jurnal de audit unificat + feed activitate (Sprint 7)
       api.ts            ← fetchActivityFeed (RPC get_activity_feed, cu filtre) + fetchEntityEvents
       hooks.ts           ← useActivityFeed (infinite query, staleTime 0 + refetchOnWindowFocus) + auditKeys
@@ -128,6 +153,7 @@ web/src/
       calendar.tsx
       housekeeping.tsx ← panou curățenie (Sprint 8), gate <Can permission="unit.manage">
       settings.tsx    ← config proprietate (tipuri camere, prețuri, reguli, promoții, publish)
+      website.tsx     ← Website Builder (Sprint 10): creare site / editor conținut+temă+poze, gate <Can permission="property.edit">
       bookings/
         index.tsx
         $bookingId.tsx
@@ -138,8 +164,13 @@ web/src/
     login.tsx
     signup.tsx
     onboarding.tsx
-    p.$slug.tsx       ← pagina publică de rezervare (lane guest, neatinsă)
-  components/ui/      ← shadcn/ui (nu modifica direct dacă nu e necesar)
+    p.$slug.tsx       ← pagina publică de rezervare (lane guest, neatinsă) — de la Sprint 10, componentele de căutare/rezultate/dialog sunt extrase în features/public-booking/ (reutilizate de s/$siteSlug/book.tsx)
+    s/$siteSlug/      ← site public temat per proprietate (Sprint 10), rutare azi pe path (viitor: subdomeniu, vezi site-host.ts)
+      route.tsx       ← layout: precarcă site-ul (beforeLoad, notFound elegant dacă null), header sticky + footer + CTA plutit „Rezervă"
+      index.tsx       ← homepage: hero + about + services + rooms-teaser + map (secțiuni toggle-abile din content jsonb)
+      rooms.tsx       ← listă completă tipuri de cameră (pagina „Camere", dacă content.pages.rooms=true)
+      book.tsx        ← căutare disponibilitate + rezervare (features/public-booking/, dacă content.pages.book=true)
+  components/ui/      ← shadcn/ui (nu modifica direct dacă nu e necesar); switch.tsx nou (Sprint 10, prima folosire)
   components/         ← componente compuse reutilizabile (peste primitive shadcn), ex. multi-select-filter.tsx
   lib/
     supabase.ts
@@ -296,11 +327,14 @@ Nu duplica tipuri între fișiere — re-exportă dacă ai nevoie în altă part
 - **Culori de domeniu = registre centralizate** (`status-badge.tsx`, `unit-status.ts`, `block-reason.ts`), nu clase prin componente; tot ce e structural (hover, hașuri, fundaluri) stă pe tokens de temă (variabile CSS oklch din `index.css`). Hover pe suprafețe cu conținut randat = overlay separat (`bg-foreground/5`), nu înlocuire de background.
 - **Dialog cu `useState` derivat din props ale părintelui → montează-l condiționat** (`{open && <Dialog .../>}`), niciodată necondiționat cu `open` doar ca prop. Un `useState(propCondiție ? a : b)` e un lazy initializer — citește `propCondiție` o singură dată, la montare; dacă dialogul e montat înainte ca datele părintelui (ex. `useQuery`) să se fi încărcat, starea inițială rămâne blocată pe valoarea greșită pentru toată sesiunea, indiferent ce devine prop-ul ulterior. Bug reprodus la `AddMemberDialog` (Sprint 6.4.1) — vezi `MemberEditor` din același fișier pentru pattern-ul corect (deja montat condiționat de `editing &&`).
 - **`beforeLoad` al unei rute trebuie să precarce TOT ce citesc Provider-ii de context randați de acea rută**, nu doar entitatea principală a rutei. `/property/$propertyId` precarcă `property` dar randează și `OrgProvider` (care are nevoie de lista de organizații) — omiterea ei a dus la `currentOrg` undefined la navigare directă (Sprint 6.4.1). Query-urile independente din `beforeLoad` se pornesc **în paralel** (`Promise`-uri create înainte de primul `await`), nu secvențial — altfel navigarea așteaptă suma round-trip-urilor, nu maximul.
+- **Prima folosire a Supabase Storage în proiect (Sprint 10, bucket public `site-photos`)**: contractul de securitate NU e pe tabelul `site_photos` (RLS obișnuit), ci pe `storage.objects`, condiționat de **structura path-ului de upload** — `{property_id}/{uuid}.{ext}`, unde politicile citesc `(storage.foldername(name))[1]::uuid` ca să verifice `app.has_permission(org_id, property_id, 'property.edit')`. Schimbarea structurii de foldere (ex. adăugarea unui prefix, sau mutarea `property_id` pe altă poziție) **rupe silent** politicile de scriere — nu o eroare de compilare, ci upload-uri respinse la runtime sau (mai rău) acceptate greșit dacă noua structură se potrivește accidental cu alt pattern. Orice schimbare de path trebuie coordonată cu migrația care definește politicile (`20260705120000_property_sites.sql`).
+- **Contract de chei semantice la iconuri (Sprint 10)**: `content.services.items[].icon` persistă chei stabile (`wifi`, `parking`, `breakfast`, ...), NU nume de componentă lucide — două registre paralele le mapează la iconuri (`site-builder/service-icons.ts` pentru selectorul din PMS, `site/service-icons.ts` cu `resolveServiceIcon` + fallback `Sparkles` pentru site-ul public). Adăugarea unei chei noi de serviciu = o intrare în **ambele** registre (altfel iconul dispare pe una din cele două suprafețe); redenumirea unei chei existente ar necesita și o migrare de date pe `content` jsonb (nu doar cod), pentru că valoarea e persistată, nu calculată.
 
 ---
 
 ## Features implementate (rezumat)
 
+- ✅ **Sprint 10 — Website Builder per proprietate**: fiecare proprietate poate avea un site public propriu (`/s/{slug}`), separat de pagina de rezervare (`/p/{slug}`, neatinsă): temă vizuală, conținut editabil (hero/despre/servicii/hartă/contact) și galerie foto cu tag opțional pe tipul de cameră. Tabele noi `property_sites` (1:1 cu `properties`) + `site_photos`; RLS reutilizează `property.edit` — **zero permisiuni noi**. Bucket Storage public `site-photos` (prima folosire Storage în proiect), scriere condiționată de `{property_id}/{uuid}.{ext}` fiind o proprietate administrabilă de user. Acces public **exclusiv prin RPC** (`public_get_site` — `null` uniform pentru site inexistent/dezactivat/proprietate nepublicată; `is_site_slug_available` pentru formular). Slug = viitor subdomeniu (format label DNS 3–63 + listă rezervată), path `/s/{slug}` azi → `{slug}.pilow.app` mâine fără migrare de date (host-resolver pur `site-host.ts`, pregătit). Chei semantice partajate pentru iconurile de servicii (`site-builder/service-icons.ts` ↔ `site/service-icons.ts`). Frontend: `features/site-builder/` (editor în PMS: conținut, servicii, temă, poze cu reordonare) + `features/site/` (site public temat „serene", secțiuni toggle-abile din `content` jsonb, galerie embla) + rute `s/$siteSlug/{route,index,rooms,book}`. Refactor `features/public-booking/` (componente căutare/rezultate/dialog extrase din `p.$slug.tsx`, reutilizate de `/s/{slug}/book`). Teste DB TEST 111–116 (**341 PASS**). Doc: [`docs/backend/rpc/sites.md`](backend/rpc/sites.md)
 - ✅ **Sprint 9.1 — Notă editabilă pe rezervare**: `bookings.notes` (existent) editabil **și după creare**, din pagina rezervării, de orice rol cu `booking.edit` — **inclusiv recepție**. RPC nou `update_booking_notes` (reutilizează permisiunea + pattern-ul lui `update_booking_dates`); zero coloane/tabele/triggere noi (`app.audit_booking` prinde generic schimbarea). UI: `BookingNotesCard` (editare inline, fără dialog). Teste DB TEST 110 (319 PASS).
 - ✅ **Sprint 9 — Manual Price Override**: rolurile privilegiate (administrator/manager + owner) pot modifica manual prețul unei rezervări, la **creare** și **editare**. 3 moduri cu aceeași stocare (total + breakdown): **total absolut** (sync Booking.com), **ajustare** (reducere −/adaos +), **per noapte**. Override-ul **înlocuiește promoția** (`promotion_id=null`). Helper pur `app.apply_price_override` (sursă unică, refolosit de `quote_price`/`create_booking`/`override_booking_price`), oglindit client-side în `price-override.ts` pentru preview instant. RPC nou `override_booking_price` (editare + clear). Permisiune nouă `booking.price_override` (admin+manager, owner bypass) — gate server-side + UI (`<usePermissions>`). Coloane snapshot `bookings.price_override_*`. Frontend modular: `PriceOverrideEditor` (creare) + `PriceOverrideDialog` (editare din pagina rezervării). Teste DB TEST 108–109 (315 PASS). Doc: [`docs/backend/rpc/price-override.md`](backend/rpc/price-override.md)
 - ✅ **Sprint 8 — Housekeeping**: stare de curățenie a camerei (`units.cleaning_status`: clean/dirty/inspected + `cleaning_status_at`), **separată** de starea operațională (`units.status`, Sprint 3) — curățenia nu blochează vânzarea camerei. **Auto Dirty**: trigger pe `bookings` (`app.checkout_sets_unit_dirty`) trece camera pe `dirty` automat la check-out, indiferent de rolul actorului (SECURITY DEFINER, ca audit-ul). **RBAC: zero permisiuni noi** — reutilizează `unit.manage` (Sprint 6.1, deja acordată rolului de sistem `housekeeping`); RLS `units_cud` gatează scrierea, iar RPC-ul de citire `get_housekeeping_board` verifică explicit `unit.manage` (nu doar membership — mai strict ca `get_dashboard_stats`). RPC nou `bulk_set_unit_cleaning_status` (selecție multiplă, INVOKER, RLS decide per rând). Audit extins pe trigger-ul existent `app.audit_unit` (ramură `cleaning_status_changed`, fără tabel nou) — vizibil automat în istoricul camerei și în Activity Feed (Sprint 7). Frontend **mobile-first** (`features/housekeeping/`): panou cu carduri tap-friendly, filtru „Necesită atenție" implicit, selecție multiplă cu „Selectează tot" (pe filtrul activ) + bară de acțiuni bulk; rută + nav nouă (`/property/$propertyId/housekeeping`), gate pe `unit.manage`; fiecare cameră arată „Nume actor · oră" pe ultima schimbare (`units.cleaning_status_by` uuid, capturat și pe Auto Dirty; numele rezolvat **server-side prin JOIN** `profiles`, nu mapare client-side — vezi Sprint 8.2). Evenimentul de audit `cleaning_status_changed` include numele camerei (`unit_name`). Teste DB TEST 102–106. Doc: [`docs/backend/rpc/housekeeping.md`](backend/rpc/housekeeping.md)

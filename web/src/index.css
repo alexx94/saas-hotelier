@@ -118,3 +118,47 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Site public — tema „Serene" (Sprint 10, Website Builder per proprietate)
+   Scope: [data-site-theme="serene"], pus pe wrapper-ul rutei /s/$siteSlug.
+   Paletă caldă hotelieră (crem/ivory + teracotă), oklch. O temă nouă în
+   viitor = un bloc CSS nou cu alt scope `[data-site-theme="..."]` + o
+   intrare în features/site/themes.ts — zero schimbări în componentele de
+   secțiune, care consumă DOAR variabilele --site-* de mai jos.
+   ───────────────────────────────────────────────────────────────────── */
+[data-site-theme="serene"] {
+  --site-bg: oklch(0.98 0.012 85);
+  --site-bg-alt: oklch(0.955 0.02 80);
+  --site-fg: oklch(0.24 0.02 50);
+  --site-muted: oklch(0.5 0.03 55);
+  --site-card: oklch(1 0.006 85);
+  --site-border: oklch(0.9 0.02 70);
+  --site-accent: oklch(0.55 0.14 40);
+  --site-accent-foreground: oklch(0.98 0.01 85);
+  --site-accent-soft: oklch(0.93 0.045 45);
+  --site-sage: oklch(0.42 0.05 155);
+
+  /* fallback elegant unde nu există poză — gradient stratificat din paletă,
+     niciodată gri de placeholder */
+  --site-hero-fallback: linear-gradient(
+    135deg,
+    oklch(0.4 0.06 150) 0%,
+    oklch(0.5 0.1 60) 55%,
+    oklch(0.62 0.13 45) 100%
+  );
+  --site-card-fallback: linear-gradient(
+    160deg,
+    var(--site-accent-soft) 0%,
+    var(--site-bg-alt) 100%
+  );
+
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  background: var(--site-bg);
+  color: var(--site-fg);
+}
+
+[data-site-theme="serene"] .site-font-display {
+  font-family: "Fraunces", ui-serif, Georgia, serif;
+}
+

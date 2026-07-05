@@ -218,6 +218,7 @@ create index on bookings using gist (unit_id, stay); -- creat implicit de EXCLUD
   - `closures(property_id, unit_type_id?, daterange, reason)` = **stop-sell / closed dates** cu scope (`unit_type_id` NULL = toată proprietatea). Distinct de `room_blocks`: oprește vânzarea unui produs, **nu** blochează camere fizice. Fără EXCLUDE (suprapunere benignă). `app.is_closed` verifică ambele scope-uri.
   - Enforcement în `app.create_booking_internal` (admin + public): `STAY_TOO_SHORT`, `STAY_TOO_LONG`, `DATES_CLOSED`. RPC `get_stay_constraints` pentru UI; `public_get_availability` filtrează închiderile + durata. Vezi `docs/backend/rpc/reservation-rules.md`.
 - Channel manager: `source` primește valori noi; tabel `channel_connections` + `external_refs(booking_id, channel, external_id)` — viitor.
+- **Website builder per proprietate** — ✅ implementat (Sprint 10, migrația `20260705120000`): `property_sites(property_id, slug, theme, is_enabled, content jsonb, ...)` (1:1 cu `properties`) + `site_photos(property_id, storage_path, unit_type_id?, sort_order)`, separate strict de inventar/booking. Acces public exclusiv prin RPC (`public_get_site`/`is_site_slug_available`), nu SELECT direct + RLS ca la `properties`/`unit_types`. Bucket Storage public `site-photos` — prima folosire Storage în proiect. Detalii complete (model de date, decizii de slug/securitate, scalare path→subdomeniu→domeniu custom): [`docs/backend/rpc/sites.md`](backend/rpc/sites.md).
 
 ## 2. RLS — strategie
 

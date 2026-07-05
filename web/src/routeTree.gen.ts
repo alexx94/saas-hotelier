@@ -15,11 +15,16 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PSlugRouteImport } from './routes/p.$slug'
+import { Route as SSiteSlugRouteRouteImport } from './routes/s/$siteSlug/route'
+import { Route as SSiteSlugIndexRouteImport } from './routes/s/$siteSlug/index'
 import { Route as AppOrgIndexRouteImport } from './routes/_app/org/index'
+import { Route as SSiteSlugRoomsRouteImport } from './routes/s/$siteSlug/rooms'
+import { Route as SSiteSlugBookRouteImport } from './routes/s/$siteSlug/book'
 import { Route as AppPropertyPropertyIdRouteRouteImport } from './routes/_app/property/$propertyId/route'
 import { Route as AppOrgOrgIdRouteRouteImport } from './routes/_app/org/$orgId/route'
 import { Route as AppPropertyPropertyIdIndexRouteImport } from './routes/_app/property/$propertyId/index'
 import { Route as AppOrgOrgIdIndexRouteImport } from './routes/_app/org/$orgId/index'
+import { Route as AppPropertyPropertyIdWebsiteRouteImport } from './routes/_app/property/$propertyId/website'
 import { Route as AppPropertyPropertyIdSettingsRouteImport } from './routes/_app/property/$propertyId/settings'
 import { Route as AppPropertyPropertyIdHousekeepingRouteImport } from './routes/_app/property/$propertyId/housekeeping'
 import { Route as AppPropertyPropertyIdCalendarRouteImport } from './routes/_app/property/$propertyId/calendar'
@@ -58,10 +63,30 @@ const PSlugRoute = PSlugRouteImport.update({
   path: '/p/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SSiteSlugRouteRoute = SSiteSlugRouteRouteImport.update({
+  id: '/s/$siteSlug',
+  path: '/s/$siteSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SSiteSlugIndexRoute = SSiteSlugIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SSiteSlugRouteRoute,
+} as any)
 const AppOrgIndexRoute = AppOrgIndexRouteImport.update({
   id: '/org/',
   path: '/org/',
   getParentRoute: () => AppRoute,
+} as any)
+const SSiteSlugRoomsRoute = SSiteSlugRoomsRouteImport.update({
+  id: '/rooms',
+  path: '/rooms',
+  getParentRoute: () => SSiteSlugRouteRoute,
+} as any)
+const SSiteSlugBookRoute = SSiteSlugBookRouteImport.update({
+  id: '/book',
+  path: '/book',
+  getParentRoute: () => SSiteSlugRouteRoute,
 } as any)
 const AppPropertyPropertyIdRouteRoute =
   AppPropertyPropertyIdRouteRouteImport.update({
@@ -85,6 +110,12 @@ const AppOrgOrgIdIndexRoute = AppOrgOrgIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppOrgOrgIdRouteRoute,
 } as any)
+const AppPropertyPropertyIdWebsiteRoute =
+  AppPropertyPropertyIdWebsiteRouteImport.update({
+    id: '/website',
+    path: '/website',
+    getParentRoute: () => AppPropertyPropertyIdRouteRoute,
+  } as any)
 const AppPropertyPropertyIdSettingsRoute =
   AppPropertyPropertyIdSettingsRouteImport.update({
     id: '/settings',
@@ -139,14 +170,19 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/signup': typeof SignupRoute
+  '/s/$siteSlug': typeof SSiteSlugRouteRouteWithChildren
   '/p/$slug': typeof PSlugRoute
   '/org/$orgId': typeof AppOrgOrgIdRouteRouteWithChildren
   '/property/$propertyId': typeof AppPropertyPropertyIdRouteRouteWithChildren
+  '/s/$siteSlug/book': typeof SSiteSlugBookRoute
+  '/s/$siteSlug/rooms': typeof SSiteSlugRoomsRoute
   '/org/': typeof AppOrgIndexRoute
+  '/s/$siteSlug/': typeof SSiteSlugIndexRoute
   '/property/$propertyId/activity': typeof AppPropertyPropertyIdActivityRoute
   '/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
   '/property/$propertyId/housekeeping': typeof AppPropertyPropertyIdHousekeepingRoute
   '/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
+  '/property/$propertyId/website': typeof AppPropertyPropertyIdWebsiteRoute
   '/org/$orgId/': typeof AppOrgOrgIdIndexRoute
   '/property/$propertyId/': typeof AppPropertyPropertyIdIndexRoute
   '/property/$propertyId/bookings/$bookingId': typeof AppPropertyPropertyIdBookingsBookingIdRoute
@@ -160,11 +196,15 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/signup': typeof SignupRoute
   '/p/$slug': typeof PSlugRoute
+  '/s/$siteSlug/book': typeof SSiteSlugBookRoute
+  '/s/$siteSlug/rooms': typeof SSiteSlugRoomsRoute
   '/org': typeof AppOrgIndexRoute
+  '/s/$siteSlug': typeof SSiteSlugIndexRoute
   '/property/$propertyId/activity': typeof AppPropertyPropertyIdActivityRoute
   '/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
   '/property/$propertyId/housekeeping': typeof AppPropertyPropertyIdHousekeepingRoute
   '/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
+  '/property/$propertyId/website': typeof AppPropertyPropertyIdWebsiteRoute
   '/org/$orgId': typeof AppOrgOrgIdIndexRoute
   '/property/$propertyId': typeof AppPropertyPropertyIdIndexRoute
   '/property/$propertyId/bookings/$bookingId': typeof AppPropertyPropertyIdBookingsBookingIdRoute
@@ -179,14 +219,19 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/signup': typeof SignupRoute
+  '/s/$siteSlug': typeof SSiteSlugRouteRouteWithChildren
   '/p/$slug': typeof PSlugRoute
   '/_app/org/$orgId': typeof AppOrgOrgIdRouteRouteWithChildren
   '/_app/property/$propertyId': typeof AppPropertyPropertyIdRouteRouteWithChildren
+  '/s/$siteSlug/book': typeof SSiteSlugBookRoute
+  '/s/$siteSlug/rooms': typeof SSiteSlugRoomsRoute
   '/_app/org/': typeof AppOrgIndexRoute
+  '/s/$siteSlug/': typeof SSiteSlugIndexRoute
   '/_app/property/$propertyId/activity': typeof AppPropertyPropertyIdActivityRoute
   '/_app/property/$propertyId/calendar': typeof AppPropertyPropertyIdCalendarRoute
   '/_app/property/$propertyId/housekeeping': typeof AppPropertyPropertyIdHousekeepingRoute
   '/_app/property/$propertyId/settings': typeof AppPropertyPropertyIdSettingsRoute
+  '/_app/property/$propertyId/website': typeof AppPropertyPropertyIdWebsiteRoute
   '/_app/org/$orgId/': typeof AppOrgOrgIdIndexRoute
   '/_app/property/$propertyId/': typeof AppPropertyPropertyIdIndexRoute
   '/_app/property/$propertyId/bookings/$bookingId': typeof AppPropertyPropertyIdBookingsBookingIdRoute
@@ -201,14 +246,19 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/signup'
+    | '/s/$siteSlug'
     | '/p/$slug'
     | '/org/$orgId'
     | '/property/$propertyId'
+    | '/s/$siteSlug/book'
+    | '/s/$siteSlug/rooms'
     | '/org/'
+    | '/s/$siteSlug/'
     | '/property/$propertyId/activity'
     | '/property/$propertyId/calendar'
     | '/property/$propertyId/housekeeping'
     | '/property/$propertyId/settings'
+    | '/property/$propertyId/website'
     | '/org/$orgId/'
     | '/property/$propertyId/'
     | '/property/$propertyId/bookings/$bookingId'
@@ -222,11 +272,15 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/signup'
     | '/p/$slug'
+    | '/s/$siteSlug/book'
+    | '/s/$siteSlug/rooms'
     | '/org'
+    | '/s/$siteSlug'
     | '/property/$propertyId/activity'
     | '/property/$propertyId/calendar'
     | '/property/$propertyId/housekeeping'
     | '/property/$propertyId/settings'
+    | '/property/$propertyId/website'
     | '/org/$orgId'
     | '/property/$propertyId'
     | '/property/$propertyId/bookings/$bookingId'
@@ -240,14 +294,19 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/signup'
+    | '/s/$siteSlug'
     | '/p/$slug'
     | '/_app/org/$orgId'
     | '/_app/property/$propertyId'
+    | '/s/$siteSlug/book'
+    | '/s/$siteSlug/rooms'
     | '/_app/org/'
+    | '/s/$siteSlug/'
     | '/_app/property/$propertyId/activity'
     | '/_app/property/$propertyId/calendar'
     | '/_app/property/$propertyId/housekeeping'
     | '/_app/property/$propertyId/settings'
+    | '/_app/property/$propertyId/website'
     | '/_app/org/$orgId/'
     | '/_app/property/$propertyId/'
     | '/_app/property/$propertyId/bookings/$bookingId'
@@ -262,6 +321,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
   SignupRoute: typeof SignupRoute
+  SSiteSlugRouteRoute: typeof SSiteSlugRouteRouteWithChildren
   PSlugRoute: typeof PSlugRoute
 }
 
@@ -309,12 +369,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/s/$siteSlug': {
+      id: '/s/$siteSlug'
+      path: '/s/$siteSlug'
+      fullPath: '/s/$siteSlug'
+      preLoaderRoute: typeof SSiteSlugRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s/$siteSlug/': {
+      id: '/s/$siteSlug/'
+      path: '/'
+      fullPath: '/s/$siteSlug/'
+      preLoaderRoute: typeof SSiteSlugIndexRouteImport
+      parentRoute: typeof SSiteSlugRouteRoute
+    }
     '/_app/org/': {
       id: '/_app/org/'
       path: '/org'
       fullPath: '/org/'
       preLoaderRoute: typeof AppOrgIndexRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/s/$siteSlug/rooms': {
+      id: '/s/$siteSlug/rooms'
+      path: '/rooms'
+      fullPath: '/s/$siteSlug/rooms'
+      preLoaderRoute: typeof SSiteSlugRoomsRouteImport
+      parentRoute: typeof SSiteSlugRouteRoute
+    }
+    '/s/$siteSlug/book': {
+      id: '/s/$siteSlug/book'
+      path: '/book'
+      fullPath: '/s/$siteSlug/book'
+      preLoaderRoute: typeof SSiteSlugBookRouteImport
+      parentRoute: typeof SSiteSlugRouteRoute
     }
     '/_app/property/$propertyId': {
       id: '/_app/property/$propertyId'
@@ -343,6 +431,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/org/$orgId/'
       preLoaderRoute: typeof AppOrgOrgIdIndexRouteImport
       parentRoute: typeof AppOrgOrgIdRouteRoute
+    }
+    '/_app/property/$propertyId/website': {
+      id: '/_app/property/$propertyId/website'
+      path: '/website'
+      fullPath: '/property/$propertyId/website'
+      preLoaderRoute: typeof AppPropertyPropertyIdWebsiteRouteImport
+      parentRoute: typeof AppPropertyPropertyIdRouteRoute
     }
     '/_app/property/$propertyId/settings': {
       id: '/_app/property/$propertyId/settings'
@@ -419,6 +514,7 @@ interface AppPropertyPropertyIdRouteRouteChildren {
   AppPropertyPropertyIdCalendarRoute: typeof AppPropertyPropertyIdCalendarRoute
   AppPropertyPropertyIdHousekeepingRoute: typeof AppPropertyPropertyIdHousekeepingRoute
   AppPropertyPropertyIdSettingsRoute: typeof AppPropertyPropertyIdSettingsRoute
+  AppPropertyPropertyIdWebsiteRoute: typeof AppPropertyPropertyIdWebsiteRoute
   AppPropertyPropertyIdIndexRoute: typeof AppPropertyPropertyIdIndexRoute
   AppPropertyPropertyIdBookingsBookingIdRoute: typeof AppPropertyPropertyIdBookingsBookingIdRoute
   AppPropertyPropertyIdGuestsGuestIdRoute: typeof AppPropertyPropertyIdGuestsGuestIdRoute
@@ -433,6 +529,7 @@ const AppPropertyPropertyIdRouteRouteChildren: AppPropertyPropertyIdRouteRouteCh
     AppPropertyPropertyIdHousekeepingRoute:
       AppPropertyPropertyIdHousekeepingRoute,
     AppPropertyPropertyIdSettingsRoute: AppPropertyPropertyIdSettingsRoute,
+    AppPropertyPropertyIdWebsiteRoute: AppPropertyPropertyIdWebsiteRoute,
     AppPropertyPropertyIdIndexRoute: AppPropertyPropertyIdIndexRoute,
     AppPropertyPropertyIdBookingsBookingIdRoute:
       AppPropertyPropertyIdBookingsBookingIdRoute,
@@ -463,12 +560,29 @@ const AppRouteChildren: AppRouteChildren = {
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
+interface SSiteSlugRouteRouteChildren {
+  SSiteSlugBookRoute: typeof SSiteSlugBookRoute
+  SSiteSlugRoomsRoute: typeof SSiteSlugRoomsRoute
+  SSiteSlugIndexRoute: typeof SSiteSlugIndexRoute
+}
+
+const SSiteSlugRouteRouteChildren: SSiteSlugRouteRouteChildren = {
+  SSiteSlugBookRoute: SSiteSlugBookRoute,
+  SSiteSlugRoomsRoute: SSiteSlugRoomsRoute,
+  SSiteSlugIndexRoute: SSiteSlugIndexRoute,
+}
+
+const SSiteSlugRouteRouteWithChildren = SSiteSlugRouteRoute._addFileChildren(
+  SSiteSlugRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
   SignupRoute: SignupRoute,
+  SSiteSlugRouteRoute: SSiteSlugRouteRouteWithChildren,
   PSlugRoute: PSlugRoute,
 }
 export const routeTree = rootRouteImport

@@ -32,6 +32,8 @@
 | `public_get_availability` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |
 | `public_create_booking` | pagina publică | DEFINER | **anon** + authenticated | [public-api.md](public-api.md) |
 | `get_activity_feed` | audit & activity feed | DEFINER | `audit.view` (owner/admin) | [audit.md](audit.md) |
+| `public_get_site` | website builder (site public) | DEFINER | **anon** + authenticated | [sites.md](sites.md) |
+| `is_site_slug_available` | website builder | DEFINER | authenticated | [sites.md](sites.md) |
 
 Funcții interne (schema `app`, neapelabile din API): `app.create_booking_internal` ([bookings.md](bookings.md)), `app.find_or_create_guest_internal` ([guests.md](guests.md)), `app.sync_booking_payment` (trigger plăți, [payments.md](payments.md)), `app.compute_price` (motorul de preț, [pricing.md](pricing.md)), `app.resolve_stay` + `app.is_closed` (reguli de rezervare, [reservation-rules.md](reservation-rules.md)), `app.check_arrival_departure` (restricții sosire/plecare, [stay-restrictions.md](stay-restrictions.md)), `app.resolve_promotion` (rezolvare promoții, [promotions.md](promotions.md)), `app.validate_booking` + validatorii `app.validate_*`, `app.booking_block_codes`, `app.unit_is_free` (strat de validatori, [validators.md](validators.md)), `app.user_permissions` + `app.has_permission` + triggerele `app.sync_member_role`/`app.check_member_role_org` (RBAC, [rbac.md](../rbac.md)), `app.audit_entity` (trigger generic de audit, [audit.md](audit.md)).
 

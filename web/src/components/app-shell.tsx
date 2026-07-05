@@ -2,7 +2,7 @@ import { useState } from "react"
 import type { ReactNode } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import {
-  Activity, BookOpenCheck, Building2, CalendarDays, LayoutDashboard, Menu,
+  Activity, BookOpenCheck, Building2, CalendarDays, Globe, LayoutDashboard, Menu,
   PanelLeftClose, PanelLeftOpen, Settings2, SprayCan, Users, X,
 } from "lucide-react"
 import { OrgSwitcher } from "@/features/organizations/org-switcher"
@@ -31,6 +31,7 @@ const propertyNav = [
   { to: "/property/$propertyId/calendar", label: t("nav.calendar"), icon: CalendarDays, permission: "calendar.view" },
   { to: "/property/$propertyId/bookings", label: t("nav.bookings"), icon: BookOpenCheck, permission: "booking.view" },
   { to: "/property/$propertyId/housekeeping", label: t("nav.housekeeping"), icon: SprayCan, permission: "unit.manage" },
+  { to: "/property/$propertyId/website", label: t("nav.website"), icon: Globe, permission: "property.edit" },
   { to: "/property/$propertyId/guests", label: t("nav.guests"), icon: Users, permission: "guest.view" },
   { to: "/property/$propertyId/activity", label: t("nav.activity"), icon: Activity, permission: "audit.view" },
 ] as const
@@ -195,7 +196,20 @@ export function AppShell({
   }
 
   return (
-    <div className="flex h-dvh overflow-hidden">
+    // `fixed inset-0` (nu doar `h-dvh`) — scoate shell-ul din flow-ul normal
+    // al documentului. `h-dvh` singur limitează ÎNĂLȚIMEA shell-ului, dar nu
+    // împiedică un descendent (iframe, portal Radix, transform de la
+    // @dnd-kit etc.) să extindă totuși scrollHeight-ul lui <body> — caz în
+    // care scroll-ul "sare" din <main>/<nav> direct pe document, mișcând tot
+    // shell-ul (inclusiv sidenav-ul). Cu `fixed inset-0`, <body> nu mai are
+    // NIMIC în flow-ul normal de care să depindă înălțimea lui — nu poate
+    // deveni scrollabil, indiferent ce face un descendent.
+    // `fixed inset-0` (nu doar `h-dvh`) — scoate shell-ul din flow-ul normal
+    // al documentului, ca backstop suplimentar: dacă vreun alt component Radix
+    // (Checkbox, RadioGroup etc.) repetă tiparul bubble-input fără ancestor
+    // poziționat (vezi fix-ul din switch.tsx/select.tsx), <body> tot nu poate
+    // deveni scrollabil, indiferent ce face un descendent.
+    <div className="fixed inset-0 flex overflow-hidden">
       {/* mobile overlay */}
       {mobileOpen && (
         <div
