@@ -135,6 +135,24 @@ edit-dates-dialog ──► update_booking_dates ──► UPDATE bookings ◄�
 
 ---
 
+## `get_booking_events(p_booking_id, p_limit, p_offset) returns table(id, booking_id, event_type, old_data, new_data, created_at, actor_id, actor_name)`
+
+**Scop**: istoricul (audit) afișat pe pagina dedicată a rezervării (`booking-history.tsx`) — înlocuiește un `select("*")` PostgREST brut pe `booking_events`, care nu rezolva niciodată actorul.
+
+| | |
+|---|---|
+| Migrație | `20260709120000` |
+| Security | DEFINER, `stable`, `set search_path = ''` |
+| Grants | `authenticated` ✅ · `anon`/PUBLIC ❌ |
+| Autorizare | `booking.property_id` → `app.can_access_property(...)` → `FORBIDDEN` (același nivel de acces ca restul paginii rezervării — nicio permisiune nouă); `BOOKING_NOT_FOUND` dacă rezervarea nu există |
+| Frontend | `features/bookings/api.ts` → `fetchBookingEvents()`, hook `useBookingEvents` (infinite query), UI `booking-history.tsx` |
+
+**`actor_name` — rezolvat identic cu `get_housekeeping_board`** (Sprint 8.2, [housekeeping.md](housekeeping.md)): `left join public.profiles p on p.user_id = be.actor_id`, `left join auth.users au on au.id = be.actor_id`, `coalesce(p.full_name, au.email::text)`. `booking_events.actor_id` era deja populat corect de `app.audit_booking` (inclusiv la creare) — lipsea doar rezolvarea la un nume afișabil pe suprafața dedicată; `get_activity_feed` (Sprint 8.2) rezolvă deja actorul pentru feed-ul general, dar nu era folosit de pagina rezervării.
+
+**Ordonare/paginare**: `order by created_at desc, id desc`, `limit p_limit offset p_offset` — aceeași convenție `pageSize + 1` ca restul listelor „Afișează mai mult" (`lib/pagination.ts`); frontend-ul calculează `p_limit`/`p_offset` din `pageRange()`, identic cu vechiul `.range()`.
+
+**Teste**: `db_tests.sql` TEST 117 (`actor_name` din `profiles.full_name` la creare, fallback pe `auth.users.email` fără profil completat, ordinea `created_at desc`, izolare cross-tenant → `FORBIDDEN`).
+
 ## Schimbarea statusului — fără RPC, intenționat
 
 Statusul se schimbă prin `UPDATE` direct pe `bookings` (`features/bookings/api.ts` → `updateBookingStatus()`), sub RLS. Validarea tranzițiilor (forward + revert) e în trigger-ul `bookings_update_guard` ([../triggers.md](../triggers.md)) și oglindită în `web/src/features/bookings/status-rules.ts` — **modifică-le simultan**.

@@ -34,7 +34,7 @@ frontend (api.ts per feature)
 | [rpc/organizations.md](rpc/organizations.md) | `create_organization` |
 | [rpc/units.md](rpc/units.md) | `generate_units`, `bulk_update_unit_status` |
 | [rpc/guests.md](rpc/guests.md) | `find_or_create_guest` (+ varianta internă), `get_guest_stats` |
-| [rpc/bookings.md](rpc/bookings.md) | `create_booking`, `update_booking_dates`, `reassign_booking`, `link_booking_guest`, `get_available_units` + engine-ul intern |
+| [rpc/bookings.md](rpc/bookings.md) | `create_booking`, `update_booking_dates`, `reassign_booking`, `link_booking_guest`, `get_available_units`, `get_booking_events` + engine-ul intern |
 | [rpc/public-api.md](rpc/public-api.md) | API-ul anonim: `public_get_availability`, `public_create_booking` |
 | [rpc/housekeeping.md](rpc/housekeeping.md) | `get_housekeeping_board`, `bulk_set_unit_cleaning_status`, Auto Dirty (checkout → `dirty`) |
 | [rpc/price-override.md](rpc/price-override.md) | Override manual de preț: `apply_price_override`, `create_booking`/`override_booking_price` extinse (total/ajustare/per-noapte) |

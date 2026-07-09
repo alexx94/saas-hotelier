@@ -31,6 +31,11 @@ export function BookingHistory({ bookingId }: Props) {
             <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <div className="flex-1">
               <span className="font-medium">{t(labelKey)}</span>
+              {ev.actor_name && (
+                <span className="ml-1 text-xs text-muted-foreground">
+                  {t("unit.event.by")} {ev.actor_name}
+                </span>
+              )}
               <EventDiff oldData={ev.old_data} newData={ev.new_data} />
             </div>
             <span className="text-xs text-muted-foreground shrink-0">

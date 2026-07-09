@@ -1637,6 +1637,19 @@ export type Database = {
           unit_id: string
         }[]
       }
+      get_booking_events: {
+        Args: { p_booking_id: string; p_limit?: number; p_offset?: number }
+        Returns: {
+          actor_id: string
+          actor_name: string
+          booking_id: string
+          created_at: string
+          event_type: string
+          id: string
+          new_data: Json
+          old_data: Json
+        }[]
+      }
       get_dashboard_stats: {
         Args: { p_property_id: string }
         Returns: {

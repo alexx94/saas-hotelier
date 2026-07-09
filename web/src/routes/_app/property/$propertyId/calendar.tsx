@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { Ban, CalendarClock, ChevronLeft, ChevronRight, Plus, Sparkles, User, X } from "lucide-react"
 import { useCurrentProperty } from "@/features/properties/context"
 import {
   useBlocksInRange, useBookingsInRange, useUnits,
 } from "@/features/bookings/hooks"
-import type { Booking, BookingStatus, RoomBlock } from "@/features/bookings/api"
-import { BookingFormDialog } from "@/features/bookings/booking-form-dialog"
+import type { Booking, BookingStatus, RoomBlock, Unit } from "@/features/bookings/api"
+import { BookingFormDialog, type BookingFormInitial } from "@/features/bookings/booking-form-dialog"
 import { statusColors, StatusBadge, statusLabel } from "@/features/bookings/status-badge"
 import type { UnitStatus } from "@/features/unit-types/api"
 import { UNIT_STATUS_BADGE_CLASS, UNIT_STATUS_LABEL } from "@/features/unit-types/unit-status"
@@ -30,7 +30,7 @@ import {
   NO_ARRIVAL_COLOR, NO_DEPARTURE_COLOR, TURNOVER_STRIPES,
   resolveArrivalRestrictions, restrictionFor,
 } from "@/features/reservation-rules/restriction-display"
-import { addDays } from "@/features/bookings/date-utils"
+import { addDays, diffDays, formatDateShort } from "@/features/bookings/date-utils"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { toast } from "sonner"
 import { t } from "@/lib/i18n"
@@ -48,8 +48,73 @@ function toISO(d: Date): string {
 }
 
 // plafonul pauzei de pregătire (unit_types.turnover_days CHECK 0..7) — cât de mult
-// înapoi în timp poate „intra" turnover-ul unei rezervări în luna afișată
+// înapoi în timp poate „intra" turnover-ul unei rezervări în fereastra afișată
 const MAX_TURNOVER_DAYS = 7
+
+// calendarul e o fereastră glisantă de 31 de zile (tape-chart), nu o grilă pe lună —
+// se poate întinde peste două luni calendaristice
+const WINDOW_DAYS = 31
+
+// implicit la mount: azi minus 3 zile, ca să existe context pe trecutul recent
+function defaultWindowStart(): string {
+  return addDays(toISO(new Date()), -3)
+}
+
+// poziția (index 0..WINDOW_DAYS) unui interval [from, toEx) în fereastra curentă,
+// clampată la marginile ferestrei — folosită atât pentru ocupare cât și pentru
+// poziționarea barelor (rezervări/blocaje/închideri/turnover)
+function windowIndexRange(windowStart: string, from: string, toEx: string) {
+  const startIdx = Math.max(0, diffDays(windowStart, from))
+  const endIdx = Math.min(WINDOW_DAYS, diffDays(windowStart, toEx))
+  return { startIdx, endIdx }
+}
+
+// ─── selecție de interval pe rând (tap-tap + drag mouse) ────────────────────
+
+// motivul unei celule ocupate — folosit doar pentru validarea selecției (nu și
+// pentru pictarea barelor, care rămâne neschimbată). Închiderile (closures) nu
+// sunt obstacol pentru selecție — sunt comerciale, validarea reală e în dialog.
+type ObstacleReason = "booking" | "block" | "turnover"
+
+const SELECTION_OVERLAP_KEY: Record<ObstacleReason, Parameters<typeof t>[0]> = {
+  booking: "calendar.selection.overlap_booking",
+  block: "calendar.selection.overlap_block",
+  turnover: "calendar.selection.overlap_turnover",
+}
+
+// selecție de nopți pe UN rând: [start..end] inclusiv (indici de celulă, ca la
+// occupiedDays), ancorată la `anchorIdx` (primul click / pointerdown).
+// `complete` = interval finalizat (al doilea tap sau pointerup) → popover vizibil.
+type CellSelection = {
+  unitId: string
+  unitName: string
+  unitTypeId: string
+  anchorIdx: number
+  start: number
+  end: number
+  complete: boolean
+  x: number
+  y: number
+}
+
+// extinde selecția din `anchorIdx` spre `targetIdx`, oprindu-se la ultima celulă
+// liberă înainte de primul obstacol întâlnit (dacă există) — folosit atât la al
+// doilea tap (tap-tap), cât și la fiecare pointerenter în timpul unui drag.
+function clampToward(
+  reasonMap: Map<number, ObstacleReason>,
+  anchorIdx: number,
+  targetIdx: number
+): { start: number; end: number; hit: ObstacleReason | null } {
+  const dir = targetIdx >= anchorIdx ? 1 : -1
+  let boundary = anchorIdx
+  let hit: ObstacleReason | null = null
+  for (let i = anchorIdx + dir; dir > 0 ? i <= targetIdx : i >= targetIdx; i += dir) {
+    const reason = reasonMap.get(i)
+    if (reason) { hit = reason; break }
+    boundary = i
+  }
+  return { start: Math.min(anchorIdx, boundary), end: Math.max(anchorIdx, boundary), hit }
+}
 
 // culoarea tarifului din celulă, după sursă (base/season/override)
 const RATE_KIND_CLASS: Record<string, string> = {
@@ -407,6 +472,57 @@ function TurnoverTooltip({
   )
 }
 
+// popover de acțiune după finalizarea selecției de nopți pe un rând: cameră +
+// interval + două acțiuni rapide (rezervare / blocaj). Backdrop transparent,
+// exact ca la tooltip-urile de mai sus — click în afară = anulează selecția.
+function SelectionPopover({
+  selection,
+  windowStart,
+  onClose,
+  onBook,
+  onBlock,
+}: {
+  selection: CellSelection
+  windowStart: string
+  onClose: () => void
+  onBook: () => void
+  onBlock: () => void
+}) {
+  const checkIn = addDays(windowStart, selection.start)
+  const checkOut = addDays(windowStart, selection.end + 1)
+  const nights = selection.end - selection.start + 1
+
+  const POPOVER_W = 240
+  const { left, top } = tooltipPos(selection.x, selection.y, POPOVER_W, 150)
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[55]" onClick={onClose} />
+      <div
+        style={{ position: "fixed", top, left, width: POPOVER_W, zIndex: 56 }}
+        className="rounded-lg border bg-popover shadow-xl text-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 border-b p-3 pb-2">
+          <div className="min-w-0">
+            <p className="font-semibold truncate">{selection.unitName}</p>
+            <p className="text-xs text-muted-foreground">
+              {formatDateShort(checkIn)} – {formatDateShort(checkOut)} · {nights} {t("bookings.nights")}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="flex gap-2 p-3">
+          <Button size="sm" className="flex-1" onClick={onBook}>{t("calendar.selection.book")}</Button>
+          <Button size="sm" variant="outline" className="flex-1" onClick={onBlock}>{t("calendar.selection.block")}</Button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── legendă culori (minimalistă) ─────────────────────────────────────────────
 
 const LEGEND_BOOKING_STATUSES: BookingStatus[] = [
@@ -488,44 +604,50 @@ function CalendarLegend() {
 
 function CalendarPage() {
   const { currentProperty: property } = useCurrentProperty()
-  const [month, setMonth] = useState(() => {
-    const now = new Date()
-    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1))
-  })
-  const [open, setOpen] = useState(false)
+  const [windowStart, setWindowStart] = useState(defaultWindowStart)
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const [blockTarget, setBlockTarget] = useState<
-    { kind: "single"; unitId: string; unitName: string } | null
+    { kind: "single"; unitId: string; unitName: string; initialRange?: { start: string; end: string } } | null
   >(null)
+  // selecția curentă de nopți pe un rând (tap-tap sau drag) — vezi clampToward
+  const [selection, setSelection] = useState<CellSelection | null>(null)
+  // dialogul de rezervare (unic): deschis fie din butonul „Adaugă" din header (fără
+  // preselectare), fie din popover-ul de selecție (cameră + interval preselectate)
+  const [bookingOpen, setBookingOpen] = useState(false)
+  const [bookingInitial, setBookingInitial] = useState<BookingFormInitial | null>(null)
 
-  const monthStart = useMemo(() => toISO(month), [month])
-  const monthEnd = useMemo(
-    () => toISO(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1))),
-    [month]
-  )
-  const daysInMonth = new Date(
-    month.getUTCFullYear(), month.getUTCMonth() + 1, 0
-  ).getDate()
+  // urmărirea unui drag cu mouse-ul (enhancement desktop) — origine + stare „chiar
+  // se trage acum", plus flag-uri care nu declanșează re-render (nu fac parte din UI)
+  const pointerOriginRef = useRef<{ unitId: string; idx: number } | null>(null)
+  const draggingRef = useRef(false)
+  // ignoră click-ul „fantomă" care urmează unui pointerup ce a finalizat un drag
+  const suppressClickRef = useRef(false)
+  // un singur toast de suprapunere per gest (tap-tap sau drag), nu unul per pointerenter
+  const gestureWarnedRef = useRef(false)
+
+  // windowEnd = exclusiv (prima zi de după fereastră)
+  const windowEnd = useMemo(() => addDays(windowStart, WINDOW_DAYS), [windowStart])
 
   // aducem și rezervările care s-au terminat cu până la MAX_TURNOVER_DAYS înainte de
-  // lună: pauza lor de pregătire (turnover) poate intra în luna afișată (ex. check-out
-  // pe 30 iun cu pauză 1 zi → 1 iul indisponibil). Barele/ocuparea folosesc totuși doar
-  // rezervările care ating efectiv luna (vezi filtrul de overlap mai jos).
-  const bookingsStart = useMemo(() => addDays(monthStart, -MAX_TURNOVER_DAYS), [monthStart])
+  // fereastră: pauza lor de pregătire (turnover) poate intra în fereastra afișată (ex.
+  // check-out cu o zi înainte de start, cu pauză 1 zi → prima zi din fereastră indisponibilă).
+  // Barele/ocuparea folosesc totuși doar rezervările care ating efectiv fereastra (vezi
+  // filtrul de overlap mai jos).
+  const bookingsStart = useMemo(() => addDays(windowStart, -MAX_TURNOVER_DAYS), [windowStart])
 
   const { data: units, isLoading: loadingUnits } = useUnits(property?.id)
-  const { data: bookings } = useBookingsInRange(property?.id, bookingsStart, monthEnd)
-  const { data: blocks } = useBlocksInRange(property?.id, monthStart, monthEnd)
-  const { data: closures } = useClosuresInRange(property?.id, monthStart, monthEnd)
-  const { data: arrivalRules } = useArrivalRulesInRange(property?.id, monthStart, monthEnd)
-  const { data: rates } = useRateCalendar(property?.id, monthStart, monthEnd)
+  const { data: bookings } = useBookingsInRange(property?.id, bookingsStart, windowEnd)
+  const { data: blocks } = useBlocksInRange(property?.id, windowStart, windowEnd)
+  const { data: closures } = useClosuresInRange(property?.id, windowStart, windowEnd)
+  const { data: arrivalRules } = useArrivalRulesInRange(property?.id, windowStart, windowEnd)
+  const { data: rates } = useRateCalendar(property?.id, windowStart, windowEnd)
 
   // restricții de sosire/plecare rezolvate pe zi (property-scope ∪ type-scope),
-  // pre-calculate o singură dată pe lună (O(reguli × zile), nu per celulă)
+  // pre-calculate o singură dată pe fereastră (O(reguli × zile), nu per celulă)
   const arrivalMaps = useMemo(
-    () => resolveArrivalRestrictions(arrivalRules ?? [], monthStart, monthEnd),
-    [arrivalRules, monthStart, monthEnd]
+    () => resolveArrivalRestrictions(arrivalRules ?? [], windowStart, windowEnd),
+    [arrivalRules, windowStart, windowEnd]
   )
 
   // închiderile property-scope (unit_type_id null) se aplică tuturor camerelor;
@@ -574,23 +696,151 @@ function CalendarPage() {
     return map
   }, [blocks])
 
-  const monthLabel = month.toLocaleDateString("ro-RO", {
-    month: "long", year: "numeric", timeZone: "UTC",
-  })
+  // label central: luna dacă fereastra stă într-o singură lună calendaristică,
+  // altfel intervalul lunilor acoperite (ex. „iul. – aug. 2026")
+  const rangeLabel = useMemo(() => {
+    const windowEndInclusive = addDays(windowStart, WINDOW_DAYS - 1)
+    const start = new Date(`${windowStart}T00:00:00Z`)
+    const end = new Date(`${windowEndInclusive}T00:00:00Z`)
+    const sameMonth =
+      start.getUTCFullYear() === end.getUTCFullYear() && start.getUTCMonth() === end.getUTCMonth()
+    if (sameMonth) {
+      return start.toLocaleDateString("ro-RO", { month: "long", year: "numeric", timeZone: "UTC" })
+    }
+    const sameYear = start.getUTCFullYear() === end.getUTCFullYear()
+    const startLabel = start.toLocaleDateString("ro-RO", {
+      month: "short", year: sameYear ? undefined : "numeric", timeZone: "UTC",
+    })
+    const endLabel = end.toLocaleDateString("ro-RO", {
+      month: "short", year: "numeric", timeZone: "UTC",
+    })
+    return `${startLabel} – ${endLabel}`
+  }, [windowStart])
 
-  function shiftMonth(delta: number) {
-    setMonth((m) => new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + delta, 1)))
+  function shiftWindow(deltaDays: number) {
+    setWindowStart((s) => addDays(s, deltaDays))
     setTooltip(null)
+    setSelection(null)
+  }
+
+  function goToToday() {
+    setWindowStart(defaultWindowStart())
+    setTooltip(null)
+    setSelection(null)
+  }
+
+  // deschide un tooltip de bară (rezervare/blocaj/închidere/turnover) — anulează
+  // orice selecție în curs, ca ele să nu coexiste vizual pe grilă
+  function openTooltip(next: TooltipState) {
+    setSelection(null)
+    setTooltip(next)
   }
 
   useEffect(() => {
-    if (!tooltip) return
+    if (!tooltip && !selection) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setTooltip(null)
+      if (e.key === "Escape") { setTooltip(null); setSelection(null) }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [tooltip])
+  }, [tooltip, selection])
+
+  // pornește o selecție nouă (ancoră) pe o celulă liberă a unui rând activ;
+  // pe celulă ocupată: fără selecție, doar toast cu motivul exact
+  function startSelection(unit: Unit, idx: number, reasonMap: Map<number, ObstacleReason>, rect: DOMRect) {
+    const reason = reasonMap.get(idx)
+    if (reason) {
+      toast.error(t(SELECTION_OVERLAP_KEY[reason]))
+      setSelection(null)
+      return
+    }
+    gestureWarnedRef.current = false
+    setSelection({
+      unitId: unit.id, unitName: unit.name, unitTypeId: unit.unit_type_id,
+      anchorIdx: idx, start: idx, end: idx, complete: false,
+      x: rect.left, y: rect.bottom,
+    })
+  }
+
+  // tap-tap: primul click liber = ancoră; al doilea click pe ACELAȘI rând = interval
+  // complet (popover) — inclusiv al doilea click direct pe ancoră, care finalizează o
+  // selecție de 1 noapte; click pe alt rând pornește imediat o ancoră nouă (relativ la
+  // selecția anterioară, consistent cu regula „click pe celulă liberă = ancoră").
+  // Anularea explicită se face prin Escape sau backdrop-ul popover-ului de selecție.
+  function handleCellClick(
+    unit: Unit, idx: number, reasonMap: Map<number, ObstacleReason>, e: React.MouseEvent
+  ) {
+    if (suppressClickRef.current) { suppressClickRef.current = false; return }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+
+    if (!selection || selection.unitId !== unit.id || selection.complete) {
+      startSelection(unit, idx, reasonMap, rect)
+      return
+    }
+    if (idx === selection.anchorIdx) {
+      // al doilea click pe ANCORĂ = finalizează selecția de 1 noapte (nu anulare —
+      // altfel selecția de o singură noapte era imposibilă de finalizat prin tap-tap;
+      // anularea rămâne posibilă prin Escape / backdrop-ul popover-ului / ancoră nouă)
+      setSelection({ ...selection, start: idx, end: idx, complete: true, x: rect.left, y: rect.bottom })
+      return
+    }
+    const clamped = clampToward(reasonMap, selection.anchorIdx, idx)
+    if (clamped.hit) toast.error(t(SELECTION_OVERLAP_KEY[clamped.hit]))
+    setSelection({ ...selection, start: clamped.start, end: clamped.end, complete: true, x: rect.left, y: rect.bottom })
+  }
+
+  // drag cu mouse-ul: pointerdown pe celulă liberă memorează originea; abia la
+  // primul pointerenter pe altă celulă pornim efectiv „tragerea" (un simplu click
+  // fără mișcare rămâne doar în seama handleCellClick, prin evenimentul click nativ)
+  function handleCellPointerDown(
+    unit: Unit, idx: number, reasonMap: Map<number, ObstacleReason>, e: React.PointerEvent
+  ) {
+    if (e.pointerType !== "mouse") return
+    if (reasonMap.has(idx)) return
+    e.preventDefault() // evită selecția nativă de text la tragere
+    pointerOriginRef.current = { unitId: unit.id, idx }
+    draggingRef.current = false
+  }
+
+  function handleCellPointerEnter(
+    unit: Unit, idx: number, reasonMap: Map<number, ObstacleReason>, e: React.PointerEvent
+  ) {
+    if (e.pointerType !== "mouse") return
+    const origin = pointerOriginRef.current
+    if (!origin || origin.unitId !== unit.id || !(e.buttons & 1)) return
+    if (idx === origin.idx && !draggingRef.current) return
+
+    if (!draggingRef.current) {
+      draggingRef.current = true
+      gestureWarnedRef.current = false
+    }
+    const clamped = clampToward(reasonMap, origin.idx, idx)
+    if (clamped.hit && !gestureWarnedRef.current) {
+      toast.error(t(SELECTION_OVERLAP_KEY[clamped.hit]))
+      gestureWarnedRef.current = true
+    }
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setSelection({
+      unitId: unit.id, unitName: unit.name, unitTypeId: unit.unit_type_id,
+      anchorIdx: origin.idx, start: clamped.start, end: clamped.end, complete: false,
+      x: rect.left, y: rect.bottom,
+    })
+  }
+
+  // finalizarea drag-ului se ascultă la nivel de fereastră (nu per celulă), ca
+  // eliberarea mouse-ului în afara grilei să nu lase selecția blocată „la mijloc"
+  useEffect(() => {
+    function onWindowPointerUp(e: PointerEvent) {
+      if (e.pointerType !== "mouse" || !draggingRef.current) return
+      draggingRef.current = false
+      pointerOriginRef.current = null
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 0)
+      setSelection((sel) => (sel ? { ...sel, complete: true } : sel))
+    }
+    window.addEventListener("pointerup", onWindowPointerUp)
+    return () => window.removeEventListener("pointerup", onWindowPointerUp)
+  }, [])
 
   const today = toISO(new Date())
   const currency = property?.currency ?? ""
@@ -610,25 +860,34 @@ function CalendarPage() {
               <CalendarClock className="h-4 w-4" />
               <span className="hidden sm:inline">{t("pricing.override_action")}</span>
             </Button>
-            <Button onClick={() => setOpen(true)} disabled={!property} size="sm" className="md:hidden">
+            <Button
+              onClick={() => { setBookingInitial(null); setBookingOpen(true) }}
+              disabled={!property} size="sm" className="md:hidden"
+            >
               <Plus className="h-4 w-4" />
             </Button>
-            <Button onClick={() => setOpen(true)} disabled={!property} className="hidden md:flex">
+            <Button
+              onClick={() => { setBookingInitial(null); setBookingOpen(true) }}
+              disabled={!property} className="hidden md:flex"
+            >
               <Plus className="h-4 w-4" />
               {t("bookings.add")}
             </Button>
           </div>
         </div>
-        {/* Rând 2: navigare lună */}
+        {/* Rând 2: navigare fereastră (31 zile, pas de o săptămână) */}
         <div className="flex items-center justify-end gap-2">
           <div className="flex items-center gap-1 shrink-0">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => shiftMonth(-1)}>
+            <Button variant="outline" size="sm" className="h-8" onClick={goToToday}>
+              {t("calendar.today")}
+            </Button>
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => shiftWindow(-7)}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="min-w-24 text-center text-xs font-medium capitalize sm:min-w-32 sm:text-sm">
-              {monthLabel}
+              {rangeLabel}
             </span>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => shiftMonth(1)}>
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => shiftWindow(7)}>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -638,9 +897,10 @@ function CalendarPage() {
       {property && (
         <BookingFormDialog
           propertyId={property.id}
-          open={open}
-          onOpenChange={setOpen}
+          open={bookingOpen}
+          onOpenChange={(o) => { setBookingOpen(o); if (!o) setBookingInitial(null) }}
           currency={currency}
+          initial={bookingInitial ?? undefined}
         />
       )}
 
@@ -660,15 +920,24 @@ function CalendarPage() {
           <div
             className="grid min-w-[56rem] text-sm"
             style={{
-              gridTemplateColumns: `10rem repeat(${daysInMonth}, minmax(2rem, 1fr))`,
+              gridTemplateColumns: `10rem repeat(${WINDOW_DAYS}, minmax(2rem, 1fr))`,
             }}
           >
             {/* header zile */}
             <div className="sticky left-0 z-10 border-b border-r bg-card p-2 font-medium" />
-            {Array.from({ length: daysInMonth }, (_, i) => {
-              const day = `${monthStart.slice(0, 8)}${String(i + 1).padStart(2, "0")}`
+            {Array.from({ length: WINDOW_DAYS }, (_, i) => {
+              const day = addDays(windowStart, i)
               const dow = new Date(`${day}T00:00:00Z`).getUTCDay()
               const isWeekend = dow === 0 || dow === 6
+              const dayOfMonth = Number(day.slice(8, 10))
+              // arătăm abrevierea lunii pe prima celulă a ferestrei și la fiecare
+              // schimbare de lună (ziua 1), ca fereastra cross-month să rămână lizibilă
+              const monthAbbrev =
+                i === 0 || dayOfMonth === 1
+                  ? new Date(`${day}T00:00:00Z`).toLocaleDateString("ro-RO", {
+                      month: "short", timeZone: "UTC",
+                    })
+                  : null
               return (
                 <div
                   key={i}
@@ -681,20 +950,25 @@ function CalendarPage() {
                   <div className={cn("text-[9px] uppercase leading-none", isWeekend && "text-foreground/70")}>
                     {dayLabel(dow)}
                   </div>
-                  <div className="text-xs leading-tight">{i + 1}</div>
+                  <div className="text-xs leading-tight">
+                    {dayOfMonth}
+                    {monthAbbrev && (
+                      <span className="ml-0.5 lowercase text-muted-foreground/70">{monthAbbrev}</span>
+                    )}
+                  </div>
                 </div>
               )
             })}
 
             {/* rând per cameră */}
             {units.map((unit) => {
-              // setul complet include și rezervări terminate chiar înainte de lună
+              // setul complet include și rezervări terminate chiar înainte de fereastră
               // (aduse prin padding-ul de fetch) — folosit DOAR pentru turnover.
               const unitBookingsAll = bookingsByUnit.get(unit.id) ?? []
-              // bare + ocupare = doar rezervările care ating efectiv luna afișată,
-              // ca cele din luna trecută să nu deseneze bare/ocupare greșite.
+              // bare + ocupare = doar rezervările care ating efectiv fereastra afișată,
+              // ca cele dinainte de fereastră să nu deseneze bare/ocupare greșite.
               const unitBookings = unitBookingsAll.filter(
-                (b) => b.check_out > monthStart && b.check_in < monthEnd
+                (b) => b.check_out > windowStart && b.check_in < windowEnd
               )
               const unitBlocks = blocksByUnit.get(unit.id) ?? []
               // închideri aplicabile camerei = property-scope + cele ale tipului ei
@@ -706,15 +980,26 @@ function CalendarPage() {
               const isOperational = unitStatus === "active"
 
               // zilele „ocupate" (rezervare sau blocaj) — acolo nu pictăm tarif.
-              // Nopțile ocupate = [check_in, check_out) / [start, end).
+              // Nopțile ocupate = [check_in, check_out) / [start, end). Indexate 0..WINDOW_DAYS-1
+              // (index de celulă, nu zi din lună — fereastra poate traversa două luni).
               const occupiedDays = new Set<number>()
+              // motivul exact al ocupării (pentru validarea selecției de nopți pe rând) —
+              // închiderile NU intră aici (comerciale, selecția peste ele e permisă),
+              // prioritate booking > block > turnover la suprapunere (primul set câștigă)
+              const obstacleReason = new Map<number, ObstacleReason>()
               const markRange = (from: string, toEx: string) => {
-                const s = from < monthStart ? 1 : Number(from.slice(8, 10))
-                const e = toEx >= monthEnd ? daysInMonth : Number(toEx.slice(8, 10)) - 1
-                for (let d = s; d <= e; d++) occupiedDays.add(d)
+                const { startIdx, endIdx } = windowIndexRange(windowStart, from, toEx)
+                for (let d = startIdx; d < endIdx; d++) occupiedDays.add(d)
               }
-              for (const b of unitBookings) markRange(b.check_in, b.check_out)
-              for (const rb of unitBlocks) markRange(rb.start_date, rb.end_date)
+              const markReason = (from: string, toEx: string, reason: ObstacleReason) => {
+                const { startIdx, endIdx } = windowIndexRange(windowStart, from, toEx)
+                for (let d = startIdx; d < endIdx; d++) {
+                  occupiedDays.add(d)
+                  if (!obstacleReason.has(d)) obstacleReason.set(d, reason)
+                }
+              }
+              for (const b of unitBookings) markReason(b.check_in, b.check_out, "booking")
+              for (const rb of unitBlocks) markReason(rb.start_date, rb.end_date, "block")
               for (const c of unitClosures) markRange(c.start_date, c.end_date)
 
               // pauză de pregătire (turnover): `gap` nopți blocate fizic după fiecare
@@ -724,11 +1009,11 @@ function CalendarPage() {
                 gap > 0
                   ? unitBookingsAll
                       .map((b) => ({ id: b.id, from: b.check_out, toEx: addDays(b.check_out, gap) }))
-                      // păstrează doar segmentele care chiar intersectează luna afișată
-                      // (inclusiv spillover dintr-o plecare de la finalul lunii precedente)
-                      .filter((seg) => seg.from < monthEnd && seg.toEx > monthStart)
+                      // păstrează doar segmentele care chiar intersectează fereastra afișată
+                      // (inclusiv spillover dintr-o plecare de dinainte de fereastră)
+                      .filter((seg) => seg.from < windowEnd && seg.toEx > windowStart)
                   : []
-              for (const seg of turnoverSegments) markRange(seg.from, seg.toEx)
+              for (const seg of turnoverSegments) markReason(seg.from, seg.toEx, "turnover")
               return (
                 <div key={unit.id} className="group col-span-full grid grid-cols-subgrid border-b last:border-b-0">
                   {/* click pe cameră = meniu de gestionare (status + blocaje) */}
@@ -781,23 +1066,35 @@ function CalendarPage() {
                       !isOperational && "bg-muted"
                     )}
                     style={{
-                      gridTemplateColumns: `repeat(${daysInMonth}, minmax(2rem, 1fr))`,
+                      gridTemplateColumns: `repeat(${WINDOW_DAYS}, minmax(2rem, 1fr))`,
                       ...(!isOperational ? { backgroundImage: UNAVAILABLE_STRIPES } : undefined),
                     }}
                   >
-                    {Array.from({ length: daysInMonth }, (_, i) => {
-                      const dayNum = i + 1
-                      const dayIso = `${monthStart.slice(0, 8)}${String(dayNum).padStart(2, "0")}`
+                    {Array.from({ length: WINDOW_DAYS }, (_, i) => {
+                      const dayIso = addDays(windowStart, i)
                       const rate = unit.unit_type_id
                         ? rateByTypeDay.get(`${unit.unit_type_id}|${dayIso}`)
                         : undefined
-                      const showRate = isOperational && !occupiedDays.has(dayNum) && rate
+                      const showRate = isOperational && !occupiedDays.has(i) && rate
                       // restricții de sosire/plecare: marcaje subtile în colțurile celulei
                       const restr = isOperational
                         ? restrictionFor(arrivalMaps, unit.unit_type_id, dayIso)
                         : { noArrival: false, noDeparture: false }
+                      // celulă selectabilă = rând activ + fără obstacol (booking/block/turnover);
+                      // închiderile nu blochează selecția, doar server-side/dialogul o semnalează
+                      const selectable = isOperational && !obstacleReason.has(i)
                       return (
-                        <div key={i} className="relative min-h-12 border-r last:border-r-0">
+                        <div
+                          key={i}
+                          className={cn("relative min-h-12 border-r last:border-r-0", selectable && "cursor-pointer")}
+                          onClick={isOperational ? (e) => handleCellClick(unit, i, obstacleReason, e) : undefined}
+                          onPointerDown={
+                            isOperational ? (e) => handleCellPointerDown(unit, i, obstacleReason, e) : undefined
+                          }
+                          onPointerEnter={
+                            isOperational ? (e) => handleCellPointerEnter(unit, i, obstacleReason, e) : undefined
+                          }
+                        >
                           {restr.noArrival && (
                             <span
                               title={t("calendar.no_arrival_title")}
@@ -825,6 +1122,21 @@ function CalendarPage() {
                         </div>
                       )
                     })}
+                    {/* selecția de nopți în curs (tap-tap sau drag) — overlay absolut ca
+                        barele de dedesubt, dar sub rezervări/blocaje (z-2) și fără să
+                        capteze click-uri (pointer-events-none), ca celulele rămân clicabile */}
+                    {selection && selection.unitId === unit.id && (
+                      <div
+                        aria-hidden
+                        className="pointer-events-none absolute inset-y-1.5 z-[2] flex items-center justify-center overflow-hidden rounded-md border border-dashed border-primary bg-primary/15 text-[10px] font-medium text-primary"
+                        style={{
+                          left: `calc(${(selection.start / WINDOW_DAYS) * 100}% + 2px)`,
+                          width: `calc(${((selection.end - selection.start + 1) / WINDOW_DAYS) * 100}% - 4px)`,
+                        }}
+                      >
+                        {selection.end - selection.start + 1} {t("bookings.nights")}
+                      </div>
+                    )}
                     {/* hover = strat propriu sub barele de rezervări/blocaje (z-4/5):
                         umbrește subtil rândul fără să afecteze hașura sau culorile */}
                     <div
@@ -833,23 +1145,22 @@ function CalendarPage() {
                     />
                     {/* pauză de pregătire (turnover) — hașură subtilă pe nopțile de curățenie după plecare */}
                     {turnoverSegments.map((seg) => {
-                      const startDay = seg.from < monthStart ? 1 : Number(seg.from.slice(8, 10))
-                      const endDay = seg.toEx >= monthEnd ? daysInMonth + 1 : Number(seg.toEx.slice(8, 10))
-                      if (endDay <= startDay) return null
+                      const { startIdx, endIdx } = windowIndexRange(windowStart, seg.from, seg.toEx)
+                      if (endIdx <= startIdx) return null
                       return (
                         <div
                           key={`turnover-${seg.id}`}
                           title={t("calendar.turnover_title")}
                           className="absolute inset-y-1.5 z-[2] flex cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-muted-foreground/40 text-muted-foreground/70 transition-opacity hover:opacity-80"
                           style={{
-                            left: `calc(${((startDay - 1) / daysInMonth) * 100}% + 2px)`,
-                            width: `calc(${((endDay - startDay) / daysInMonth) * 100}% - 4px)`,
+                            left: `calc(${(startIdx / WINDOW_DAYS) * 100}% + 2px)`,
+                            width: `calc(${((endIdx - startIdx) / WINDOW_DAYS) * 100}% - 4px)`,
                             backgroundImage: TURNOVER_STRIPES,
                           }}
                           onClick={(e) => {
                             e.stopPropagation()
                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                            setTooltip({
+                            openTooltip({
                               kind: "turnover", from: seg.from, toEx: seg.toEx,
                               unitName: unit.name, x: rect.left, y: rect.bottom,
                             })
@@ -861,10 +1172,8 @@ function CalendarPage() {
                     })}
                     {/* închideri (stop-sell) — hașură roșiatică cu „Închis", sub blocaje/rezervări */}
                     {unitClosures.map((c) => {
-                      const startDay =
-                        c.start_date < monthStart ? 1 : Number(c.start_date.slice(8, 10))
-                      const endDay =
-                        c.end_date >= monthEnd ? daysInMonth + 1 : Number(c.end_date.slice(8, 10))
+                      const { startIdx, endIdx } = windowIndexRange(windowStart, c.start_date, c.end_date)
+                      if (endIdx <= startIdx) return null
                       return (
                         <div
                           key={c.id}
@@ -874,14 +1183,14 @@ function CalendarPage() {
                             CLOSURE_CLASS
                           )}
                           style={{
-                            left: `calc(${((startDay - 1) / daysInMonth) * 100}% + 2px)`,
-                            width: `calc(${((endDay - startDay) / daysInMonth) * 100}% - 4px)`,
+                            left: `calc(${(startIdx / WINDOW_DAYS) * 100}% + 2px)`,
+                            width: `calc(${((endIdx - startIdx) / WINDOW_DAYS) * 100}% - 4px)`,
                             backgroundImage: UNAVAILABLE_STRIPES,
                           }}
                           onClick={(e) => {
                             e.stopPropagation()
                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                            setTooltip({ kind: "closure", closure: c, x: rect.left, y: rect.bottom })
+                            openTooltip({ kind: "closure", closure: c, x: rect.left, y: rect.bottom })
                           }}
                         >
                           <span className="truncate">{t("closures.closed_label")}</span>
@@ -890,10 +1199,8 @@ function CalendarPage() {
                     })}
                     {/* blocaje de disponibilitate — evenimente cu interval, desenate efectiv */}
                     {unitBlocks.map((rb) => {
-                      const startDay =
-                        rb.start_date < monthStart ? 1 : Number(rb.start_date.slice(8, 10))
-                      const endDay =
-                        rb.end_date >= monthEnd ? daysInMonth + 1 : Number(rb.end_date.slice(8, 10))
+                      const { startIdx, endIdx } = windowIndexRange(windowStart, rb.start_date, rb.end_date)
+                      if (endIdx <= startIdx) return null
                       return (
                         <div
                           key={rb.id}
@@ -903,14 +1210,14 @@ function CalendarPage() {
                             blockCalendarClass(rb.reason)
                           )}
                           style={{
-                            left: `calc(${((startDay - 1) / daysInMonth) * 100}% + 2px)`,
-                            width: `calc(${((endDay - startDay) / daysInMonth) * 100}% - 4px)`,
+                            left: `calc(${(startIdx / WINDOW_DAYS) * 100}% + 2px)`,
+                            width: `calc(${((endIdx - startIdx) / WINDOW_DAYS) * 100}% - 4px)`,
                             backgroundImage: BLOCK_STRIPES,
                           }}
                           onClick={(e) => {
                             e.stopPropagation()
                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                            setTooltip({ kind: "block", block: rb, x: rect.left, y: rect.bottom })
+                            openTooltip({ kind: "block", block: rb, x: rect.left, y: rect.bottom })
                           }}
                         >
                           <span className="truncate">{blockReasonLabel(rb.reason)}</span>
@@ -918,14 +1225,8 @@ function CalendarPage() {
                       )
                     })}
                     {unitBookings.map((b) => {
-                      const startDay =
-                        b.check_in < monthStart
-                          ? 1
-                          : Number(b.check_in.slice(8, 10))
-                      const endDay =
-                        b.check_out >= monthEnd
-                          ? daysInMonth + 1
-                          : Number(b.check_out.slice(8, 10))
+                      const { startIdx, endIdx } = windowIndexRange(windowStart, b.check_in, b.check_out)
+                      if (endIdx <= startIdx) return null
                       return (
                         <div
                           key={b.id}
@@ -935,13 +1236,13 @@ function CalendarPage() {
                             statusColors[b.status as BookingStatus]
                           )}
                           style={{
-                            left: `calc(${((startDay - 1) / daysInMonth) * 100}% + 2px)`,
-                            width: `calc(${((endDay - startDay) / daysInMonth) * 100}% - 4px)`,
+                            left: `calc(${(startIdx / WINDOW_DAYS) * 100}% + 2px)`,
+                            width: `calc(${((endIdx - startIdx) / WINDOW_DAYS) * 100}% - 4px)`,
                           }}
                           onClick={(e) => {
                             e.stopPropagation()
                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                            setTooltip({ kind: "booking", booking: b as Booking, x: rect.left, y: rect.bottom })
+                            openTooltip({ kind: "booking", booking: b as Booking, x: rect.left, y: rect.bottom })
                           }}
                         >
                           <span className="truncate">
@@ -985,6 +1286,37 @@ function CalendarPage() {
               : t("closures.scope_property")
           }
           onClose={() => setTooltip(null)}
+        />
+      )}
+
+      {/* popover de acțiune după finalizarea selecției de nopți pe un rând */}
+      {selection?.complete && (
+        <SelectionPopover
+          selection={selection}
+          windowStart={windowStart}
+          onClose={() => setSelection(null)}
+          onBook={() => {
+            setBookingInitial({
+              unitId: selection.unitId,
+              unitTypeId: selection.unitTypeId,
+              checkIn: addDays(windowStart, selection.start),
+              checkOut: addDays(windowStart, selection.end + 1),
+            })
+            setBookingOpen(true)
+            setSelection(null)
+          }}
+          onBlock={() => {
+            setBlockTarget({
+              kind: "single",
+              unitId: selection.unitId,
+              unitName: selection.unitName,
+              initialRange: {
+                start: addDays(windowStart, selection.start),
+                end: addDays(windowStart, selection.end + 1),
+              },
+            })
+            setSelection(null)
+          }}
         />
       )}
 

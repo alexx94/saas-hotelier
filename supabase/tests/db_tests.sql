@@ -4829,4 +4829,112 @@ do $$ declare v_cnt int; begin
 end $$;
 reset role;
 
+-- ---------- TEST 117: get_booking_events — actor_name via JOIN server-side ----------
+-- Pagina dedicată a rezervării citea booking_events cu select("*") brut, fără
+-- rezolvare a actorului. RPC nou get_booking_events rezolvă actor_id -> actor_name
+-- identic cu get_housekeeping_board (LEFT JOIN profiles, fallback auth.users.email).
+-- Fixturi proprii (org/property/unit/guest 117), independente de restul fișierului.
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000117', 'owner117@test.ro'),
+  ('00000000-0000-0000-0000-000000000118', 'staff118@test.ro');
+
+insert into organizations (id, name, slug) values
+  ('10000000-0000-0000-0000-000000000117', 'Org 117', 'org-117');
+
+insert into organization_members (org_id, user_id, role) values
+  ('10000000-0000-0000-0000-000000000117', '00000000-0000-0000-0000-000000000117', 'owner'),
+  ('10000000-0000-0000-0000-000000000117', '00000000-0000-0000-0000-000000000118', 'staff');
+
+-- profil creat automat de trigger on_auth_user_created (full_name null) — completăm doar owner117
+update profiles set full_name = 'Actor Owner 117' where user_id = '00000000-0000-0000-0000-000000000117';
+-- staff118 rămâne fără profiles.full_name — verifică fallback-ul pe email
+
+insert into properties (id, org_id, name, slug, is_published) values
+  ('20000000-0000-0000-0000-000000000117', '10000000-0000-0000-0000-000000000117',
+   'Hotel 117', 'hotel-117-test', true);
+
+insert into unit_types (id, org_id, property_id, name, max_adults, max_children, base_price) values
+  ('30000000-0000-0000-0000-000000000117', '10000000-0000-0000-0000-000000000117',
+   '20000000-0000-0000-0000-000000000117', 'Dubla 117', 2, 1, 100);
+
+insert into units (id, org_id, property_id, unit_type_id, name) values
+  ('40000000-0000-0000-0000-000000000117', '10000000-0000-0000-0000-000000000117',
+   '20000000-0000-0000-0000-000000000117', '30000000-0000-0000-0000-000000000117', 'Camera 117');
+
+insert into guests (id, org_id, full_name, email) values
+  ('50000000-0000-0000-0000-000000000117', '10000000-0000-0000-0000-000000000117',
+   'Oaspete 117', 'oaspete117@test.ro');
+
+-- 117a: owner117 (are profiles.full_name) creează rezervarea => evenimentul
+-- 'created' trebuie să arate actor_name = 'Actor Owner 117'
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000117","role":"authenticated"}';
+do $$ declare v_booking_id uuid; begin
+  v_booking_id := public.create_booking(
+    '30000000-0000-0000-0000-000000000117', '2062-05-10', '2062-05-12',
+    '50000000-0000-0000-0000-000000000117', '40000000-0000-0000-0000-000000000117',
+    1, 0, 'confirmed', null, false, null);
+
+  perform set_config('test.booking_117', v_booking_id::text, false);
+
+  perform 1 from public.get_booking_events(v_booking_id, 100, 0)
+  where event_type = 'created' and actor_name = 'Actor Owner 117';
+  if found then
+    raise notice 'TEST 117a PASS: get_booking_events rezolvă actor_name din profiles.full_name la creare';
+  else raise exception 'TEST 117a FAIL: actor_name lipsă/greșit pentru evenimentul created'; end if;
+end $$;
+reset role;
+
+-- 117b: staff118 (fără profiles.full_name) editează nota => evenimentul 'updated'
+-- trebuie să arate actor_name = email-ul din auth.users (fallback coalesce)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000118","role":"authenticated"}';
+do $$ declare v_booking_id uuid; begin
+  v_booking_id := current_setting('test.booking_117')::uuid;
+  perform public.update_booking_notes(v_booking_id, 'notă adăugată de staff118');
+end $$;
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000117","role":"authenticated"}';
+do $$ declare v_booking_id uuid; v_name text; begin
+  v_booking_id := current_setting('test.booking_117')::uuid;
+  select actor_name into v_name from public.get_booking_events(v_booking_id, 100, 0)
+  where event_type = 'updated';
+  if v_name = 'staff118@test.ro' then
+    raise notice 'TEST 117b PASS: fără profiles.full_name => actor_name cade pe email (%)', v_name;
+  else raise exception 'TEST 117b FAIL: actor_name = %', coalesce(v_name, '<NULL>'); end if;
+end $$;
+reset role;
+
+-- 117c: ordinea rămâne created_at desc, id desc (cel mai recent eveniment primul)
+-- — UI-ul de istoric depinde de asta pentru afișare corectă
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000117","role":"authenticated"}';
+do $$ declare v_booking_id uuid; v_first_type text; begin
+  v_booking_id := current_setting('test.booking_117')::uuid;
+  select event_type into v_first_type from public.get_booking_events(v_booking_id, 1, 0);
+  if v_first_type = 'updated' then
+    raise notice 'TEST 117c PASS: get_booking_events ordonat created_at desc (cel mai recent primul)';
+  else raise exception 'TEST 117c FAIL: primul eveniment = %', v_first_type; end if;
+end $$;
+reset role;
+
+-- 117d: izolare cross-tenant — owner-a (Org A, fără acces la Org 117) => FORBIDDEN
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}';
+do $$ declare v_booking_id uuid; begin
+  v_booking_id := current_setting('test.booking_117')::uuid;
+  begin
+    perform 1 from public.get_booking_events(v_booking_id, 100, 0);
+    raise exception 'TEST 117d FAIL: actor din altă organizație a văzut istoricul';
+  exception when others then
+    if sqlerrm = 'FORBIDDEN' then
+      raise notice 'TEST 117d PASS: cross-tenant => FORBIDDEN';
+    else raise; end if;
+  end;
+end $$;
+reset role;
+
 rollback;

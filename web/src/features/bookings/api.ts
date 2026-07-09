@@ -27,7 +27,7 @@ export type Unit = Tables<"units"> & {
   } | null
 }
 
-export type BookingEvent = Tables<"booking_events">
+export type BookingEvent = Tables<"booking_events"> & { actor_name: string | null }
 
 export type AvailableUnit = {
   unit_id: string
@@ -152,15 +152,17 @@ export async function fetchBookingEvents(
   page: number
 ): Promise<Page<BookingEvent>> {
   const [from, to] = pageRange(page, EVENTS_PAGE_SIZE)
-  const { data, error } = await supabase
-    .from("booking_events")
-    .select("*")
-    .eq("booking_id", bookingId)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .range(from, to)
+  // Actorul (nume/email) e rezolvat server-side prin get_booking_events —
+  // identic cu get_housekeeping_board/get_activity_feed (JOIN profiles/auth.users),
+  // nu mapare client-side. p_limit cere intenționat un rând în plus (ca la
+  // .range() PostgREST) — rândul suplimentar semnalează hasMore în toPage().
+  const { data, error } = await supabase.rpc("get_booking_events", {
+    p_booking_id: bookingId,
+    p_limit: to - from + 1,
+    p_offset: from,
+  })
   if (error) throw error
-  return toPage(data, EVENTS_PAGE_SIZE)
+  return toPage(data as BookingEvent[], EVENTS_PAGE_SIZE)
 }
 
 export type CreateBookingInput = {

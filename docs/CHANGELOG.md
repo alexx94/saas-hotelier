@@ -5,6 +5,46 @@ Fiecare sesiune/sprint adaugă o secțiune nouă în ordine cronologică invers�
 
 ---
 
+## Sprint 11 — Quick-create din calendar & unificarea formularului de rezervare (9 iul 2026)
+
+Obiectiv de produs: un utilizator care ținea evidența cazărilor în Excel a reclamat că PMS-ul e mai greoi decât un tabel simplu. Răspunsul: rezervarea (sau blocajul) se creează direct din selecția pe calendar — click-click pe interval, alegi acțiunea, completezi doar ce lipsește (oaspete, eventual preț) — fără să mai deschizi un formular gol și să cauți tipul de cameră.
+
+### Calendar — fereastră glisantă de 31 zile
+
+Grila pe lună calendaristică (probleme: o rezervare 29 iul–4 aug era invizibilă/netăiabilă peste granița lunii) e înlocuită cu o fereastră glisantă de 31 zile, stil tape-chart (Beds24/Pynbooking): săgețile mută fereastra cu **±7 zile** (nu ±1 lună), buton nou „Azi" resetează la `azi − 3 zile`, label central se adaptează („iulie 2026" pe o singură lună / „iul. – aug. 2026" cross-month). Toată aritmetica de poziționare (bare de rezervări/blocaje/închideri/turnover, `occupiedDays`) a trecut de la „ziua din lună" (`slice(8,10)`, rupt cross-month) la **indici de zi relativi la fereastră**, printr-un helper nou `diffDays(fromIso, toIso)` în `bookings/date-utils.ts`. Scroll orizontal real (încărcare progresivă pe măsură ce derulezi, fără săgeți) rămâne **explicit amânat** pentru un sprint separat — schimbare de arhitectură mai mare (selecția ar trebui să treacă de la indici la date ISO absolute, ca fereastra să se poată extinde înapoi în timp fără să rupă selecția în curs).
+
+### Selecție de interval direct pe grilă
+
+Pe rândul unei camere active, celulele libere devin selectabile:
+- **Tap-tap** (mobil + desktop): primul click = ancoră; al doilea click pe alt interval finalizează selecția; al doilea click pe **aceeași celulă** (ancora) finalizează o selecție de **1 noapte** — bug inițial (`setSelection(null)` = anulare) reparat în aceeași sesiune, era imposibil de rezervat exact 1 noapte din calendar.
+- **Drag cu mouse-ul** (enhancement desktop, `pointerType === "mouse"` strict): pointerdown pe celulă liberă + pointerenter extinde selecția live; finalizarea se ascultă la nivel de `window` (`pointerup`), nu per celulă, ca eliberarea mouse-ului în afara grilei să nu blocheze selecția „la mijloc". Pe touch nu se face niciodată `preventDefault` — scroll-ul orizontal al grilei rămâne intact.
+- **Hartă de obstacole** per rând (`Map<index, "booking"|"block"|"turnover">`, construită în aceeași buclă care desenează barele, fără trecere suplimentară) — ancorarea pe o celulă ocupată sau extinderea peste un obstacol oprește selecția la ultima celulă liberă + `toast.error` cu motivul exact (3 mesaje distincte). Închiderile comerciale (closures) **nu** sunt obstacol la selecție — sunt semnalate de validarea din formular (cu Manager Override), nu blochează fizic click-ul.
+- **Popover de acțiune** la finalul selecției (camera + interval + nr. nopți) → „Rezervare" sau „Blocaj", ambele precompletate.
+
+### Formular de rezervare — consolidat, nu duplicat
+
+Varianta inițială adăuga un al doilea dialog „quick" separat de `booking-form-dialog.tsx`, cu propriul `useQuotePrice`/`useValidateBooking`/rezolvare oaspete/submit — duplicare reală de logică, semnalată în review. Refactor: **un singur `BookingFormDialog`**, contract public neschimbat (`propertyId, open, onOpenChange, currency, initial?`), cu două moduri de randare în funcție de `initial`:
+- **Mod compact** (`initial.unitId` prezent, din selecția pe calendar): header cu camera + interval editabil direct, fără pasul „alege tip cameră"; link „schimbă camera" dezvăluie exact `room-picker.tsx` (`UnitTypeSelect` + `RoomAllocation`, extras din formularul de azi, **cod partajat, nu duplicat**) pre-populat cu tipul/camera din selecție.
+- **Mod complet** (din „+ Adaugă", fără preselectare): fluxul de azi, neschimbat ca logică.
+- **Progressive disclosure**, în ambele moduri: preț implicit **un total simplu, editabil direct** (`booking-price-field.tsx`, portat din varianta „quick") — sistemul detectează singur diferența față de prețul calculat și o tratează ca override, fără să alegi un „mod" dintâi; link „editare avansată" comută la editorul existent cu 3 moduri (total/ajustare/per-noapte, `PriceOverrideEditor`, **neschimbat**, doar relocat). Status ca toggle de 2 butoane (Confirmată/În așteptare). Canal, note și cod promoțional strânse sub „Mai multe detalii ▾" (`booking-more-details.tsx`), ascunse implicit. Panoul de validare (erori blocante, warnings soft, toggle Manager Override — `booking-validation-panel.tsx`) și hint-ul „Sejur minim: N nopți" rămân **mereu vizibile**, în ambele moduri — sunt decizii reale, nu zgomot.
+- Mesajele de eroare la submit extrase într-un helper unic `booking-errors.ts` (`toastBookingError`), eliminând blocul `message.includes(...)` care exista duplicat.
+
+### Oaspete — câmp inline, fără modal
+
+`guest-quick-field.tsx` (nou): un singur input care caută pe măsură ce tastezi (debounce 300ms), cu „Creează «text»" ca primă opțiune a listei. **Navigare completă din tastatură**: săgeți sus/jos + Enter selectează opțiunea evidențiată (prima opțiune e mereu pre-evidențiată la orice schimbare de text/rezultate, deci Enter funcționează imediat fără să atingi vreodată săgețile). Un oaspete nou NU se scrie în DB la selecție — se creează abia la submit, prin `resolveGuestId()` (helper nou, `guests/resolve-guest.ts`, folosește dedupe-ul server-side existent pe email/telefon). Folosit acum peste tot la creare — `guest-combobox.tsx` (modal) rămâne exclusiv pentru re-asocierea unui oaspete pe o rezervare deja existentă.
+
+**Bug găsit post-review, reparat în aceeași sesiune**: după selectarea unui oaspete (click sau Enter), input-ul rămâne focusat — nu se declanșează niciodată un blur. Dropdown-ul se redeschidea doar pe `onFocus`, care nu mai apare dacă elementul e deja focusat; retastarea imediată peste un oaspete deja selectat nu arăta nimic până la un blur+focus accidental. Fix: `onChange`-ul textului deschide explicit dropdown-ul, nu se mai bazează doar pe focus.
+
+### Actor pe istoricul rezervării
+
+`booking_events.actor_id` era populat corect încă de la creare (triggerul `app.audit_booking` era deja corect), dar pagina rezervării citea istoricul cu un `select("*")` PostgREST brut — actorul nu era rezolvat/afișat nicăieri, spre deosebire de restul istoricurilor din aplicație (`unit_events` are `actor_email` snapshot) sau de Activity Feed (`get_activity_feed`, care rezolvă actorul dar doar pentru feed-ul general, nu pentru pagina dedicată). RPC nou `get_booking_events` (migrația `20260709120000_booking_events_actor.sql`), **pattern identic Sprint 8.2** (`get_housekeeping_board`): `left join profiles + left join auth.users`, `coalesce(full_name, email)` — nume dacă userul și l-a completat în profil, altfel email. `booking-history.tsx` afișează acum „{t("unit.event.by")} {actor_name}" ca restul istoricurilor. `fetchBookingEvents` (api.ts) trece de la select brut la apel RPC, păstrând identic contractul de paginare (`Page<T>`) — zero schimbări în `hooks.ts`.
+
+### Verificare
+
+Testat end-to-end manual în browser (Playwright headless, nu doar typecheck): selecție 1 noapte (fix confirmat), selecție multi-noapte oprită corect la marginea unei rezervări existente cu toast, quick-create cu oaspete nou creat la salvare, oaspete existent selectat cu ArrowDown+Enter, comutare preț simplu↔avansat, „schimbă camera" cu picker-ul complet, rezervare salvată vizibilă corect pe calendar. Teste DB TEST 117 (**345 PASS, 0 FAIL**). `tsc -b` + `npm run build` curate. Doc: [`docs/backend/rpc/bookings.md`](backend/rpc/bookings.md)
+
+---
+
 ## Sprint 10.1 — Template-uri & palete pentru site-ul public (5 iul 2026)
 
 Website Builder-ul primește un al doilea template vizual (`boutique`, design editorial „quiet luxury" inspirat de un handoff Sea Vibes) și palete de culori pe fiecare template — fără nicio migrare DB, `property_sites.theme` rămâne coloana text liber din Sprint 10.

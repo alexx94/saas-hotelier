@@ -17,6 +17,7 @@
 | `update_booking_dates` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
 | `reassign_booking` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
 | `get_available_units` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
+| `get_booking_events` | rezervări | DEFINER | membri cu acces pe proprietate | [bookings.md](bookings.md) |
 | `validate_booking` | validatori | DEFINER | membri cu acces pe proprietate | [validators.md](validators.md) |
 | `record_payment` | plăți | DEFINER | membri cu acces pe proprietate | [payments.md](payments.md) |
 | `get_revenue_summary` | plăți | DEFINER | membri cu acces pe proprietate | [payments.md](payments.md) |

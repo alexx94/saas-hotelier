@@ -183,10 +183,24 @@ export const ro = {
   "guests.found_by_phone": "Oaspete existent găsit după telefon",
   "guests.duplicate": "Există deja un oaspete cu acest email sau telefon.",
 
+  // câmp oaspete inline, fără modal (quick-create din calendar)
+  "guests.quick_placeholder": "Nume, email sau telefon oaspete",
+  "guests.quick_create": "Creează",
+  "guests.quick_hint": "Scrie cel puțin 2 caractere pentru a crea un oaspete nou.",
+  "guests.quick_phone_placeholder": "Telefon (opțional)",
+  "guests.quick_email_placeholder": "Email (opțional)",
+
   // booking — total și nopți
   "bookings.nights": "nopți",
   "bookings.per_night": "/ noapte",
   "bookings.price_estimate": "Estimare cost",
+  // mod compact (cameră deja aleasă pe calendar) → link „schimbă camera"
+  "bookings.change_room": "Schimbă camera",
+  // comutare preț simplu (total editabil) ↔ editor avansat (3 moduri)
+  "bookings.price_advanced_link": "Editare avansată",
+  "bookings.price_simple_link": "Preț simplu",
+  // secțiune expandabilă: canal, note, cod promoțional
+  "bookings.more_details": "Mai multe detalii",
   "calendar.room_type": "Tip cameră",
 
   // camere — adaugă mai multe
@@ -631,6 +645,14 @@ export const ro = {
     "Camera se curăță/pregătește după plecarea oaspetelui și nu poate fi rezervată în aceste nopți. Configurează durata din „Pauză de pregătire” pe tipul de cameră.",
   "calendar.no_arrival_title": "Sosire interzisă în această zi",
   "calendar.no_departure_title": "Plecare interzisă în această zi",
+  // fereastră glisantă de 31 zile (tape-chart)
+  "calendar.today": "Azi",
+  // selecție de interval pe rând (tap-tap + drag) + popover de acțiune
+  "calendar.selection.overlap_booking": "Perioada se suprapune cu o rezervare existentă.",
+  "calendar.selection.overlap_block": "Perioada se suprapune cu un blocaj de disponibilitate.",
+  "calendar.selection.overlap_turnover": "Perioada se suprapune cu pauza de pregătire (curățenie).",
+  "calendar.selection.book": "Rezervare",
+  "calendar.selection.block": "Blocaj",
   // reguli de sosire / plecare (arrival_rules)
   "arrival_rules.manage": "Restricții sosire/plecare",
   "arrival_rules.title": "Restricții de sosire și plecare",

@@ -1,147 +1,167 @@
-import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { z } from "zod"
+import { useState, type FormEvent } from "react"
 import { toast } from "sonner"
-import { Ban, Bot, ShieldAlert, User, X } from "lucide-react"
 import { useCurrentOrg } from "@/features/organizations/context"
-import { GuestCombobox } from "@/features/guests/guest-combobox"
+import { GuestQuickField, type GuestSelection } from "@/features/guests/guest-quick-field"
+import { resolveGuestId } from "@/features/guests/resolve-guest"
+import { useFindOrCreateGuest } from "@/features/guests/hooks"
 import { useUnitTypes } from "@/features/unit-types/hooks"
 import { OccupancyStepper } from "@/features/pricing/occupancy-stepper"
-import { PriceBreakdown } from "@/features/pricing/price-breakdown"
-import { PriceOverrideEditor } from "@/features/pricing/price-override-editor"
 import { applyPriceOverridePreview, type PriceOverride } from "@/features/pricing/price-override"
 import { useQuotePrice } from "@/features/pricing/hooks"
 import { usePermissions } from "@/features/auth/permissions"
 import { useStayConstraints, useValidateBooking } from "@/features/reservation-rules/hooks"
-import { VALIDATION_LABEL, isSoftCode } from "@/features/reservation-rules/api"
-import { BOOKING_CHANNELS, type BookingChannel } from "./api"
-import { useAvailableUnits, useCreateBooking } from "./hooks"
+import { isSoftCode } from "@/features/reservation-rules/api"
+import { type BookingChannel } from "./api"
+import { useCreateBooking, useUnits } from "./hooks"
+import { toastBookingError } from "./booking-errors"
+import { UnitTypeSelect, RoomAllocation } from "./room-picker"
+import { CompactRoomHeader, DatesFields } from "./booking-date-fields"
+import { BookingPriceField } from "./booking-price-field"
+import { BookingMoreDetails } from "./booking-more-details"
+import { BookingValidationPanel } from "./booking-validation-panel"
+import { addDays, diffDays } from "./date-utils"
 import { t } from "@/lib/i18n"
-import { cn } from "@/lib/utils"
-import { errorMessage } from "@/lib/errors"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
-
-import { addDays, formatDateShort } from "./date-utils"
-
-// ─── constants ────────────────────────────────────────────────────────────────
 
 const NIGHT_SHORTCUTS = [1, 2, 3, 5, 7]
 // limită de bun simț pentru ocupare când nu e ales încă un tip de cameră
 const MAX_OCCUPANCY_UNBOUNDED = 25
 
-// ─── schema ───────────────────────────────────────────────────────────────────
-
-const schema = z
-  .object({
-    // doar „selectat" — validitatea reală o impune FK-ul din DB. `.uuid()` (strict
-    // RFC în zod 4) respingea uuid-urile sintetice din seed și bloca submit-ul silențios.
-    unit_type_id: z.string().min(1, "Alege un tip de cameră"),
-    check_in: z.string().min(10),
-    check_out: z.string().min(10),
-    // adulți/copii sunt gestionați ca state (steppere) — vezi mai jos
-    // Blocajele de disponibilitate nu mai sunt rezervări — se creează din
-    // pagina camerelor (Availability Blocks, migrația 17).
-    status: z.enum(["pending", "confirmed"]),
-    guest_id: z.string().optional(),
-    notes: z.string().optional(),
-  })
-  .refine((v) => v.check_out > v.check_in, {
-    message: "Check-out trebuie să fie după check-in",
-    path: ["check_out"],
-  })
-  .refine((v) => !!v.guest_id, { message: "Alege un oaspete", path: ["guest_id"] })
-
-type FormInput = z.input<typeof schema>
-type FormValues = z.output<typeof schema>
+// Preselectare la deschidere din calendar (selecție cameră + interval pe grilă) — dacă
+// toate cele patru câmpuri sunt prezente, formularul pornește în modul compact
+// (vezi `locked` în BookingFormInner). Contract public, NU se extinde (oaspete/preț/
+// etc. se completează o singură dată, în același formular — nu mai există escaladare
+// spre un al doilea dialog).
+export type BookingFormInitial = {
+  unitTypeId?: string
+  unitId?: string
+  checkIn?: string
+  checkOut?: string
+}
 
 export function BookingFormDialog({
   propertyId,
   open,
   onOpenChange,
   currency = "",
+  initial,
 }: {
   propertyId: string
   open: boolean
   onOpenChange: (open: boolean) => void
   currency?: string
+  initial?: BookingFormInitial
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("bookings.add")}</DialogTitle>
+        </DialogHeader>
+        {/* montat DOAR când open, ca lazy initializers (useState) să prindă `initial`
+            proaspăt la fiecare deschidere — vezi HANDOFF „Capcane" */}
+        {open && (
+          <BookingFormInner
+            propertyId={propertyId}
+            currency={currency}
+            initial={initial}
+            onOpenChange={onOpenChange}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function BookingFormInner({
+  propertyId,
+  currency,
+  initial,
+  onOpenChange,
+}: {
+  propertyId: string
+  currency: string
+  initial?: BookingFormInitial
+  onOpenChange: (open: boolean) => void
 }) {
   const { currentOrg } = useCurrentOrg()
   const { data: unitTypes } = useUnitTypes(propertyId)
+  const { data: units } = useUnits(propertyId)
   const createBooking = useCreateBooking()
-
-  const [guestId, setGuestId] = useState<string | null>(null)
-  const [roomMode, setRoomMode] = useState<"auto" | "manual">("auto")
-  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
-  const [adults, setAdults] = useState(1)
-  const [children, setChildren] = useState(0)
-  const [override, setOverride] = useState(false)
-  // cod promo introdus vs cod „aplicat" (trimis la quote doar la apăsarea Aplică)
-  const [promoInput, setPromoInput] = useState("")
-  const [promoCode, setPromoCode] = useState("")
-  // override manual de preț (gated pe booking.price_override)
-  const [priceOverride, setPriceOverride] = useState<PriceOverride | null>(null)
-  const [channel, setChannel] = useState<BookingChannel>("direct")
-
+  const findOrCreate = useFindOrCreateGuest(currentOrg.id)
   const { has } = usePermissions()
   const canOverride = ["owner", "manager"].includes(currentOrg.role)
   const canPriceOverride = has("booking.price_override")
 
-  const form = useForm<FormInput, unknown, FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: { status: "confirmed" },
-  })
+  // cameră + interval deja alese pe calendar → pornim în modul compact
+  const locked = !!(initial?.unitId && initial?.checkIn && initial?.checkOut)
 
-  const unitTypeId = form.watch("unit_type_id")
-  const checkIn = form.watch("check_in")
-  const checkOut = form.watch("check_out")
-  const datesValid = checkIn && checkOut && checkOut > checkIn
+  const [manualTypeId, setManualTypeId] = useState<string | null>(initial?.unitTypeId ?? null)
+  const [roomMode, setRoomMode] = useState<"auto" | "manual">(initial?.unitId ? "manual" : "auto")
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(initial?.unitId ?? null)
+  // în modul compact, „schimbă camera" dezvăluie tip+auto/manual (cod partajat cu
+  // fluxul „+ Adaugă", nu duplicat) — o dată deschis, rămâne deschis
+  const [roomPickerOpen, setRoomPickerOpen] = useState(false)
 
-  const { data: availableUnits, isLoading: loadingUnits } = useAvailableUnits(
-    roomMode === "manual" && datesValid ? unitTypeId : undefined,
-    checkIn ?? "",
-    checkOut ?? ""
-  )
+  const [checkIn, setCheckIn] = useState(initial?.checkIn ?? "")
+  const [checkOut, setCheckOut] = useState(initial?.checkOut ?? "")
+
+  const [guest, setGuest] = useState<GuestSelection | null>(null)
+  const [adults, setAdults] = useState(1)
+  const [children, setChildren] = useState(0)
+  const [status, setStatus] = useState<"confirmed" | "pending">("confirmed")
+  const [channel, setChannel] = useState<BookingChannel>("direct")
+  const [notes, setNotes] = useState("")
+  const [promoInput, setPromoInput] = useState("")
+  const [promoCode, setPromoCode] = useState("")
+  const [override, setOverride] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+
+  // preț: implicit un total mare editabil (mod „simplu"); „editare avansată" comută
+  // la PriceOverrideEditor (3 moduri). Ambele scriu în același `priceOverride` efectiv.
+  const [priceMode, setPriceMode] = useState<"simple" | "advanced">("simple")
+  const [manualTotal, setManualTotal] = useState<string | null>(null)
+  const [advancedOverride, setAdvancedOverride] = useState<PriceOverride | null>(null)
 
   const activeTypes = (unitTypes ?? []).filter((ut) => ut.is_active)
+  // auto-selectare tip unic — doar în fluxul „+ Adaugă" (fără cameră preselectată) și
+  // doar dacă userul nu a ales deja manual; derivat curat din datele încărcate, fără
+  // useEffect/ref (dacă query-ul nu s-a încărcat încă, activeTypes e gol și nu se
+  // întâmplă nimic — se rezolvă singur la următorul render, fără condiție de cursă)
+  const autoTypeId = !locked && !manualTypeId && activeTypes.length === 1 ? activeTypes[0].id : null
+  const unitTypeId = manualTypeId ?? autoTypeId ?? undefined
   const selectedType = activeTypes.find((ut) => ut.id === unitTypeId)
   const maxAdults = selectedType?.max_adults ?? MAX_OCCUPANCY_UNBOUNDED
   const maxChildren = selectedType?.max_children ?? MAX_OCCUPANCY_UNBOUNDED
 
-  // estimare preț server-side (același motor ca la creare — sursă unică de adevăr);
-  // include reducerea promoției (cod aplicat sau cea mai bună automată)
+  const datesValid = !!checkIn && !!checkOut && checkOut > checkIn
+  const nights = datesValid ? diffDays(checkIn, checkOut) : 0
+  const showRoomPicker = !locked || roomPickerOpen
+  const lockedUnitName = locked ? units?.find((u) => u.id === initial!.unitId)?.name : undefined
+
   const { data: quote } = useQuotePrice(
-    datesValid ? unitTypeId : undefined, checkIn ?? "", checkOut ?? "", promoCode
+    datesValid ? unitTypeId : undefined, checkIn, checkOut, promoCode
   )
-  // cod introdus dar care nu corespunde unei promoții eligibile (greșit/neeligibil) —
-  // chiar dacă o promoție automată mai bună s-a aplicat (best-of), semnalăm codul
   const promoRejected = !!promoCode && !!quote?.promotion && !quote.promotion.code_matched
 
-  // quote-ul afișat: override manual (preview client-side, oglindă a SQL) sau cel din engine
+  const parsedManual = manualTotal !== null && manualTotal.trim() !== "" ? Number(manualTotal) : null
+  const simpleOverride: PriceOverride | null =
+    canPriceOverride && quote && parsedManual !== null && !Number.isNaN(parsedManual) && parsedManual !== quote.total
+      ? { kind: "total", value: parsedManual }
+      : null
+  const priceOverride = canPriceOverride ? (priceMode === "advanced" ? advancedOverride : simpleOverride) : null
   const displayQuote = quote && priceOverride ? applyPriceOverridePreview(quote, priceOverride) : quote
 
-  // constrângeri de durată (min/max stay) rezolvate pe data de check-in
-  const { data: stay } = useStayConstraints(unitTypeId || undefined, checkIn ?? "")
+  const { data: stay } = useStayConstraints(unitTypeId, checkIn)
   const minStay = stay?.min_stay ?? 1
   const maxStay = stay?.max_stay ?? 30
-  // shortcut-uri de nopți limitate la intervalul permis
   const nightShortcuts = NIGHT_SHORTCUTS.filter((n) => n >= minStay && n <= maxStay)
 
-  // validare unificată (occupancy + stay + restricții + availability + promoție),
-  // clasificată server-side după Manager Override. errors[] = blocante; soft forțat = warnings.
   const { data: validation } = useValidateBooking({
     unitTypeId: datesValid ? unitTypeId : undefined,
-    checkIn: checkIn ?? "", checkOut: checkOut ?? "",
+    checkIn, checkOut,
     adults, children,
     unitId: roomMode === "manual" ? selectedUnitId : null,
     promoCode: promoCode || null,
@@ -150,11 +170,12 @@ export function BookingFormDialog({
   const errors = (unitTypeId ? validation?.errors : undefined) ?? []
   const softWarnings = ((unitTypeId ? validation?.warnings : undefined) ?? []).filter(isSoftCode)
   const overridable = canOverride && [...errors, ...softWarnings].some(isSoftCode)
-  const blockedByRules = errors.length > 0
+  const blockedByRules = datesValid && errors.length > 0
 
-  // la schimbarea tipului, restrânge ocuparea la limitele lui
+  const saving = createBooking.isPending || findOrCreate.isPending
+
   function selectType(v: string) {
-    form.setValue("unit_type_id", v)
+    setManualTypeId(v)
     setSelectedUnitId(null)
     const next = activeTypes.find((ut) => ut.id === v)
     if (next) {
@@ -163,371 +184,162 @@ export function BookingFormDialog({
     }
   }
 
-  function resetForm() {
-    form.reset({ status: "confirmed", guest_id: undefined })
-    setGuestId(null)
-    setRoomMode("auto")
+  // compact: userul poate întinde rezervarea peste ce era selectat pe calendar —
+  // check-out sare automat la +1 zi dacă devine invalid
+  function handleCompactCheckIn(v: string) {
+    setCheckIn(v)
+    if (!checkOut || checkOut <= v) setCheckOut(addDays(v, 1))
+  }
+
+  // flux complet: check-out se golește la schimbarea check-in-ului (ca azi) — userul
+  // reia din shortcut-uri/listă, nu presupunem o durată
+  function handleFullCheckIn(v: string) {
+    setCheckIn(v)
     setSelectedUnitId(null)
-    setAdults(1)
-    setChildren(0)
-    setOverride(false)
-    setPromoInput("")
-    setPromoCode("")
-    setPriceOverride(null)
-    setChannel("direct")
+    if (checkOut && checkOut <= v) setCheckOut("")
   }
 
-  function handleGuestChange(id: string) {
-    setGuestId(id)
-    form.setValue("guest_id", id, { shouldValidate: true })
-  }
-
-  function handleCheckInChange(value: string) {
-    form.setValue("check_in", value)
-    setSelectedUnitId(null)
-    if (checkOut && checkOut <= value) {
-      form.setValue("check_out", "", { shouldValidate: false })
-    }
-  }
-
-  async function onSubmit(values: FormValues) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!guest || !datesValid || blockedByRules || !unitTypeId) return
     try {
+      const guestId = await resolveGuestId(guest, findOrCreate)
       await createBooking.mutateAsync({
-        unitTypeId: values.unit_type_id,
-        checkIn: values.check_in,
-        checkOut: values.check_out,
-        guestId: values.guest_id,
+        unitTypeId,
+        checkIn, checkOut,
+        guestId,
         unitId: roomMode === "manual" && selectedUnitId ? selectedUnitId : undefined,
-        adults,
-        children,
-        status: values.status,
-        notes: values.notes,
+        adults, children,
+        status,
+        notes: notes.trim() || undefined,
         override: override && canOverride,
         promoCode: promoCode || undefined,
-        priceOverride: canPriceOverride ? priceOverride : null,
+        priceOverride,
         channel,
       })
       toast.success(t("bookings.created"))
       onOpenChange(false)
-      resetForm()
-    } catch (e) {
-      const message = errorMessage(e)
-      if (message.includes("PROMO_INVALID")) toast.error(t("bookings.promo_invalid"))
-      else if (message.includes("PROMO_LIMIT_REACHED")) toast.error(t("bookings.promo_limit"))
-      else if (message.includes("PRICE_OVERRIDE_FORBIDDEN")) toast.error(t("bookings.price_override_forbidden"))
-      else if (message.includes("PRICE_OVERRIDE_NEGATIVE")) toast.error(t("bookings.price_override_negative"))
-      else if (message.includes("OVERRIDE_FORBIDDEN")) toast.error(t("bookings.override_forbidden"))
-      else if (message.includes("STAY_TOO_SHORT")) toast.error(t("bookings.stay_too_short"))
-      else if (message.includes("STAY_TOO_LONG")) toast.error(t("bookings.stay_too_long"))
-      else if (message.includes("DATES_CLOSED")) toast.error(t("bookings.dates_closed"))
-      else if (message.includes("NO_ARRIVAL")) toast.error(t("bookings.no_arrival"))
-      else if (message.includes("NO_DEPARTURE")) toast.error(t("bookings.no_departure"))
-      else if (message.includes("UNIT_NOT_AVAILABLE")) toast.error(t("bookings.not_available"))
-      else if (message.includes("UNIT_BLOCKED")) toast.error(t("bookings.unit_blocked"))
-      else toast.error(t("common.error"))
+    } catch (err) {
+      toastBookingError(err)
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) resetForm() }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t("bookings.add")}</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={onSubmit} className="space-y-4">
+      {!showRoomPicker ? (
+        <CompactRoomHeader
+          unitName={lockedUnitName}
+          checkIn={checkIn}
+          checkOut={checkOut}
+          nights={nights}
+          minStay={minStay}
+          onCheckInChange={handleCompactCheckIn}
+          onCheckOutChange={setCheckOut}
+          onChangeRoom={() => setRoomPickerOpen(true)}
+        />
+      ) : (
+        <>
+          <UnitTypeSelect
+            activeTypes={activeTypes} currency={currency}
+            unitTypeId={unitTypeId} onSelectType={selectType}
+          />
 
-          {/* Tip cameră */}
-          <div className="space-y-2">
-            <Label>{t("bookings.unit_type")}</Label>
-            <Select onValueChange={selectType}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {activeTypes.map((ut) => (
-                  <SelectItem key={ut.id} value={ut.id}>
-                    <span>{ut.name}</span>
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {Number(ut.base_price).toFixed(2)} {currency}{t("bookings.per_night")}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {unitTypeId && minStay > 1 && (
-              <p className="text-xs text-muted-foreground">
-                {t("bookings.min_stay_hint")}{" "}
-                <span className="font-semibold text-primary">{minStay} {t("bookings.nights")}</span>
-              </p>
-            )}
-            {form.formState.errors.unit_type_id && (
-              <p className="text-sm text-destructive">{form.formState.errors.unit_type_id.message}</p>
-            )}
-          </div>
-
-          {/* Date */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>{t("bookings.check_in")}</Label>
-              <Input
-                type="date"
-                {...form.register("check_in")}
-                onChange={(e) => handleCheckInChange(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t("bookings.check_out")}</Label>
-              <Input
-                type="date"
-                {...form.register("check_out")}
-                disabled={!checkIn}
-                min={checkIn ? addDays(checkIn, minStay) : undefined}
-                max={checkIn ? addDays(checkIn, maxStay) : undefined}
-                onChange={(e) => { form.setValue("check_out", e.target.value, { shouldValidate: true }); setSelectedUnitId(null) }}
-              />
-              {checkIn && (
-                <div className="flex items-center gap-1 flex-wrap">
-                  <span className="text-xs text-muted-foreground mr-1">
-                    {t("bookings.checkout_from")} {formatDateShort(checkIn)}:
-                  </span>
-                  {nightShortcuts.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => {
-                        form.setValue("check_out", addDays(checkIn, n), { shouldValidate: true })
-                        setSelectedUnitId(null)
-                      }}
-                      className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                    >
-                      {n}n
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          {form.formState.errors.check_out && (
-            <p className="text-sm text-destructive">{form.formState.errors.check_out.message}</p>
-          )}
-
-          {/* Alocare cameră AUTO / MANUAL */}
-          {unitTypeId && datesValid && (
-            <div className="space-y-2 rounded-md border p-3">
-              <Label>{t("bookings.room_selection")}</Label>
-              <div className="flex gap-2">
-                <Button
-                  type="button" size="sm"
-                  variant={roomMode === "auto" ? "default" : "outline"}
-                  onClick={() => { setRoomMode("auto"); setSelectedUnitId(null) }}
-                  className="flex-1"
-                >
-                  <Bot className="h-3.5 w-3.5" />{t("bookings.auto_assign")}
-                </Button>
-                <Button
-                  type="button" size="sm"
-                  variant={roomMode === "manual" ? "default" : "outline"}
-                  onClick={() => setRoomMode("manual")}
-                  className="flex-1"
-                >
-                  <User className="h-3.5 w-3.5" />{t("bookings.manual_select")}
-                </Button>
-              </div>
-
-              {roomMode === "manual" && (
-                <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
-                  {loadingUnits ? (
-                    <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-                  ) : (availableUnits ?? []).map((u) => (
-                    <button
-                      type="button"
-                      key={u.unit_id}
-                      disabled={!u.is_free}
-                      onClick={() => setSelectedUnitId(u.unit_id)}
-                      className={cn(
-                        "flex w-full items-center justify-between rounded border px-3 py-1.5 text-sm transition-colors",
-                        u.is_free
-                          ? selectedUnitId === u.unit_id
-                            ? "border-primary bg-primary/10"
-                            : "hover:bg-accent"
-                          : "opacity-40 cursor-not-allowed"
-                      )}
-                    >
-                      <span>{u.name}</span>
-                      <div className="flex items-center gap-2">
-                        {selectedType && u.is_free && (
-                          <span className="text-xs text-muted-foreground">
-                            {Number(selectedType.base_price).toFixed(2)} {currency}{t("bookings.per_night")}
-                          </span>
-                        )}
-                        <Badge variant={u.is_free ? "outline" : "secondary"} className="text-xs">
-                          {u.is_free ? t("bookings.unit_free") : t("bookings.unit_occupied")}
-                        </Badge>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Status + Canal rezervare */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>{t("bookings.status")}</Label>
-              <Select defaultValue="confirmed" onValueChange={(v) => form.setValue("status", v as FormValues["status"])}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="confirmed">{t("status.confirmed")}</SelectItem>
-                  <SelectItem value="pending">{t("status.pending")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>{t("bookings.channel")}</Label>
-              <Select value={channel} onValueChange={(v) => setChannel(v as BookingChannel)}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {BOOKING_CHANNELS.map((ch) => (
-                    <SelectItem key={ch} value={ch}>
-                      {t(`bookings.channel.${ch}` as const)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Ocupare: adulți (min 1) + copii (min 0) */}
-          <div className="grid grid-cols-2 gap-4">
-            <OccupancyStepper
-              label={t("occupancy.adults")} value={adults} onChange={setAdults}
-              min={1} max={maxAdults}
-            />
-            <OccupancyStepper
-              label={t("occupancy.children")} value={children} onChange={setChildren}
-              min={0} max={maxChildren}
-            />
-          </div>
-
-          {/* Oaspete */}
-          <div className="space-y-2">
-            <Label>{t("bookings.guest")}</Label>
-            <GuestCombobox
-              orgId={currentOrg.id}
-              value={guestId}
-              onChange={handleGuestChange}
-            />
-            {form.formState.errors.guest_id && (
-              <p className="text-sm text-destructive">{form.formState.errors.guest_id.message}</p>
-            )}
-          </div>
-
-          {/* Note */}
-          <div className="space-y-2">
-            <Label>{t("bookings.notes")}</Label>
-            <Textarea rows={2} {...form.register("notes")} />
-          </div>
-
-          {/* Cod promoțional (opțional) — aplicat la quote la apăsarea Aplică */}
-          {datesValid && unitTypeId && (
-            <div className="space-y-1.5">
-              <Label>{t("bookings.promo_code")}</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={promoInput}
-                  placeholder={t("promotions.code_placeholder")}
-                  onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setPromoCode(promoInput.trim()) } }}
-                />
-                <Button type="button" variant="outline" onClick={() => setPromoCode(promoInput.trim())}>
-                  {t("bookings.promo_apply")}
-                </Button>
-                {promoCode && (
-                  <Button
-                    type="button" variant="ghost" size="icon"
-                    title={t("bookings.promo_remove")}
-                    onClick={() => { setPromoInput(""); setPromoCode("") }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-              {promoRejected ? (
-                <p className="text-xs text-destructive">{t("bookings.promo_invalid")}</p>
-              ) : promoCode && quote?.promotion?.code_matched ? (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                  {t("bookings.promo_applied")}: {promoCode}
-                </p>
-              ) : null}
-              <p className="text-xs text-muted-foreground">{t("bookings.promo_bestof")}</p>
-            </div>
-          )}
-
-          {/* Override manual de preț (doar booking.price_override) */}
-          {canPriceOverride && quote && quote.nights.length > 0 && (
-            <PriceOverrideEditor
-              base={quote}
-              currency={currency}
-              value={priceOverride}
-              onChange={setPriceOverride}
+          {!locked && (
+            <DatesFields
+              checkIn={checkIn} checkOut={checkOut}
+              minStay={minStay} maxStay={maxStay}
+              nightShortcuts={nightShortcuts}
+              onCheckInChange={handleFullCheckIn}
+              onCheckOutChange={(v) => { setCheckOut(v); setSelectedUnitId(null) }}
             />
           )}
 
-          {/* Estimare preț: breakdown per noapte + reducere promoție + total final */}
-          {displayQuote && displayQuote.nights.length > 0 && (
-            <div className="space-y-1.5">
-              <Label>{t("bookings.price_estimate")}</Label>
-              <PriceBreakdown quote={displayQuote} />
-            </div>
-          )}
+          <RoomAllocation
+            unitTypeId={unitTypeId} checkIn={checkIn} checkOut={checkOut} currency={currency}
+            selectedType={selectedType}
+            roomMode={roomMode}
+            onRoomModeChange={(m) => { setRoomMode(m); if (m === "auto") setSelectedUnitId(null) }}
+            selectedUnitId={selectedUnitId} onSelectUnit={setSelectedUnitId}
+          />
+        </>
+      )}
 
-          {/* validare unificată: blocante (errors) + soft forțate prin override (warnings) */}
-          {datesValid && (errors.length > 0 || softWarnings.length > 0) && (
-            <div className="space-y-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
-              <div className="flex items-center gap-2 font-medium text-destructive">
-                <Ban className="h-4 w-4 shrink-0" />
-                {t("bookings.restrictions_title")}
-              </div>
-              <ul className="ml-6 list-disc space-y-0.5 text-destructive">
-                {errors.map((c) => (
-                  <li key={c}>{VALIDATION_LABEL[c] ? t(VALIDATION_LABEL[c]!) : c}</li>
-                ))}
-              </ul>
-              {softWarnings.length > 0 && (
-                <ul className="ml-6 list-disc space-y-0.5 text-muted-foreground line-through">
-                  {softWarnings.map((c) => (
-                    <li key={c}>{VALIDATION_LABEL[c] ? t(VALIDATION_LABEL[c]!) : c}</li>
-                  ))}
-                </ul>
-              )}
-              {overridable && (
-                <button
-                  type="button"
-                  onClick={() => setOverride((v) => !v)}
-                  className={cn(
-                    "mt-1 flex w-full items-center gap-2 rounded border px-3 py-1.5 text-left text-xs transition-colors",
-                    override
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-destructive/40 text-muted-foreground hover:bg-background"
-                  )}
-                >
-                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    <span className="font-semibold">{t("bookings.override")}</span>
-                    {" — "}{t("bookings.override_hint")}
-                  </span>
-                  <span className="ml-auto font-semibold">{override ? "ON" : "OFF"}</span>
-                </button>
-              )}
-            </div>
-          )}
+      {/* Oaspete — devreme în formular (după date, înainte de ocupare), consistent
+          în ambele moduri */}
+      <div className="space-y-2">
+        <Label>{t("bookings.guest")}</Label>
+        <GuestQuickField orgId={currentOrg.id} value={guest} onChange={setGuest} />
+      </div>
+
+      {/* Ocupare */}
+      <div className="grid grid-cols-2 gap-4">
+        <OccupancyStepper
+          label={t("occupancy.adults")} value={adults} onChange={setAdults} min={1} max={maxAdults}
+        />
+        <OccupancyStepper
+          label={t("occupancy.children")} value={children} onChange={setChildren} min={0} max={maxChildren}
+        />
+      </div>
+
+      {/* Preț — vizibil direct, nu în spatele „Mai multe detalii" */}
+      <BookingPriceField
+        quote={quote} displayQuote={displayQuote} currency={currency}
+        canOverride={canPriceOverride}
+        mode={priceMode} onModeChange={setPriceMode}
+        manualTotal={manualTotal} onManualTotalChange={setManualTotal}
+        hasSimpleOverride={!!simpleOverride}
+        advancedOverride={advancedOverride} onAdvancedOverrideChange={setAdvancedOverride}
+      />
+
+      {/* Status */}
+      <div className="space-y-1.5">
+        <Label>{t("bookings.status")}</Label>
+        <div className="flex gap-2">
           <Button
-            type="submit" className="w-full"
-            disabled={form.formState.isSubmitting || blockedByRules}
+            type="button" size="sm" className="flex-1"
+            variant={status === "confirmed" ? "default" : "outline"}
+            onClick={() => setStatus("confirmed")}
           >
-            {t("common.save")}
+            {t("status.confirmed")}
           </Button>
-        </form>
-      </DialogContent>
-    </Dialog>
+          <Button
+            type="button" size="sm" className="flex-1"
+            variant={status === "pending" ? "default" : "outline"}
+            onClick={() => setStatus("pending")}
+          >
+            {t("status.pending")}
+          </Button>
+        </div>
+      </div>
+
+      <BookingMoreDetails
+        open={moreOpen} onOpenChange={setMoreOpen}
+        channel={channel} onChannelChange={setChannel}
+        notes={notes} onNotesChange={setNotes}
+        showPromo={datesValid && !!unitTypeId}
+        promoInput={promoInput} onPromoInputChange={setPromoInput}
+        promoCode={promoCode}
+        onPromoApply={() => setPromoCode(promoInput.trim())}
+        onPromoClear={() => { setPromoInput(""); setPromoCode("") }}
+        promoRejected={promoRejected}
+        promotion={quote?.promotion}
+      />
+
+      {/* validare unificată — mereu vizibilă, nu ascunsă sub „Mai multe detalii" */}
+      <BookingValidationPanel
+        errors={datesValid ? errors : []}
+        softWarnings={datesValid ? softWarnings : []}
+        overridable={overridable}
+        override={override}
+        onOverrideChange={setOverride}
+      />
+
+      <Button
+        type="submit" className="w-full"
+        disabled={!guest || !datesValid || blockedByRules || !unitTypeId || saving}
+      >
+        {t("common.save")}
+      </Button>
+    </form>
   )
 }

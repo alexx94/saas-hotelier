@@ -130,7 +130,12 @@ export function GuestCombobox({ orgId, value, onChange, disabled }: Props) {
           <div className="mt-2 border-t pt-2">
             <button
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-primary hover:bg-accent"
-              onClick={() => { setOpen(false); setCreateOpen(true) }}
+              onClick={() => {
+                setOpen(false)
+                // precompletează numele cu textul căutat curent
+                form.reset({ full_name: search.trim() })
+                setCreateOpen(true)
+              }}
             >
               <Plus className="h-3.5 w-3.5" />
               {t("guests.create_new")}
